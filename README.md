@@ -1,7 +1,7 @@
 # ClippingHub
 
 A desktop app for clipping Rumble streams built with Electron. Detects the HLS stream from any Rumble video or live stream, lets you set a start time and duration, then downloads and trims the exact clip using ffmpeg.
-
+### Currently starts with Chrome DevTools enabled for debugging.
 ## Features
 
 - Auto-detects m3u8 stream URLs from Rumble pages
