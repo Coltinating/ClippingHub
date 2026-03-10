@@ -1,0 +1,37 @@
+# ClippingHub
+
+A desktop app for clipping Rumble streams built with Electron. Detects the HLS stream from any Rumble video or live stream, lets you set a start time and duration, then downloads and trims the exact clip using ffmpeg.
+
+## Features
+
+- Auto-detects m3u8 stream URLs from Rumble pages
+- Built-in Rumble browser for manual navigation
+- Clips VODs and live streams
+- Exact timestamp clipping via ffmpeg concat + trim
+- Live capture mode for ongoing streams
+
+## Requirements
+
+- [Node.js](https://nodejs.org/)
+- [ffmpeg](https://ffmpeg.org/download.html) — must be available in your system PATH
+
+## Setup
+
+```bash
+npm install
+npm start
+```
+
+## Usage
+
+1. Paste a Rumble video URL or use **Browse Rumble** to navigate manually
+2. The stream loads automatically when the video plays
+3. Set your clip start time and duration
+4. Hit **Download Clip** — the clip is saved to your Videos/ClipperHub folder
+
+## Tech Stack
+
+- Electron
+- HLS.js
+- Express (local proxy)
+- ffmpeg
