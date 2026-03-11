@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' http://localhost:* https://cdn.jsdelivr.net https://fonts.googleapis.com https://fonts.gstatic.com; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; media-src * blob:; worker-src blob:; img-src 'self' data:; connect-src *;">
-<title>Clipper Hub</title>
+<title>Clipping Hub</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -29,8 +29,8 @@
       </button>
     </div>
     <div class="top-actions">
-      <button class="btn btn-accent btn-sm" id="navBtn" title="Browse Rumble">&#127760; Browse Rumble</button>
-      <button class="btn btn-ghost btn-sm" id="importBtn" title="Import local file">&#128229; Import</button>
+      <!-- <button class="btn btn-accent btn-sm" id="navBtn" title="Browse Rumble">&#127760; Browse Rumble</button> -->
+      <!-- <button class="btn btn-ghost btn-sm" id="importBtn" title="Import local file">&#128229; Import</button> -->
       <button class="btn btn-ghost btn-sm" id="openFolderBtn" title="Open clips folder">&#128193; Clips</button>
       <button class="btn btn-ghost btn-sm" id="settingsBtn" title="Change output folder">&#9881;</button>
     </div>
@@ -82,8 +82,15 @@
             <div class="progress-track" id="progressTrack">
               <!-- Markers will be rendered here -->
               <div class="progress-fill" id="progressFill" style="width:0%"></div>
+              <div class="progress-buffer" id="progressBuffer" style="width:0%"></div>
+              <!-- Hover preview -->
+              <div class="hover-preview" id="hoverPreview">
+                <canvas class="hover-preview-canvas" id="hoverCanvas" width="160" height="90"></canvas>
+                <div class="hover-preview-time" id="hoverTime">0:00</div>
+              </div>
             </div>
             <div class="time-display" id="timeDisplay">0:00 / 0:00</div>
+            <button class="live-sync-btn" id="liveSyncBtn" title="Jump to live edge">LIVE</button>
           </div>
           <!-- Button row -->
           <div class="controls-row">
@@ -120,6 +127,7 @@
 
             <div class="spacer"></div>
 
+            <select class="ctrl-select quality-select" id="qualitySelect" title="Quality"><option value="-1">Auto</option></select>
             <button class="ctrl-btn speed-btn" id="speedBtn" title="Playback speed">1.0&times;</button>
             <button class="ctrl-btn" id="pipBtn" title="Picture-in-Picture">
               <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M19 7h-8v6h8V7zm2-4H3C1.9 3 1 3.9 1 5v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14z"/></svg>

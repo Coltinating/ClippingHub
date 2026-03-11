@@ -230,7 +230,8 @@ video {
 
 .progress-fill {
   height: 100%; background: var(--accent); border-radius: 3px;
-  pointer-events: none; position: relative;
+  pointer-events: none; position: absolute; top: 0; left: 0;
+  z-index: 1;
 }
 .progress-fill::after {
   content: ''; position: absolute; right: -6px; top: 50%;
@@ -287,6 +288,59 @@ video {
 .speed-btn {
   font-family: 'DM Mono', monospace; font-size: 11px;
   color: rgba(255,255,255,0.5); min-width: 38px; text-align: center;
+}
+
+/* ── Quality Selector ───────────────────────────────────────── */
+.quality-select {
+  display: none;
+  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 4px; color: rgba(255,255,255,0.75);
+  font-family: 'DM Mono', monospace; font-size: 11px;
+  padding: 3px 6px; cursor: pointer; outline: none;
+  -webkit-appearance: none; appearance: none;
+}
+.quality-select:hover { background: rgba(255,255,255,0.12); color: #fff; }
+.quality-select option { background: #1a1a1f; color: #d4cfc8; }
+
+/* ── Buffer indicator on progress bar ───────────────────────── */
+.progress-buffer {
+  position: absolute; top: 0; left: 0; height: 100%;
+  background: rgba(255,255,255,0.08); border-radius: 3px;
+  pointer-events: none; z-index: 0;
+}
+/* progress-fill z-index set above */
+
+/* ── Hover Preview ──────────────────────────────────────────── */
+.hover-preview {
+  display: none; position: absolute; bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  background: #111; border: 1px solid var(--border); border-radius: 4px;
+  padding: 3px; z-index: 10; pointer-events: none;
+  flex-direction: column; align-items: center; gap: 2px;
+}
+.hover-preview.on { display: flex; }
+.hover-preview-canvas {
+  width: 160px; height: 90px; border-radius: 2px; background: #000;
+  display: block;
+}
+.hover-preview-time {
+  font-family: 'DM Mono', monospace; font-size: 10px;
+  color: #fff; padding: 2px 6px; white-space: nowrap;
+}
+
+/* ── Live Sync Button ───────────────────────────────────────── */
+.live-sync-btn {
+  display: none; background: rgba(201,64,64,0.2); color: var(--red);
+  border: 1px solid rgba(201,64,64,0.4); border-radius: 4px;
+  font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 600;
+  letter-spacing: 0.1em; padding: 2px 8px; cursor: pointer;
+  white-space: nowrap; transition: all 0.15s; flex-shrink: 0;
+}
+.live-sync-btn:hover { background: rgba(201,64,64,0.35); }
+.live-sync-btn.on { display: inline-block; }
+.live-sync-btn.at-edge {
+  background: var(--red); color: #fff; border-color: var(--red);
+  box-shadow: 0 0 6px rgba(201,64,64,0.4);
 }
 
 .volume-group { display: flex; align-items: center; gap: 2px; }

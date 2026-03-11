@@ -34,6 +34,13 @@ let pendingClips = [];
 let downloadingClips = [];
 let completedClips = [];
 
+// Live DVR state
+let liveStartWall = null;   // Date.now() when live stream first loaded
+let liveDvrWindow = 0;      // seekable range in seconds
+let atLiveEdge = true;      // whether user is near the live edge
+let userSeekedAway = false; // true when user intentionally seeks behind live
+let liveStallInterval = null; // stall watchdog interval ID
+
 /* ─── Init ──────────────────────────────────────────────────── */
 (async () => {
   proxyPort = await window.clipper.getProxyPort();
@@ -109,10 +116,18 @@ importBtn && (importBtn.onclick = () => {
   input.click();
 });
 
+let _extractionId = 0; // guard against stale extraction results
+
 async function handleURL(raw) {
   if (!raw) return;
+
+  // Tear down any existing stream immediately
+  if (hls) { hls.destroy(); hls = null; }
+  vid.pause(); vid.removeAttribute('src'); vid.load();
+
   currentM3U8 = null;
   liveBadge.classList.remove('on');
+  $('liveSyncBtn').classList.remove('on', 'at-edge');
   extractBar.classList.remove('on');
   loadBtn.disabled = true;
   setStatus('', 'Loading...');
@@ -127,19 +142,22 @@ async function handleURL(raw) {
 
   // Rumble page URL — use Electron-native hidden window extraction
   if (isRumble(raw)) {
+    const myId = ++_extractionId;
     extractBar.classList.add('on');
     extractStep.textContent = 'Opening Rumble in background browser...';
     try {
       const result = await window.clipper.extractM3U8({ pageUrl: raw });
+      // If user loaded something else while we were extracting, discard
+      if (myId !== _extractionId) return;
       extractBar.classList.remove('on');
       currentM3U8 = result.m3u8;
-      urlIn.value = result.m3u8;   // show the grabbed URL
+      urlIn.value = result.m3u8;
       loadStream(result.m3u8, result.isLive);
     } catch (err) {
+      if (myId !== _extractionId) return;
       extractBar.classList.remove('on');
       loadBtn.disabled = false;
       setStatus('err', 'Could not extract stream');
-      // Offer to open navigator as fallback
       const useNav = confirm(
         'Auto-extraction failed:\n' + err.message +
         '\n\nOpen the Rumble browser navigator to grab it manually?'
@@ -158,14 +176,22 @@ async function handleURL(raw) {
 function loadStream(url, liveHint) {
   loadBtn.disabled = false;
   isLive = !!liveHint;
+  liveStartWall = null;
+  liveDvrWindow = 0;
+  atLiveEdge = true;
+  userSeekedAway = false;
+  if (liveStallInterval) { clearInterval(liveStallInterval); liveStallInterval = null; }
 
   if (hls) { hls.destroy(); hls = null; }
   vid.pause(); vid.removeAttribute('src'); vid.load();
+  // Reset thumbnail video for hover previews
+  if (typeof thumbVid !== 'undefined' && thumbVid) { thumbVid.removeAttribute('src'); thumbVid.load(); thumbVid = null; }
 
   placeholder.style.display = 'none';
   vid.style.display = 'block';
   spinner.classList.add('on');
   liveBadge.classList.remove('on');
+  $('liveSyncBtn').classList.remove('on', 'at-edge');
   streamInfo.textContent = '';
   setStatus('', 'Connecting...');
 
@@ -175,16 +201,32 @@ function loadStream(url, liveHint) {
     return;
   }
 
-  // Route all HLS requests through the Express CORS proxy.
-  // The proxy uses Electron's session.fetch() with Rumble cookies/headers,
-  // which is essential for authenticated m3u8 manifests and key segments.
   const proxied = `http://localhost:${proxyPort}/proxy?url=${encodeURIComponent(url)}`;
 
+  // Tuned HLS config — aggressive for live stability, generous for VOD
   hls = new Hls({
     enableWorker: true,
-    backBufferLength: 120,
-    maxBufferLength: 30,
+    // Buffer control
+    backBufferLength: liveHint ? 300 : 120,
+    maxBufferLength: liveHint ? 60 : 30,
+    maxMaxBufferLength: liveHint ? 120 : 60,
+    maxBufferSize: 60 * 1000 * 1000,        // 60 MB
+    maxBufferHole: 0.5,
+    // Live tuning — stay close to edge but with enough buffer to avoid stalls
     liveSyncDurationCount: 3,
+    liveMaxLatencyDurationCount: 8,
+    liveDurationInfinity: true,              // expose full DVR window
+    liveBackBufferLength: 300,               // keep 5 min behind for seeking
+    // Recovery
+    fragLoadingMaxRetry: 6,
+    fragLoadingRetryDelay: 1000,
+    manifestLoadingMaxRetry: 4,
+    levelLoadingMaxRetry: 4,
+    // ABR — allow fast quality ramp-up
+    abrEwmaDefaultEstimate: 5000000,         // 5 Mbps initial guess
+    startLevel: -1,                          // auto
+    // Low-latency (Rumble may not support, but helps if it does)
+    lowLatencyMode: false,
   });
 
   hls.loadSource(proxied);
@@ -193,30 +235,42 @@ function loadStream(url, liveHint) {
   hls.on(Hls.Events.MANIFEST_PARSED, (_, d) => {
     spinner.classList.remove('on');
 
-    // Detect live vs VOD
+    // Detect live vs VOD (slight delay to let duration settle)
     setTimeout(() => {
-      isLive = !isFinite(vid.duration);
+      const seekable = vid.seekable;
+      isLive = d.live || !isFinite(vid.duration) || (seekable.length > 0 && !isFinite(seekable.end(seekable.length - 1)));
+      if (!isLive && vid.duration > 0) isLive = false; // trust finite duration
+
       if (isLive) {
+        liveStartWall = Date.now();
         liveBadge.classList.add('on');
+        $('liveSyncBtn').classList.add('on', 'at-edge');
         setStatus('live', 'Live stream');
       } else {
         liveBadge.classList.remove('on');
+        $('liveSyncBtn').classList.remove('on');
         setStatus('ok', `VOD — ${fmtDur(vid.duration)}`);
       }
-    }, 1200);
+    }, 800);
 
-    // Populate quality selector if available
+    // Populate quality selector
     const qSel = $('qualitySelect');
-    if (qSel && d.levels && d.levels.length > 1) {
-      qSel.innerHTML = '<option value="-1">Auto</option>';
-      d.levels.forEach((lv, i) => {
+    qSel.innerHTML = '<option value="-1">Auto</option>';
+    if (d.levels && d.levels.length > 1) {
+      // Sort by height descending for display
+      const sorted = d.levels.map((lv, i) => ({ lv, i })).sort((a, b) => (b.lv.height || 0) - (a.lv.height || 0));
+      sorted.forEach(({ lv, i }) => {
         const o = document.createElement('option');
         o.value = i;
-        o.textContent = lv.height ? `${lv.height}p` : `Level ${i+1}`;
+        const label = lv.height ? `${lv.height}p` : `Level ${i+1}`;
+        const kbps = lv.bitrate ? ` (${(lv.bitrate/1000).toFixed(0)}k)` : '';
+        o.textContent = label + kbps;
         qSel.appendChild(o);
       });
       qSel.style.display = 'block';
       qSel.onchange = () => { hls.currentLevel = parseInt(qSel.value); };
+    } else {
+      qSel.style.display = 'none';
     }
 
     vid.play().catch(() => {});
@@ -229,16 +283,33 @@ function loadStream(url, liveHint) {
       if (lv.height) parts.push(`${lv.width}×${lv.height}`);
       if (lv.bitrate) parts.push(`${(lv.bitrate/1000).toFixed(0)} kbps`);
       streamInfo.textContent = parts.join(' · ');
+      // Update quality dropdown to reflect ABR switch
+      const qSel = $('qualitySelect');
+      if (qSel && qSel.value === '-1') {
+        // Don't change the select value, but we could show current level
+      }
     }
   });
 
   hls.on(Hls.Events.ERROR, (_, d) => {
     console.warn('HLS error:', d.type, d.details, d.fatal, d);
-    if (!d.fatal) return;
+    if (!d.fatal) {
+      // Non-fatal buffer stalls — only auto-jump if user hasn't deliberately seeked away
+      if (d.details === 'bufferStalledError' && isLive && !userSeekedAway) {
+        const seekable = vid.seekable;
+        if (seekable.length > 0) {
+          const edge = seekable.end(seekable.length - 1);
+          if (edge - vid.currentTime > 15) {
+            vid.currentTime = edge - 3;
+          }
+        }
+      }
+      return;
+    }
     spinner.classList.remove('on');
     if (d.type === Hls.ErrorTypes.NETWORK_ERROR) {
-      setStatus('err', 'Network error — retrying... (' + d.details + ')');
-      setTimeout(() => hls && hls.startLoad(), 2000);
+      setStatus('err', 'Network error — retrying...');
+      setTimeout(() => hls && hls.startLoad(), 1500);
     } else if (d.type === Hls.ErrorTypes.MEDIA_ERROR) {
       setStatus('err', 'Media error — recovering...');
       hls.recoverMediaError();
@@ -247,6 +318,21 @@ function loadStream(url, liveHint) {
       console.error('HLS fatal error:', d);
     }
   });
+
+  // Periodically re-sync ONLY if the user hasn't deliberately seeked away
+  if (liveHint) {
+    liveStallInterval = setInterval(() => {
+      if (!hls || !isLive) { clearInterval(liveStallInterval); liveStallInterval = null; return; }
+      if (userSeekedAway) return;
+      const seekable = vid.seekable;
+      if (seekable.length === 0) return;
+      const edge = seekable.end(seekable.length - 1);
+      if (vid.paused && atLiveEdge && !userSeekedAway) {
+        vid.currentTime = edge - 2;
+        vid.play().catch(() => {});
+      }
+    }, 5000);
+  }
 }
 
 function loadLocalFile(objectUrl, name) {
@@ -284,25 +370,183 @@ vid.onpause = () => { iconPlay.style.display='block'; iconPause.style.display='n
 vid.onwaiting = () => bufBadge.classList.add('on');
 vid.oncanplay = () => bufBadge.classList.remove('on');
 
+const liveSyncBtn  = $('liveSyncBtn');
+const hoverPreview = $('hoverPreview');
+const hoverCanvas  = $('hoverCanvas');
+const hoverTime    = $('hoverTime');
+const progBuffer   = $('progressBuffer');
+
+// Hidden video element for generating hover thumbnails (VOD only)
+let thumbVid = null;
+let thumbDebounce = null;
+
 vid.ontimeupdate = () => {
-  if (isLive || !isFinite(vid.duration)) {
-    progFill.style.width = '0%';
-    timeDisp.textContent = isLive ? fmtDur(vid.currentTime) : '0:00';
-  } else {
+  if (isLive) {
+    // Live DVR mode — use seekable range
+    const seekable = vid.seekable;
+    if (seekable.length > 0) {
+      const start = seekable.start(0);
+      const end = seekable.end(seekable.length - 1);
+      liveDvrWindow = end - start;
+      const pos = vid.currentTime - start;
+      const pct = liveDvrWindow > 0 ? (pos / liveDvrWindow * 100) : 0;
+      progFill.style.width = Math.min(100, pct) + '%';
+
+      // How far behind live edge
+      const behind = end - vid.currentTime;
+      atLiveEdge = behind < 5;
+      liveSyncBtn.classList.toggle('at-edge', atLiveEdge);
+
+      if (atLiveEdge) {
+        timeDisp.textContent = fmtDur(vid.currentTime);
+      } else {
+        timeDisp.textContent = `-${fmtDur(behind)} / ${fmtDur(vid.currentTime)}`;
+      }
+    } else {
+      progFill.style.width = '0%';
+      timeDisp.textContent = fmtDur(vid.currentTime);
+    }
+  } else if (isFinite(vid.duration)) {
     progFill.style.width = (vid.currentTime / vid.duration * 100) + '%';
     timeDisp.textContent = fmtDur(vid.currentTime) + ' / ' + fmtDur(vid.duration);
+  } else {
+    progFill.style.width = '0%';
+    timeDisp.textContent = '0:00';
   }
+  updateBufferBar();
   renderProgressMarkers();
+};
+
+function updateBufferBar() {
+  if (!vid.buffered || vid.buffered.length === 0) {
+    progBuffer.style.width = '0%';
+    return;
+  }
+  if (isLive) {
+    const seekable = vid.seekable;
+    if (seekable.length > 0) {
+      const start = seekable.start(0);
+      const range = seekable.end(seekable.length - 1) - start;
+      const bufEnd = vid.buffered.end(vid.buffered.length - 1) - start;
+      progBuffer.style.width = range > 0 ? Math.min(100, bufEnd / range * 100) + '%' : '0%';
+    }
+  } else if (isFinite(vid.duration) && vid.duration > 0) {
+    const bufEnd = vid.buffered.end(vid.buffered.length - 1);
+    progBuffer.style.width = (bufEnd / vid.duration * 100) + '%';
+  }
+}
+
+// Jump to live edge
+liveSyncBtn.onclick = () => {
+  if (!hls || !isLive) return;
+  const seekable = vid.seekable;
+  if (seekable.length > 0) {
+    vid.currentTime = seekable.end(seekable.length - 1) - 1;
+    if (vid.paused) vid.play().catch(() => {});
+  }
+  userSeekedAway = false;
+  enableHlsLiveSync();
+  hls.startLoad();
 };
 
 let dragging = false;
 progTrack.onmousedown = e => { dragging = true; doSeek(e); };
-document.onmousemove  = e => { if (dragging) doSeek(e); };
-document.onmouseup    = () => { dragging = false; };
+document.onmousemove  = e => {
+  if (dragging) doSeek(e);
+  // Hover preview on progress track
+  if (e.target === progTrack || progTrack.contains(e.target)) showHoverPreview(e);
+};
+document.onmouseup = () => { dragging = false; };
+
 function doSeek(e) {
   const r = progTrack.getBoundingClientRect();
   const p = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-  if (isFinite(vid.duration)) vid.currentTime = p * vid.duration;
+  if (isLive) {
+    const seekable = vid.seekable;
+    if (seekable.length > 0) {
+      const start = seekable.start(0);
+      const end = seekable.end(seekable.length - 1);
+      const target = Math.max(start, Math.min(end - 0.5, start + p * (end - start)));
+      vid.currentTime = target;
+      if ((end - target) > 5) {
+        userSeekedAway = true;
+        disableHlsLiveSync();
+      } else {
+        userSeekedAway = false;
+        enableHlsLiveSync();
+      }
+    }
+  } else if (isFinite(vid.duration)) {
+    vid.currentTime = p * vid.duration;
+  }
+}
+
+// ── Hover preview on timeline ────────────────────────────────
+progTrack.addEventListener('mouseenter', () => { hoverPreview.classList.add('on'); });
+progTrack.addEventListener('mouseleave', () => {
+  hoverPreview.classList.remove('on');
+  if (thumbDebounce) { clearTimeout(thumbDebounce); thumbDebounce = null; }
+});
+
+function showHoverPreview(e) {
+  const r = progTrack.getBoundingClientRect();
+  const p = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+  let hoverSec;
+
+  if (isLive) {
+    const seekable = vid.seekable;
+    if (seekable.length > 0) {
+      const start = seekable.start(0);
+      const end = seekable.end(seekable.length - 1);
+      hoverSec = start + p * (end - start);
+      const behind = end - hoverSec;
+      hoverTime.textContent = behind < 2 ? 'LIVE' : `-${fmtDur(behind)}`;
+    } else return;
+  } else if (isFinite(vid.duration)) {
+    hoverSec = p * vid.duration;
+    hoverTime.textContent = fmtDur(hoverSec);
+  } else return;
+
+  // Position the preview
+  const px = e.clientX - r.left;
+  const clamp = Math.max(85, Math.min(r.width - 85, px));
+  hoverPreview.style.left = clamp + 'px';
+
+  // Generate thumbnail for VOD (not live — too expensive)
+  if (!isLive && isFinite(vid.duration)) {
+    if (thumbDebounce) clearTimeout(thumbDebounce);
+    thumbDebounce = setTimeout(() => generateThumb(hoverSec), 80);
+  } else {
+    // For live, just show the timestamp without a thumbnail
+    hoverCanvas.style.display = 'none';
+  }
+}
+
+function generateThumb(sec) {
+  hoverCanvas.style.display = 'block';
+  // Use a hidden video element to seek and capture frame
+  if (!thumbVid) {
+    thumbVid = document.createElement('video');
+    thumbVid.muted = true;
+    thumbVid.preload = 'auto';
+    thumbVid.style.display = 'none';
+    document.body.appendChild(thumbVid);
+    // Attach to the same HLS source if available
+    if (hls && vid.src) {
+      thumbVid.src = vid.src; // uses the blob URL from HLS
+    } else if (vid.src) {
+      thumbVid.src = vid.src;
+    }
+  }
+
+  thumbVid.currentTime = sec;
+  thumbVid.onseeked = () => {
+    try {
+      const ctx = hoverCanvas.getContext('2d');
+      ctx.drawImage(thumbVid, 0, 0, 160, 90);
+    } catch { /* CORS or decode failure — just show timestamp */ }
+    thumbVid.onseeked = null;
+  };
 }
 
 volSlider.oninput = () => { vid.volume = +volSlider.value; vid.muted = vid.volume === 0; syncVol(); };
@@ -319,8 +563,40 @@ speedBtn.onclick = () => {
   speedBtn.textContent = speeds[speedIdx] + '×';
 };
 
-$('skipBack').onclick    = () => { vid.currentTime = Math.max(0, vid.currentTime - 10); };
-$('skipForward').onclick = () => { vid.currentTime = Math.min(vid.duration || Infinity, vid.currentTime + 10); };
+// Clamp a time value to the live seekable range
+function clampLive(t) {
+  const s = vid.seekable;
+  if (!isLive || s.length === 0) return t;
+  const start = s.start(0);
+  const end = s.end(s.length - 1);
+  return Math.max(start, Math.min(end - 0.5, t));
+}
+
+// Disable/enable HLS.js internal live sync so it doesn't fight the user
+function disableHlsLiveSync() {
+  if (!hls) return;
+  hls.config.liveSyncDurationCount = Infinity;
+  hls.config.liveMaxLatencyDurationCount = Infinity;
+}
+function enableHlsLiveSync() {
+  if (!hls) return;
+  hls.config.liveSyncDurationCount = 3;
+  hls.config.liveMaxLatencyDurationCount = 8;
+}
+
+$('skipBack').onclick = () => {
+  const t = vid.currentTime - 10;
+  vid.currentTime = isLive ? clampLive(t) : Math.max(0, t);
+  if (isLive) { userSeekedAway = true; disableHlsLiveSync(); }
+};
+$('skipForward').onclick = () => {
+  const t = vid.currentTime + 10;
+  vid.currentTime = isLive ? clampLive(t) : Math.min(vid.duration || Infinity, t);
+  if (isLive && vid.seekable.length > 0) {
+    const edge = vid.seekable.end(vid.seekable.length - 1);
+    if (edge - vid.currentTime < 5) { userSeekedAway = false; enableHlsLiveSync(); }
+  }
+};
 
 $('pipBtn').onclick = async () => {
   if (document.pictureInPictureElement) await document.exitPictureInPicture();
@@ -350,8 +626,8 @@ document.addEventListener('keydown', e => {
   if (['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) return;
   switch (e.key) {
     case ' ': case 'k': e.preventDefault(); togglePlay(); break;
-    case 'ArrowLeft':  e.preventDefault(); vid.currentTime = Math.max(0, vid.currentTime - 10); break;
-    case 'ArrowRight': e.preventDefault(); vid.currentTime = Math.min(vid.duration||Infinity, vid.currentTime+10); break;
+    case 'ArrowLeft':  e.preventDefault(); vid.currentTime = isLive ? clampLive(vid.currentTime - 10) : Math.max(0, vid.currentTime - 10); if (isLive) { userSeekedAway = true; disableHlsLiveSync(); } break;
+    case 'ArrowRight': e.preventDefault(); vid.currentTime = isLive ? clampLive(vid.currentTime + 10) : Math.min(vid.duration||Infinity, vid.currentTime+10); break;
     case 'ArrowUp':    e.preventDefault(); vid.volume = Math.min(1, vid.volume+0.1); volSlider.value=vid.volume; syncVol(); break;
     case 'ArrowDown':  e.preventDefault(); vid.volume = Math.max(0, vid.volume-0.1); volSlider.value=vid.volume; syncVol(); break;
     case 'm': case 'M': vid.muted = !vid.muted; syncVol(); break;
@@ -382,10 +658,11 @@ function handleMarkIn() {
   markerState.querySelector('.marker-state-label').textContent = 'IN set at ' + fmtHMS(pendingInTime);
   markerState.querySelector('.marker-state-hint').innerHTML = 'Press <kbd>O</kbd> to set OUT, or <kbd>I</kbd> to cancel';
 
-  if (isLive && currentM3U8) {
-    const captureId = uid();
-    markerState._captureId = captureId;
-    window.clipper.startLiveCapture({ captureId, m3u8Url: currentM3U8 });
+  // For live streams, record the seekable range start so we can compute
+  // playlist-relative offsets later when downloading
+  if (isLive) {
+    const seekable = vid.seekable;
+    markerState._seekableStart = seekable.length > 0 ? seekable.start(0) : 0;
   }
 }
 
@@ -402,7 +679,7 @@ function handleMarkOut() {
     outTime,
     m3u8Url: currentM3U8,
     isLive,
-    captureId: markerState._captureId || null,
+    seekableStart: markerState._seekableStart || 0,
   });
   renderPendingClips();
   cancelMarking();
@@ -415,17 +692,28 @@ function cancelMarking() {
   markerState.classList.remove('marking');
   markerState.querySelector('.marker-state-label').textContent = 'Ready to mark';
   markerState.querySelector('.marker-state-hint').innerHTML = 'Press <kbd>I</kbd> to set IN point during playback';
-  markerState._captureId = null;
+  markerState._seekableStart = null;
 }
 
 /* ─── Progress bar markers ──────────────────────────────────── */
 function renderProgressMarkers() {
   progTrack.querySelectorAll('.progress-marker, .progress-marker-range').forEach(el => el.remove());
-  if (!isFinite(vid.duration) || !vid.duration) return;
+
+  // Determine the time range the progress bar represents
+  let rangeStart = 0, rangeLen = 0;
+  if (isLive && vid.seekable.length > 0) {
+    rangeStart = vid.seekable.start(0);
+    rangeLen = vid.seekable.end(vid.seekable.length - 1) - rangeStart;
+  } else if (isFinite(vid.duration) && vid.duration > 0) {
+    rangeLen = vid.duration;
+  }
+  if (rangeLen <= 0) return;
+
+  const toPct = t => ((t - rangeStart) / rangeLen * 100);
 
   pendingClips.forEach(clip => {
-    const inPct  = clip.inTime  / vid.duration * 100;
-    const outPct = clip.outTime / vid.duration * 100;
+    const inPct  = toPct(clip.inTime);
+    const outPct = toPct(clip.outTime);
 
     const rng = Object.assign(document.createElement('div'), { className: 'progress-marker-range' });
     rng.style.cssText = `left:${inPct}%;width:${outPct-inPct}%`;
@@ -440,7 +728,7 @@ function renderProgressMarkers() {
 
   if (markingIn && pendingInTime !== null) {
     const m = Object.assign(document.createElement('div'), { className: 'progress-marker in' });
-    m.style.left = (pendingInTime / vid.duration * 100) + '%';
+    m.style.left = toPct(pendingInTime) + '%';
     progTrack.appendChild(m);
   }
 }
@@ -503,17 +791,21 @@ async function downloadClip(idx) {
   renderDownloadingClips();
 
   try {
+    // For live streams, IN/OUT are in HLS PTS time (e.g. 86400s into stream).
+    // The download handler's parser starts at t=0 for the first segment in the
+    // current playlist window.  Convert to playlist-relative offsets.
+    const startSec = clip.isLive
+      ? clip.inTime - (clip.seekableStart || 0)
+      : clip.inTime;
+    const durationSec = clip.outTime - clip.inTime;
+
     let result;
-    if (clip.isLive && clip.captureId) {
-      result = await window.clipper.stopLiveCapture({ captureId: clip.captureId, clipName: clip.name });
-    } else {
-      result = await window.clipper.downloadClip({
-        m3u8Url: clip.m3u8Url,
-        startSec: clip.inTime,
-        durationSec: clip.outTime - clip.inTime,
-        clipName: clip.name
-      });
-    }
+    result = await window.clipper.downloadClip({
+      m3u8Url: clip.m3u8Url,
+      startSec,
+      durationSec,
+      clipName: clip.name
+    });
 
     downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
     renderDownloadingClips();

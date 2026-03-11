@@ -123,6 +123,7 @@ ipcMain.handle('extract-m3u8', (event, { pageUrl }) => {
     hidden.webContents.on('did-finish-load', () => {
       if (found) return;
       setTimeout(() => {
+        if (found || hidden.isDestroyed()) return;
         hidden.webContents.executeJavaScript(`
           var v = document.querySelector('video');
           if (v) { v.muted = true; v.play && v.play().catch(function(){}); }
