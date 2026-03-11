@@ -11,9 +11,9 @@ A desktop app for clipping Rumble streams built with Electron. Detects the HLS s
 ## Features
 
 - Auto-detects m3u8 stream URLs from Rumble pages
-- Built-in Rumble browser for manual navigation
+- (Broken) Built-in Rumble browser for manual navigation
 - Clips VODs and live streams
-- Exact timestamp clipping via ffmpeg concat + trim
+- timestamp clipping via ffmpeg concat + trim (Rounds up/down the in/out timestamps to avoid corrupted start/end. This is a fallback option if I can't get exact timestamps to work.)
 - Live capture mode for ongoing streams
 
 ## Requirements
