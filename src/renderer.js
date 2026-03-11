@@ -40,6 +40,8 @@ let liveDvrWindow = 0;      // seekable range in seconds
 let atLiveEdge = true;      // whether user is near the live edge
 let userSeekedAway = false; // true when user intentionally seeks behind live
 let liveStallInterval = null; // stall watchdog interval ID
+let _extractionId = 0;        // guard against stale extraction results
+let thumbVid = null;           // hidden video element for timeline preview thumbnails
 
 /* ─── Init ──────────────────────────────────────────────────── */
 (async () => {
@@ -90,7 +92,7 @@ loadBtn.onclick = () => handleURL(urlIn.value.trim());
 urlIn.onkeydown = e => { if (e.key === 'Enter') handleURL(urlIn.value.trim()); };
 
 // Browse Rumble button — opens the built-in navigator window
-navBtn.onclick = () => {
+if (navBtn) navBtn.onclick = () => {
   const url = urlIn.value.trim();
   window.clipper.openNavigator({ url: isRumble(url) ? url : undefined });
   setStatus('', 'Rumble navigator open — play any video to grab the stream');
@@ -115,8 +117,6 @@ importBtn && (importBtn.onclick = () => {
   };
   input.click();
 });
-
-let _extractionId = 0; // guard against stale extraction results
 
 async function handleURL(raw) {
   if (!raw) return;
@@ -376,8 +376,6 @@ const hoverCanvas  = $('hoverCanvas');
 const hoverTime    = $('hoverTime');
 const progBuffer   = $('progressBuffer');
 
-// Hidden video element for generating hover thumbnails (VOD only)
-let thumbVid = null;
 let thumbDebounce = null;
 
 vid.ontimeupdate = () => {
