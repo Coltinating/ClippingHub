@@ -4,6 +4,10 @@ A desktop app for clipping Rumble streams built with Electron. Detects the HLS s
 ### Currently starts with Chrome DevTools enabled for debugging.
 ### VERY WIP
 ### "Browse Rumble" IS CURRENTLY BROKEN
+### Proof of concept, there are issues with buffering (It's almost too safe for it's own good) I need to iron out.
+### Playback with Video vs Live use cases need to be added. It treats Live as a Video which is evergrowing (Appends time to total duration via .ts fragments)
+### I'm aware of the issues is all I want to add.
+
 ## Features
 
 - Auto-detects m3u8 stream URLs from Rumble pages
