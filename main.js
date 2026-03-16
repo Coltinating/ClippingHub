@@ -367,22 +367,22 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
 
     mainWindow?.webContents.send('clip-progress', { clipName, progress: 70 });
 
-    // 5. Remux concat to mp4, snapped to the first .ts fragment boundary so we
-    //    never split mid-fragment.  .ts fragments carry PTS values relative to
-    //    the live stream origin (e.g. a segment 5 min in starts at PTS ~27M
-    //    ticks), NOT relative to zero.  Without resetting them the mp4 has a
-    //    large initial timestamp offset which players render as dead/blank space.
-    //    -copyts preserves timestamps during processing; -start_at_zero then
-    //    shifts the whole presentation so the first packet lands at t=0.
-    const snappedDuration = (startSec + durationSec) - relevant[0].startTime;
+    // 5. Trim the concatenated .ts to the exact IN/OUT range.
+    //    -ss AFTER -i = output-level seek: ffmpeg decodes from the nearest
+    //    prior keyframe and discards frames until the exact timestamp.
+    //    Re-encoding (libx264/aac) is required for frame-accurate cuts;
+    //    -c copy can only cut on keyframes, leaving corrupted partial-GOPs.
+    //    CRF 18 is visually lossless; -preset fast keeps encode time short
+    //    for typical clip lengths (< 5 min).
+    const ssOffset = Math.max(0, startSec - relevant[0].startTime);
     await new Promise((resolve, reject) => {
       const proc = spawn('ffmpeg', [
         '-y',
         '-i', concatPath,
-        '-t', String(snappedDuration),
-        '-c', 'copy',
-        '-copyts',
-        '-start_at_zero',
+        '-ss', String(ssOffset),
+        '-t', String(durationSec),
+        '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
+        '-c:a', 'aac', '-b:a', '192k',
         '-movflags', '+faststart',
         out
       ], { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -427,7 +427,7 @@ ipcMain.handle('start-live-capture', (_, { captureId, m3u8Url }) => {
   return { started: true };
 });
 
-ipcMain.handle('stop-live-capture', async (_, { captureId, clipName }) => {
+ipcMain.handle('stop-live-capture', async (_, { captureId, clipName, trimSec, trimDuration }) => {
   const cap = liveCaptures.get(captureId);
   if (!cap) return { success: false, error: 'No capture' };
 
@@ -441,8 +441,17 @@ ipcMain.handle('stop-live-capture', async (_, { captureId, clipName }) => {
   let out = path.join(clipsDir, `${safeName}.mp4`);
   for (let i = 1; fs.existsSync(out); i++) out = path.join(clipsDir, `${safeName}-${i}.mp4`);
 
+  // Build ffmpeg args — -ss AFTER -i for frame-accurate seeking.
+  // Re-encode to avoid corrupted partial-GOPs at cut points.
+  const args = ['-y', '-i', cap.tmp];
+  if (typeof trimSec === 'number' && trimSec > 0) args.push('-ss', String(trimSec));
+  if (typeof trimDuration === 'number' && trimDuration > 0) args.push('-t', String(trimDuration));
+  args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
+            '-c:a', 'aac', '-b:a', '192k',
+            '-movflags', '+faststart', out);
+
   return new Promise(res => {
-    const proc = spawn('ffmpeg', ['-i', cap.tmp, '-c', 'copy', '-movflags', '+faststart', '-y', out]);
+    const proc = spawn('ffmpeg', args);
     proc.on('close', code => {
       try { fs.unlinkSync(cap.tmp); } catch {}
       if (code === 0 && fs.existsSync(out))
@@ -451,6 +460,15 @@ ipcMain.handle('stop-live-capture', async (_, { captureId, clipName }) => {
     });
     proc.on('error', () => res({ success: false, error: 'ffmpeg not found' }));
   });
+});
+
+// ── IPC: cancel a running live capture (user pressed I again) ────
+ipcMain.handle('cancel-live-capture', (_, { captureId }) => {
+  const cap = liveCaptures.get(captureId);
+  if (!cap) return;
+  try { cap.proc.kill(); } catch {}
+  liveCaptures.delete(captureId);
+  try { fs.unlinkSync(cap.tmp); } catch {}
 });
 
 // ── IPC: native file drag ────────────────────────────────────────

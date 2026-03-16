@@ -43,6 +43,10 @@ let liveStallInterval = null; // stall watchdog interval ID
 let _extractionId = 0;        // guard against stale extraction results
 let thumbVid = null;           // hidden video element for timeline preview thumbnails
 
+// Live capture state — background ffmpeg recording between IN/OUT presses
+let liveCaptureId = null;      // unique ID for the current live capture
+let liveCaptureWallStart = 0;  // Date.now() when capture started
+
 /* ─── Init ──────────────────────────────────────────────────── */
 (async () => {
   proxyPort = await window.clipper.getProxyPort();
@@ -656,9 +660,14 @@ function handleMarkIn() {
   markerState.querySelector('.marker-state-label').textContent = 'IN set at ' + fmtHMS(pendingInTime);
   markerState.querySelector('.marker-state-hint').innerHTML = 'Press <kbd>O</kbd> to set OUT, or <kbd>I</kbd> to cancel';
 
-  // For live streams, record the seekable range start so we can compute
-  // playlist-relative offsets later when downloading
-  if (isLive) {
+  if (isLive && currentM3U8) {
+    // Start background ffmpeg capture immediately so segments are saved
+    // locally and can't expire from the rolling HLS playlist.
+    liveCaptureId = uid();
+    liveCaptureWallStart = Date.now();
+    window.clipper.startLiveCapture({ captureId: liveCaptureId, m3u8Url: currentM3U8 });
+  } else {
+    // VOD — record seekable start for playlist-relative offset calculation
     const seekable = vid.seekable;
     markerState._seekableStart = seekable.length > 0 ? seekable.start(0) : 0;
   }
@@ -669,21 +678,56 @@ function handleMarkOut() {
   const outTime = vid.currentTime;
   if (outTime <= pendingInTime) { alert('OUT must be after IN.'); return; }
 
-  pendingClips.push({
-    id: uid(),
-    name: 'Clip ' + (pendingClips.length + completedClips.length + 1),
-    caption: '',
-    inTime: pendingInTime,
-    outTime,
-    m3u8Url: currentM3U8,
-    isLive,
-    seekableStart: markerState._seekableStart || 0,
-  });
+  if (isLive && liveCaptureId) {
+    // Live path — stop the background capture and trim.
+    // trimSec = wall-clock seconds between capture start and the IN point.
+    // The capture started when the user pressed IN, but ffmpeg needs a
+    // moment to connect to the HLS stream, so the actual recording may
+    // lag slightly behind.  A small buffer (1-2s) is acceptable since
+    // -ss with -c copy snaps to the nearest prior keyframe anyway.
+    const capId = liveCaptureId;
+    const wallElapsed = (Date.now() - liveCaptureWallStart) / 1000;
+    const durationSec = outTime - pendingInTime;
+    // trimSec ≈ 0 because we started capture right at IN.  If the user
+    // seeked backward after pressing IN, clamp to 0.
+    const trimSec = Math.max(0, wallElapsed - durationSec);
+
+    const clip = {
+      id: uid(),
+      name: 'Clip ' + (pendingClips.length + completedClips.length + 1),
+      caption: '',
+      inTime: pendingInTime,
+      outTime,
+      _liveCapture: { captureId: capId, trimSec, trimDuration: durationSec },
+    };
+    pendingClips.push(clip);
+    liveCaptureId = null;
+    liveCaptureWallStart = 0;
+  } else {
+    // VOD path — uses segment download + trim at download time
+    pendingClips.push({
+      id: uid(),
+      name: 'Clip ' + (pendingClips.length + completedClips.length + 1),
+      caption: '',
+      inTime: pendingInTime,
+      outTime,
+      m3u8Url: currentM3U8,
+      isLive: false,
+      seekableStart: markerState._seekableStart || 0,
+    });
+  }
   renderPendingClips();
   cancelMarking();
 }
 
 function cancelMarking() {
+  // Kill any running live capture
+  if (liveCaptureId) {
+    window.clipper.cancelLiveCapture({ captureId: liveCaptureId });
+    liveCaptureId = null;
+    liveCaptureWallStart = 0;
+  }
+
   markingIn = false; pendingInTime = null;
   markInBtn.classList.remove('active');
   markOutBtn.disabled = true;
@@ -780,7 +824,6 @@ function renderPendingClips() {
 async function downloadClip(idx) {
   const clip = pendingClips.splice(idx, 1)[0];
   if (!clip) return;
-  if (!clip.m3u8Url) { alert('No stream URL for this clip.'); return; }
 
   renderPendingClips();
 
@@ -789,21 +832,35 @@ async function downloadClip(idx) {
   renderDownloadingClips();
 
   try {
-    // For live streams, IN/OUT are in HLS PTS time (e.g. 86400s into stream).
-    // The download handler's parser starts at t=0 for the first segment in the
-    // current playlist window.  Convert to playlist-relative offsets.
-    const startSec = clip.isLive
-      ? clip.inTime - (clip.seekableStart || 0)
-      : clip.inTime;
-    const durationSec = clip.outTime - clip.inTime;
-
     let result;
-    result = await window.clipper.downloadClip({
-      m3u8Url: clip.m3u8Url,
-      startSec,
-      durationSec,
-      clipName: clip.name
-    });
+
+    if (clip._liveCapture) {
+      // Live capture path — the background ffmpeg already recorded the
+      // segments.  Stop it and trim to the exact IN/OUT range.
+      const lc = clip._liveCapture;
+      dl.progress = 50;
+      renderDownloadingClips();
+      result = await window.clipper.stopLiveCapture({
+        captureId: lc.captureId,
+        clipName: clip.name,
+        trimSec: lc.trimSec,
+        trimDuration: lc.trimDuration,
+      });
+    } else {
+      // VOD path — download segments and trim with ffmpeg
+      if (!clip.m3u8Url) { alert('No stream URL for this clip.'); return; }
+      const startSec = clip.isLive
+        ? clip.inTime - (clip.seekableStart || 0)
+        : clip.inTime;
+      const durationSec = clip.outTime - clip.inTime;
+
+      result = await window.clipper.downloadClip({
+        m3u8Url: clip.m3u8Url,
+        startSec,
+        durationSec,
+        clipName: clip.name
+      });
+    }
 
     downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
     renderDownloadingClips();

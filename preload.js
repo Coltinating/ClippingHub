@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('clipper', {
   // Live capture
   startLiveCapture: (opts) => ipcRenderer.invoke('start-live-capture', opts),
   stopLiveCapture: (opts) => ipcRenderer.invoke('stop-live-capture', opts),
+  cancelLiveCapture: (opts) => ipcRenderer.invoke('cancel-live-capture', opts),
 
   // Native drag-out (to Twitter etc.)
   startDrag: (filePath) => ipcRenderer.send('ondragstart', filePath),
