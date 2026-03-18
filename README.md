@@ -3,6 +3,11 @@
 A desktop app for clipping Rumble streams built with Electron. Detects the HLS stream from any Rumble video or live stream, lets you set a start time and duration, then downloads and trims the exact clip using ffmpeg.
 ### Currently starts with Chrome DevTools enabled for debugging.
 
+
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/30787f5e-8b8a-429e-bd69-0c205d77536f" />
+
+
+
 ## Features
 
 - Auto-detects m3u8 stream URLs from Rumble pages
