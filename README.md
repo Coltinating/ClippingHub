@@ -58,7 +58,7 @@ Then start the app:
 npm start
 ```
 
-Or just double-click `START.bat` if you're on Windows.
+Alternatively, on Windows you can just double-click `INSTALL.bat` instead of typing `npm install`, and `START.bat` instead of `npm start`.
 
 ## How to use it
 
