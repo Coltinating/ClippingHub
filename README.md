@@ -62,10 +62,11 @@ Alternatively, on Windows you can just double-click `INSTALL.bat` instead of typ
 
 ## How to use it
 
-1. Paste a Rumble URL into the URL bar and hit Enter
-2. The video player loads and the stream is detected automatically
-3. Use the timeline controls to set your clip start and end points
-4. Hit **Download** to export the clip to your Videos/ClippingHub folder
+1. The app opens with a built-in Rumble browser — browse channels, find streams, or paste any URL into the bar
+2. You can set a default channel in the config menu so it loads automatically on startup
+3. Once a video or live stream is playing, the HLS stream is detected and the player loads
+4. Use the timeline controls to set your clip start and end points
+5. Hit **Download** to export the clip to your Videos/ClippingHub folder
 
 ### Watermarks
 
