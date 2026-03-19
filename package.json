@@ -1,0 +1,20 @@
+{
+  "name": "clipper-hub",
+  "version": "1.1.0-beta",
+  "description": "Streamer Clipper Hub — mark, clip, and export moments from Rumble streams",
+  "main": "main.js",
+  "scripts": {
+    "start": "node launch.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "install-browsers": "npx playwright install chromium"
+  },
+  "dependencies": {
+    "electron": "^40.8.0",
+    "express": "^4.22.1",
+    "playwright": "^1.58.2"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.0"
+  }
+}

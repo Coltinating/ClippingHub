@@ -1,0 +1,7 @@
+node_modules/
+dist/
+misc/
+.env
+*.log
+_tmp_*
+_cap_*
