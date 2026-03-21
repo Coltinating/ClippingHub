@@ -60,6 +60,51 @@ function buildConcatArgs(listFile, outputPath) {
   ];
 }
 
+function buildImageWatermarkArgs(wm) {
+  if (!wm || !wm.imagePath) return null;
+
+  const pos = wm.position || 'center';
+  const pad = 20;
+  let x, y;
+
+  switch (pos) {
+    case 'top-left':     x = String(pad);    y = String(pad);    break;
+    case 'top-right':    x = `W-w-${pad}`;   y = String(pad);    break;
+    case 'bottom-left':  x = String(pad);    y = `H-h-${pad}`;  break;
+    case 'bottom-right': x = `W-w-${pad}`;   y = `H-h-${pad}`;  break;
+    case 'center':
+    default:             x = '(W-w)/2';      y = '(H-h)/2';     break;
+  }
+
+  const opacity = wm.opacity ?? 1;
+
+  // Build overlay input filter chain
+  let overlayChain = '[1:v]format=rgba';
+
+  // Scale if dimensions specified (handles same-aspect-ratio, different-resolution)
+  if (wm.width && wm.height) {
+    overlayChain += `,scale=${wm.width}:${wm.height}`;
+  } else if (wm.width) {
+    overlayChain += `,scale=${wm.width}:-1`;
+  } else if (wm.height) {
+    overlayChain += `,scale=-1:${wm.height}`;
+  }
+
+  // Apply opacity via alpha channel mixer
+  if (opacity < 1) {
+    overlayChain += `,colorchannelmixer=aa=${opacity}`;
+  }
+
+  overlayChain += '[wm]';
+
+  const filterComplex = `${overlayChain};[0:v]setpts=PTS-STARTPTS[base];[base][wm]overlay=x=${x}:y=${y}`;
+
+  return {
+    inputs: ['-i', wm.imagePath],
+    filterComplex,
+  };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { buildTrimArgs, buildConcatArgs, parseSegments, findCoveringSegments };
+  module.exports = { buildTrimArgs, buildConcatArgs, parseSegments, findCoveringSegments, buildImageWatermarkArgs };
 }
