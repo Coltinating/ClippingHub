@@ -12,6 +12,8 @@ Desktop app for clipping Rumble streams and VODs. Paste a URL, set your in/out p
 - Customizable keybinds for jumping around the timeline (Shift/Alt/Ctrl + Arrow keys)
 - Optional GPU acceleration for faster encoding (NVIDIA CUDA)
 - Config system that saves your preferences between sessions
+- Debug log viewer with category filtering and session logs
+- Batch testing mode for verifying clips across different encoding configs
 
 ## Requirements
 
@@ -98,10 +100,23 @@ Arrow keys scrub the timeline by default. Hold Shift, Alt, or Ctrl for different
 
 After making a clip during a live stream, you'll be behind real-time. Catch-up mode bumps the playback speed (1.1x to 2.5x, adjustable) so you can get back to the live edge without missing anything.
 
+### Debug logs
+
+Open the debug log viewer from the settings panel to see real-time logs for stream detection, HLS events, clipping, and ffmpeg commands. Logs are saved per-session to `%APPDATA%/ClippingHub/logs/`. You can filter by category, search, copy, or save the output.
+
+## Encoding fixes
+
+This version includes several fixes to the ffmpeg clipping pipeline:
+
+- Segment timing uses integer-millisecond math to prevent float drift over long streams
+- Segment concat normalizes timestamps so clips from live streams with high wall-clock PTS values start at zero
+- Output-side seeking for precise trim points without video/audio desync
+- Video PTS normalization prevents black thumbnails on social media uploads
+
 ## Tech stack
 
 - Electron
 - HLS.js
 - Express (local proxy)
 - ffmpeg
-- Playwright (browser automation)
+- Vitest (testing)

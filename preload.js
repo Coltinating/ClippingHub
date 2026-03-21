@@ -43,4 +43,14 @@ contextBridge.exposeInMainWorld('clipper', {
 
   // Outro file picker
   chooseOutroFile: () => ipcRenderer.invoke('choose-outro-file'),
+
+  // Debug
+  sendDebugLog: (entry) => ipcRenderer.send('renderer-debug-log', entry),
+  openDebugWindow: () => ipcRenderer.invoke('open-debug-window'),
+  openClipFfmpegLog: (clipName) => ipcRenderer.invoke('open-clip-ffmpeg-log', clipName),
+
+  // Batch testing (dev)
+  openBatchProgress: () => ipcRenderer.invoke('open-batch-progress'),
+  sendBatchProgress: (data) => ipcRenderer.send('batch-progress-update', data),
+  closeBatchProgress: () => ipcRenderer.invoke('close-batch-progress'),
 });

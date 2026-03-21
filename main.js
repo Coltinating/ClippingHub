@@ -7,11 +7,56 @@ const express = require('express');
 const http = require('http');
 const https = require('https');
 
+// ── Batch Testing (dev) ─────────────────────────────────────────
+const { registerBatchIPC } = require('./src/batch/batch-ipc');
+
+// ── Debug Logger ─────────────────────────────────────────────────
+const DEBUG_DIR = path.join(
+  process.env.APPDATA || path.join(require('os').homedir(), 'AppData', 'Roaming'),
+  'ClippingHub', 'logs'
+);
+let debugLogStream = null;
+let debugSessionId = null;
+
+function initDebugLog() {
+  fs.mkdirSync(DEBUG_DIR, { recursive: true });
+  const now = new Date();
+  const stamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  debugSessionId = stamp;
+  const logPath = path.join(DEBUG_DIR, `session_${stamp}.log`);
+  debugLogStream = fs.createWriteStream(logPath, { flags: 'a' });
+  debugLog('SESSION', `Started — pid=${process.pid} electron=${process.versions.electron} node=${process.versions.node}`);
+  debugLog('SESSION', `Log file: ${logPath}`);
+}
+
+function debugLog(category, message, data) {
+  const ts = new Date().toISOString();
+  const entry = { ts, category, message, data };
+  const line = data !== undefined
+    ? `[${ts}] [${category}] ${message} ${JSON.stringify(data)}`
+    : `[${ts}] [${category}] ${message}`;
+  if (debugLogStream) debugLogStream.write(line + '\n');
+  console.log(line);
+  // Buffer for debug window replay
+  debugLogBuffer.push(entry);
+  if (debugLogBuffer.length > DEBUG_BUFFER_MAX) debugLogBuffer.shift();
+  // Forward to debug window if open
+  if (debugWindow && !debugWindow.isDestroyed()) {
+    debugWindow.webContents.send('debug-log', entry);
+  }
+}
+
 // ── State ───────────────────────────────────────────────────────
 let mainWindow = null;
 let navWindow = null;
+let debugWindow = null;
 let proxyPort = null;
 let clipsDir = null;
+let debugLogBuffer = [];  // Buffer logs before debug window opens
+const DEBUG_BUFFER_MAX = 5000;
+
+// Per-clip ffmpeg log storage (clipName → { commands, logs })
+const clipFfmpegLogs = new Map();
 
 // ── Config paths (AppData/Roaming) ──────────────────────────────
 const APPDATA = process.env.APPDATA || path.join(require('os').homedir(), 'AppData', 'Roaming');
@@ -34,7 +79,7 @@ expressApp.use(express.json());
 // ── CORS proxy ──────────────────────────────────────────────────
 expressApp.get('/proxy', async (req, res) => {
   const target = req.query.url;
-  console.log('[PROXY]', target ? target.slice(0, 120) : '(no url)');
+  debugLog('PROXY', 'Request', { url: target ? target.slice(0, 120) : '(no url)' });
   if (!target) return res.status(400).send('Missing url');
 
   let parsed;
@@ -53,7 +98,7 @@ expressApp.get('/proxy', async (req, res) => {
     });
 
     const ct = response.headers.get('content-type') || 'application/octet-stream';
-    console.log('[PROXY] status:', response.status, 'ct:', ct);
+    debugLog('PROXY', `Response status=${response.status} ct=${ct}`);
     res.setHeader('Content-Type', ct);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.status(response.status);
@@ -72,7 +117,7 @@ expressApp.get('/proxy', async (req, res) => {
       res.end(Buffer.from(buf));
     }
   } catch (err) {
-    console.error('[PROXY] error:', err.message);
+    debugLog('PROXY', 'Error', { error: err.message });
     if (!res.headersSent) res.status(502).send('Proxy error: ' + err.message);
   }
 });
@@ -225,6 +270,105 @@ ipcMain.handle('get-channel-config', () => {
   } catch {
     return { channel_id: '' };
   }
+});
+
+// ── IPC: debug ──────────────────────────────────────────────────
+ipcMain.handle('get-debug-log-path', () => DEBUG_DIR);
+ipcMain.handle('open-debug-logs', () => {
+  fs.mkdirSync(DEBUG_DIR, { recursive: true });
+  shell.openPath(DEBUG_DIR);
+});
+ipcMain.on('renderer-debug-log', (_, { category, message, data }) => {
+  debugLog(category, message, data);
+});
+
+// Open / toggle debug window
+ipcMain.handle('open-debug-window', () => {
+  if (debugWindow && !debugWindow.isDestroyed()) {
+    debugWindow.focus();
+    return { opened: true };
+  }
+
+  debugWindow = new BrowserWindow({
+    width: 820, height: 520,
+    minWidth: 520, minHeight: 300,
+    backgroundColor: '#0a0a0a',
+    title: 'Debug Log — Clipper Hub',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-debug.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    }
+  });
+  debugWindow.setMenuBarVisibility(false);
+  debugWindow.loadFile(path.join(__dirname, 'src', 'debug.html'));
+
+  // Replay buffered logs once the window is ready
+  debugWindow.webContents.on('did-finish-load', () => {
+    for (const entry of debugLogBuffer) {
+      if (debugWindow && !debugWindow.isDestroyed()) {
+        debugWindow.webContents.send('debug-log', entry);
+      }
+    }
+  });
+
+  debugWindow.on('closed', () => { debugWindow = null; });
+  return { opened: true };
+});
+
+// Open debug window with clip-specific ffmpeg log view
+ipcMain.handle('open-clip-ffmpeg-log', (_, clipName) => {
+  const logData = clipFfmpegLogs.get(clipName) || null;
+  debugLog('ACTION', 'Open clip ffmpeg log', { clipName, hasData: !!logData });
+
+  // Ensure debug window is open
+  if (!debugWindow || debugWindow.isDestroyed()) {
+    debugWindow = new BrowserWindow({
+      width: 820, height: 520,
+      minWidth: 520, minHeight: 300,
+      backgroundColor: '#0a0a0a',
+      title: 'Debug Log — Clipper Hub',
+      webPreferences: {
+        preload: path.join(__dirname, 'preload-debug.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+      }
+    });
+    debugWindow.setMenuBarVisibility(false);
+    debugWindow.loadFile(path.join(__dirname, 'src', 'debug.html'));
+
+    debugWindow.webContents.on('did-finish-load', () => {
+      // Replay buffered logs
+      for (const entry of debugLogBuffer) {
+        if (debugWindow && !debugWindow.isDestroyed()) {
+          debugWindow.webContents.send('debug-log', entry);
+        }
+      }
+      // Then send clip log view
+      if (debugWindow && !debugWindow.isDestroyed()) {
+        debugWindow.webContents.send('show-clip-log', { clipName, logData });
+      }
+    });
+
+    debugWindow.on('closed', () => { debugWindow = null; });
+  } else {
+    // Debug window already open — just send the clip log view
+    debugWindow.webContents.send('show-clip-log', { clipName, logData });
+    debugWindow.focus();
+  }
+
+  return { opened: true };
+});
+
+// Save filtered debug output to file and open in explorer
+ipcMain.handle('save-debug-log', async (_, { text, filterName }) => {
+  fs.mkdirSync(DEBUG_DIR, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const safeName = (filterName || 'all').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+  const filePath = path.join(DEBUG_DIR, `debug_${safeName}_${stamp}.log`);
+  fs.writeFileSync(filePath, text, 'utf-8');
+  shell.showItemInFolder(filePath);
+  return { success: true, filePath };
 });
 
 // ── IPC: proxy port ──────────────────────────────────────────────
@@ -407,14 +551,25 @@ function buildWatermarkFilter(wm) {
 // Added: watermark filter, outro concatenation, GPU accel options
 // ══════════════════════════════════════════════════════════════════
 
-ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, clipName, watermark, outro, ffmpegOptions }) => {
-  fs.mkdirSync(clipsDir, { recursive: true });
+ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, clipName, watermark, outro, ffmpegOptions, batchOutputDir, batchManifest }) => {
+  debugLog('CLIP', 'Download requested', { clipName, startSec, durationSec, m3u8Url: m3u8Url?.slice(0, 120), hasWatermark: !!watermark, hasOutro: !!outro, ffmpegOptions, batch: !!batchOutputDir });
+
+  // Determine output directory (batch mode overrides)
+  let outputDir = clipsDir;
+  if (batchOutputDir) {
+    outputDir = path.join(clipsDir, '_batch', batchOutputDir);
+  }
+  fs.mkdirSync(outputDir, { recursive: true });
 
   const safeName = (clipName || 'clip')
     .replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, '-').toLowerCase().slice(0, 80);
 
-  let out = path.join(clipsDir, `${safeName}.mp4`);
-  for (let i = 1; fs.existsSync(out); i++) out = path.join(clipsDir, `${safeName}-${i}.mp4`);
+  let out = path.join(outputDir, `${safeName}.mp4`);
+  for (let i = 1; fs.existsSync(out); i++) out = path.join(outputDir, `${safeName}-${i}.mp4`);
+
+  // Track ffmpeg commands for batch manifest + clip log viewer
+  const ffmpegCommands = [];
+  const ffmpegStepLogs = [];  // { step, stderr } per ffmpeg invocation
 
   const proxyBase = `http://127.0.0.1:${proxyPort}`;
 
@@ -445,21 +600,8 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
   });
 
   const parseSegments = (text) => {
-    const lines = text.split('\n');
-    const segs = [];
-    let t = 0;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (line.startsWith('#EXTINF:')) {
-        const dur = parseFloat(line.match(/#EXTINF:([\d.]+)/)?.[1] || '0');
-        const next = lines[i + 1]?.trim();
-        if (next && !next.startsWith('#')) {
-          segs.push({ url: next, duration: dur, startTime: t });
-          t += dur;
-        }
-      }
-    }
-    return segs;
+    const mod = require('./src/lib/ffmpeg-args.js');
+    return mod.parseSegments(text);
   };
 
   const resolveMediaUrl = async (url) => {
@@ -485,13 +627,16 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
 
   try {
     // 1. Resolve to a media playlist and parse segments
+    debugLog('CLIP', 'Resolving media playlist...');
     const { text: mediaText } = await resolveMediaUrl(m3u8Url);
-    const segments = parseSegments(mediaText);
+    const { segments, mediaSequence, totalDuration } = parseSegments(mediaText);
+    debugLog('CLIP', 'Playlist parsed', { segmentCount: segments.length, mediaSequence, totalDuration, firstSeg: segments[0]?.startTime, lastSeg: segments[segments.length-1]?.startTime });
     if (!segments.length) throw new Error('No segments found in playlist');
 
     // 2. Find segments that overlap [startSec, startSec+durationSec)
     const endSec = startSec + durationSec;
     const relevant = segments.filter(s => s.startTime + s.duration > startSec && s.startTime < endSec);
+    debugLog('CLIP', 'Segment selection', { requestRange: `${startSec}s - ${endSec}s`, matchedSegments: relevant.length, firstMatch: relevant[0]?.startTime, lastMatch: relevant[relevant.length-1]?.startTime });
     if (!relevant.length) throw new Error('No segments found in the requested time range');
 
     // 3. Download each segment through the proxy
@@ -512,10 +657,17 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
     fs.writeFileSync(listFile, tsPaths.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n'));
 
     const concatPath = path.join(tempDir, 'concat.ts');
+    const { buildConcatArgs } = require('./src/lib/ffmpeg-args.js');
+    const concatArgs = buildConcatArgs(listFile, concatPath);
+    ffmpegCommands.push({ step: '1. Segment concat (join .ts segments)', args: ['ffmpeg', ...concatArgs] });
     await new Promise((resolve, reject) => {
-      const proc = spawn('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', concatPath],
-        { stdio: 'pipe' });
-      proc.on('close', code => code === 0 ? resolve() : reject(new Error(`ffmpeg concat failed (code ${code})`)));
+      const proc = spawn('ffmpeg', concatArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+      let stderr = '';
+      proc.stderr.on('data', d => { stderr += d; });
+      proc.on('close', code => {
+        ffmpegStepLogs.push({ step: '1. Segment concat', stderr });
+        code === 0 ? resolve() : reject(new Error(`ffmpeg concat failed (code ${code})`));
+      });
       proc.on('error', reject);
     });
 
@@ -523,6 +675,7 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
 
     // 5. Trim to exact range — with optional watermark, GPU accel, custom ffmpeg options
     const ssOffset = Math.max(0, startSec - relevant[0].startTime);
+    debugLog('CLIP', 'Trim params', { ssOffset, startSec, firstSegStart: relevant[0].startTime, durationSec });
     const wmFilter = buildWatermarkFilter(watermark);
     const hasOutro = outro && outro.filePath && fs.existsSync(outro.filePath);
     const trimmedPath = hasOutro ? path.join(tempDir, 'trimmed.mp4') : out;
@@ -540,7 +693,8 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
 
       ffArgs.push('-i', concatPath, '-ss', String(ssOffset), '-t', String(durationSec));
 
-      if (wmFilter) ffArgs.push('-vf', wmFilter);
+      const ptsFilter = 'setpts=PTS-STARTPTS';
+      ffArgs.push('-vf', wmFilter ? ptsFilter + ',' + wmFilter : ptsFilter);
 
       // Video codec
       const videoCodec = opts.videoCodec || 'libx264';
@@ -559,6 +713,8 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
       ffArgs.push('-c:a', audioCodec, '-b:a', audioBitrate);
       ffArgs.push('-movflags', '+faststart', trimmedPath);
 
+      ffmpegCommands.push({ step: '2. Trim & encode (seek, cut, transcode)', args: ['ffmpeg', ...ffArgs] });
+      debugLog('FFMPEG', 'Trim command', { args: ffArgs.join(' ') });
       const proc = spawn('ffmpeg', ffArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
 
       let stderr = '';
@@ -574,8 +730,9 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
         }
       });
       proc.on('close', code => {
+        ffmpegStepLogs.push({ step: '2. Trim & encode', stderr: stderr.toString() });
         if (code === 0 && fs.existsSync(trimmedPath)) resolve();
-        else reject(new Error(`ffmpeg trim failed (code ${code}):\n${stderr.slice(-400)}`));
+        else reject(new Error(`ffmpeg trim failed (code ${code}):\n${stderr.toString().slice(-400)}`));
       });
       proc.on('error', err => reject(new Error('ffmpeg not found: ' + err.message)));
     });
@@ -606,30 +763,44 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
 
       // Re-encode outro to match clip format
       const outroResized = path.join(tempDir, 'outro_resized.mp4');
+      const outroResizeArgs = [
+        '-y', '-i', outro.filePath,
+        '-vf', `scale=${probeResult.width}:${probeResult.height}:force_original_aspect_ratio=decrease,pad=${probeResult.width}:${probeResult.height}:(ow-iw)/2:(oh-ih)/2`,
+        '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
+        '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2',
+        '-movflags', '+faststart',
+        outroResized
+      ];
+      ffmpegCommands.push({ step: '3. Outro resize (scale to clip resolution)', args: ['ffmpeg', ...outroResizeArgs] });
       await new Promise((resolve, reject) => {
-        const proc = spawn('ffmpeg', [
-          '-y', '-i', outro.filePath,
-          '-vf', `scale=${probeResult.width}:${probeResult.height}:force_original_aspect_ratio=decrease,pad=${probeResult.width}:${probeResult.height}:(ow-iw)/2:(oh-ih)/2`,
-          '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
-          '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2',
-          '-movflags', '+faststart',
-          outroResized
-        ], { stdio: 'pipe' });
-        proc.on('close', code => code === 0 ? resolve() : reject(new Error('Outro resize failed')));
+        const proc = spawn('ffmpeg', outroResizeArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+        let stderr = '';
+        proc.stderr.on('data', d => { stderr += d; });
+        proc.on('close', code => {
+          ffmpegStepLogs.push({ step: '3. Outro resize', stderr });
+          code === 0 ? resolve() : reject(new Error('Outro resize failed'));
+        });
         proc.on('error', reject);
       });
 
       // Re-encode trimmed clip to ensure matching codec params
       const clipReady = path.join(tempDir, 'clip_ready.mp4');
+      const clipPrepArgs = [
+        '-y', '-i', trimmedPath,
+        '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
+        '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2',
+        '-movflags', '+faststart',
+        clipReady
+      ];
+      ffmpegCommands.push({ step: '4. Clip prep (normalize for concat)', args: ['ffmpeg', ...clipPrepArgs] });
       await new Promise((resolve, reject) => {
-        const proc = spawn('ffmpeg', [
-          '-y', '-i', trimmedPath,
-          '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
-          '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2',
-          '-movflags', '+faststart',
-          clipReady
-        ], { stdio: 'pipe' });
-        proc.on('close', code => code === 0 ? resolve() : reject(new Error('Clip prep failed')));
+        const proc = spawn('ffmpeg', clipPrepArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+        let stderr = '';
+        proc.stderr.on('data', d => { stderr += d; });
+        proc.on('close', code => {
+          ffmpegStepLogs.push({ step: '4. Clip prep', stderr });
+          code === 0 ? resolve() : reject(new Error('Clip prep failed'));
+        });
         proc.on('error', reject);
       });
 
@@ -637,21 +808,82 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
       const concatList = path.join(tempDir, 'final_concat.txt');
       fs.writeFileSync(concatList, `file '${clipReady.replace(/'/g, "'\\''")}'\nfile '${outroResized.replace(/'/g, "'\\''")}'`);
 
+      const finalConcatArgs = ['-y', '-f', 'concat', '-safe', '0', '-i', concatList, '-c', 'copy', '-movflags', '+faststart', out];
+      ffmpegCommands.push({ step: '5. Final concat (clip + outro)', args: ['ffmpeg', ...finalConcatArgs] });
       await new Promise((resolve, reject) => {
-        const proc = spawn('ffmpeg', [
-          '-y', '-f', 'concat', '-safe', '0', '-i', concatList,
-          '-c', 'copy', '-movflags', '+faststart', out
-        ], { stdio: 'pipe' });
-        proc.on('close', code => code === 0 ? resolve() : reject(new Error('Final concat failed')));
+        const proc = spawn('ffmpeg', finalConcatArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+        let stderr = '';
+        proc.stderr.on('data', d => { stderr += d; });
+        proc.on('close', code => {
+          ffmpegStepLogs.push({ step: '5. Final concat', stderr });
+          code === 0 ? resolve() : reject(new Error('Final concat failed'));
+        });
         proc.on('error', reject);
       });
     }
 
     mainWindow?.webContents.send('clip-progress', { clipName, progress: 100 });
-    return { success: true, filePath: out, fileName: path.basename(out), fileSize: fs.statSync(out).size };
+    const fileSize = fs.statSync(out).size;
+    debugLog('CLIP', 'Download complete', { clipName, filePath: out, fileSize });
+
+    // Store ffmpeg commands + logs for clip log viewer
+    clipFfmpegLogs.set(clipName, {
+      commands: ffmpegCommands.map(c => ({ step: c.step, args: c.args.join(' ') })),
+      logs: ffmpegStepLogs.map(l => ({ step: l.step, stderr: l.stderr })),
+      timestamp: new Date().toISOString(),
+      filePath: out,
+      fileSize,
+    });
+
+    // Write batch manifest if in batch mode
+    if (batchManifest) {
+      const manifestPath = path.join(outputDir, '_manifest.txt');
+      const cfg = batchManifest.ffmpegConfig || {};
+      const lines = [
+        `${'='.repeat(60)}`,
+        `  Batch Test Manifest — ${clipName}`,
+        `  ${new Date().toISOString()}`,
+        `${'='.repeat(60)}`,
+        ``,
+        `Clip ${batchManifest.batchIndex} of ${batchManifest.batchTotal}`,
+        `Batch ID: ${batchManifest.batchId}`,
+        ``,
+        `--- Clip Parameters ---`,
+        `IN:       ${startSec}s`,
+        `Duration: ${durationSec}s`,
+        ``,
+        `--- FFmpeg Configuration ---`,
+        `Video Codec:     ${cfg.videoCodec || 'libx264'}`,
+        `Preset:          ${cfg.preset || 'fast'}`,
+        `CRF/CQ:          ${cfg.crf || '18'}`,
+        `Audio Codec:     ${cfg.audioCodec || 'aac'}`,
+        `Audio Bitrate:   ${cfg.audioBitrate || '192k'}`,
+        `HW Accel:        ${cfg.hwaccel || 'none'}`,
+        `HW Output Fmt:   ${cfg.hwaccelOutputFormat || 'default'}`,
+        `HW Device:       ${cfg.hwaccelDevice || 'default'}`,
+        `NVENC Preset:    ${cfg.nvencPreset || 'n/a'}`,
+        `Watermark:       ${batchManifest.hasWatermark ? 'yes' : 'no'}`,
+        `Outro:           ${batchManifest.hasOutro ? 'yes' : 'no'}`,
+        ``,
+        `--- FFmpeg Commands (${ffmpegCommands.length} steps) ---`,
+        ...ffmpegCommands.map(cmd => `\n[${cmd.step}]\n${cmd.args.join(' ')}`),
+        ``,
+        `--- Output ---`,
+        `File: ${path.basename(out)}`,
+        `Size: ${fileSize} bytes (${(fileSize / 1048576).toFixed(1)} MB)`,
+        `Path: ${out}`,
+        ``,
+        ``,
+      ];
+      fs.appendFileSync(manifestPath, lines.join('\n'));
+      debugLog('CLIP', 'Batch manifest written', { manifestPath });
+    }
+
+    return { success: true, filePath: out, fileName: path.basename(out), fileSize };
 
   } finally {
-    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    // TEMP: keep temp files for debugging — revert when done
+    // try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
   }
 });
 
@@ -692,11 +924,14 @@ function createWindow() {
 app.whenReady().then(() => {
   clipsDir = path.join(app.getPath('videos'), 'ClipperHub');
   ensureConfigDir();
+  initDebugLog();
+  registerBatchIPC(debugLog);
 
   const httpServer = http.createServer(expressApp);
   httpServer.listen(0, '127.0.0.1', () => {
     proxyPort = httpServer.address().port;
-    console.log(`Clipper Hub running on port ${proxyPort}`);
+    debugLog('SESSION', `Server listening on port ${proxyPort}`);
+    debugLog('SESSION', `Clips dir: ${clipsDir}`);
     createWindow();
   });
 });

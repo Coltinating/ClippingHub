@@ -23,6 +23,46 @@ function uid() { return Date.now().toString(36) + Math.random().toString(36).sli
 function escAttr(s) { return String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 function escH(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+/* ─── Debug Logger (always capturing, detached window) ──── */
+function dbg(category, message, data) {
+  // Forward to main process → file log + debug window
+  if (window.clipper?.sendDebugLog) {
+    window.clipper.sendDebugLog({ category, message, data });
+  }
+}
+// Expose for external modules (batch-testing.js etc.)
+window.dbg = dbg;
+
+// Debug button opens detached window
+const _debugToggle = document.getElementById('debugToggleBtn');
+if (_debugToggle) {
+  _debugToggle.onclick = () => {
+    dbg('ACTION', 'Open debug window');
+    if (window.clipper?.openDebugWindow) window.clipper.openDebugWindow();
+  };
+}
+
+dbg('SESSION', 'Renderer initialized');
+
+// Batch test suite button (wired after batch module loads)
+document.addEventListener('DOMContentLoaded', () => {
+  const suiteBtn = document.getElementById('batchSuiteBtn');
+  if (suiteBtn) {
+    suiteBtn.onclick = () => {
+      // Use batch reference clip, or fall back to first pending clip
+      const refClip = window._batchTestClip || (pendingClips.length > 0 ? pendingClips[0] : null);
+      if (!refClip) {
+        alert('Mark IN/OUT first to define the test clip, then open Test Suite.');
+        return;
+      }
+      dbg('ACTION', 'Open batch test suite modal');
+      if (window._batchTesting?.openTestSuiteModal) {
+        window._batchTesting.openTestSuiteModal(refClip);
+      }
+    };
+  }
+});
+
 /* ─── State ─────────────────────────────────────────────────── */
 let hls = null;
 let isLive = false;
@@ -42,6 +82,10 @@ let userSeekedAway = false;
 let liveStallInterval = null;
 let _extractionId = 0;
 let thumbVid = null;
+
+// Batch testing mode (dev)
+let batchModeEnabled = false;
+let batchModeActive = false;
 
 /* ─── User Config (persisted to Roaming) ─────────────────────── */
 let userConfig = {
@@ -78,6 +122,9 @@ let userConfig = {
     jumpSizeLarge: 60,
   },
   catchUpSpeed: 1.5,
+  devFeatures: {
+    ffmpegLogs: false,
+  },
 };
 
 // Universal watermark config (cached separately)
@@ -132,7 +179,7 @@ function showBrowserView() {
   $('urlIn').value = '';
 }
 
-backBtn.onclick = showBrowserView;
+backBtn.onclick = () => { dbg('ACTION', 'Back to channel browser clicked'); showBrowserView(); };
 
 /* ─── Init ──────────────────────────────────────────────────── */
 (async () => {
@@ -161,6 +208,7 @@ backBtn.onclick = showBrowserView;
   });
 
   window.clipper.onStreamFound(({ m3u8, isLive: live }) => {
+    dbg('STREAM', 'Stream found via navigator', { m3u8: m3u8?.slice(0, 120), isLive: live });
     showPlayerView();
     urlIn.value = m3u8;
     setStatus('ok', 'Stream grabbed from navigator!');
@@ -261,16 +309,18 @@ function setStatus(type, text) {
   statusText.textContent = text;
 }
 
-loadBtn.onclick = () => handleURL(urlIn.value.trim());
-urlIn.onkeydown = e => { if (e.key === 'Enter') handleURL(urlIn.value.trim()); };
+loadBtn.onclick = () => { dbg('ACTION', 'Load Stream clicked', { url: urlIn.value.trim().slice(0, 120) }); handleURL(urlIn.value.trim()); };
+urlIn.onkeydown = e => { if (e.key === 'Enter') { dbg('ACTION', 'URL submitted via Enter', { url: urlIn.value.trim().slice(0, 120) }); handleURL(urlIn.value.trim()); } };
 
 if (navBtn) navBtn.onclick = () => {
   const url = urlIn.value.trim();
+  dbg('ACTION', 'Browse Rumble clicked', { url: url || '(none)' });
   window.clipper.openNavigator({ url: isRumble(url) ? url : undefined });
   setStatus('', 'Rumble navigator open — play any video to grab the stream');
 };
 
 importBtn && (importBtn.onclick = () => {
+  dbg('ACTION', 'Import local file clicked');
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'video/*,.m3u8,.m3u';
@@ -335,6 +385,7 @@ async function handleURL(raw) {
   }
 
   currentM3U8 = raw;
+  dbg('STREAM', 'Loading stream URL', { url: raw.slice(0, 120) });
   loadStream(raw, false);
   loadBtn.disabled = false;
 }
@@ -394,6 +445,7 @@ function loadStream(url, liveHint) {
   hls.on(Hls.Events.MANIFEST_PARSED, (_, d) => {
     spinner.classList.remove('on');
     videoLoaded = true;
+    dbg('HLS', 'Manifest parsed', { levels: d.levels?.length, live: d.live, duration: vid.duration });
 
     setTimeout(() => {
       const seekable = vid.seekable;
@@ -405,10 +457,12 @@ function loadStream(url, liveHint) {
         liveBadge.classList.add('on');
         $('liveSyncBtn').classList.add('on', 'at-edge');
         setStatus('live', 'Live stream');
+        dbg('HLS', 'Stream type: LIVE', { seekableStart: seekable.length > 0 ? seekable.start(0) : null, seekableEnd: seekable.length > 0 ? seekable.end(seekable.length-1) : null });
       } else {
         liveBadge.classList.remove('on');
         $('liveSyncBtn').classList.remove('on');
         setStatus('ok', `VOD — ${fmtDur(vid.duration)}`);
+        dbg('HLS', 'Stream type: VOD', { duration: vid.duration });
       }
     }, 800);
 
@@ -425,7 +479,7 @@ function loadStream(url, liveHint) {
         qSel.appendChild(o);
       });
       qSel.style.display = 'block';
-      qSel.onchange = () => { hls.currentLevel = parseInt(qSel.value); };
+      qSel.onchange = () => { const lvl = parseInt(qSel.value); dbg('ACTION', 'Quality changed', { level: lvl, label: qSel.options[qSel.selectedIndex]?.text }); hls.currentLevel = lvl; };
     } else {
       qSel.style.display = 'none';
     }
@@ -444,6 +498,7 @@ function loadStream(url, liveHint) {
   });
 
   hls.on(Hls.Events.ERROR, (_, d) => {
+    dbg('HLS', `Error: ${d.details}`, { type: d.type, fatal: d.fatal, reason: d.reason || '' });
     console.warn('HLS error:', d.type, d.details, d.fatal, d);
     if (!d.fatal) {
       if (d.details === 'bufferStalledError' && isLive && !userSeekedAway) {
@@ -511,7 +566,7 @@ const fsBtn      = $('fullscreenBtn');
 const speeds = [0.25, 0.5, 0.75, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.75, 2.0, 2.5];
 let speedIdx = 3;
 
-function togglePlay() { vid.paused ? vid.play() : vid.pause(); }
+function togglePlay() { dbg('ACTION', vid.paused ? 'Play' : 'Pause'); vid.paused ? vid.play() : vid.pause(); }
 ppBtn.onclick = togglePlay;
 vid.onclick   = togglePlay;
 
@@ -584,6 +639,7 @@ function updateBufferBar() {
 
 liveSyncBtn.onclick = () => {
   if (!hls || !isLive) return;
+  dbg('ACTION', 'Jump to LIVE edge clicked');
   const seekable = vid.seekable;
   if (seekable.length > 0) {
     vid.currentTime = seekable.end(seekable.length - 1) - 1;
@@ -595,7 +651,7 @@ liveSyncBtn.onclick = () => {
 };
 
 let dragging = false;
-progTrack.onmousedown = e => { dragging = true; doSeek(e); };
+progTrack.onmousedown = e => { dragging = true; dbg('ACTION', 'Progress bar seek started'); doSeek(e); };
 document.onmousemove  = e => {
   if (dragging) doSeek(e);
   if (e.target === progTrack || progTrack.contains(e.target)) showHoverPreview(e);
@@ -687,8 +743,8 @@ function generateThumb(sec) {
   };
 }
 
-volSlider.oninput = () => { vid.volume = +volSlider.value; vid.muted = vid.volume === 0; syncVol(); };
-muteBtn.onclick = () => { vid.muted = !vid.muted; syncVol(); };
+volSlider.oninput = () => { vid.volume = +volSlider.value; vid.muted = vid.volume === 0; syncVol(); dbg('ACTION', 'Volume changed', { volume: vid.volume }); };
+muteBtn.onclick = () => { vid.muted = !vid.muted; syncVol(); dbg('ACTION', vid.muted ? 'Muted' : 'Unmuted'); };
 function syncVol() {
   const m = vid.muted || vid.volume === 0;
   muteBtn.querySelector('.icon-vol').style.display  = m ? 'none' : 'block';
@@ -699,6 +755,7 @@ speedBtn.onclick = () => {
   speedIdx = (speedIdx + 1) % speeds.length;
   vid.playbackRate = speeds[speedIdx];
   speedBtn.textContent = speeds[speedIdx] + 'x';
+  dbg('ACTION', 'Speed changed', { speed: speeds[speedIdx] });
 };
 
 function clampLive(t) {
@@ -721,11 +778,13 @@ function enableHlsLiveSync() {
 }
 
 $('skipBack').onclick = () => {
+  dbg('ACTION', 'Skip back 10s', { from: vid.currentTime });
   const t = vid.currentTime - 10;
   vid.currentTime = isLive ? clampLive(t) : Math.max(0, t);
   if (isLive) { userSeekedAway = true; disableHlsLiveSync(); }
 };
 $('skipForward').onclick = () => {
+  dbg('ACTION', 'Skip forward 10s', { from: vid.currentTime });
   const t = vid.currentTime + 10;
   vid.currentTime = isLive ? clampLive(t) : Math.min(vid.duration || Infinity, t);
   if (isLive && vid.seekable.length > 0) {
@@ -735,11 +794,13 @@ $('skipForward').onclick = () => {
 };
 
 $('pipBtn').onclick = async () => {
+  dbg('ACTION', document.pictureInPictureElement ? 'Exit PiP' : 'Enter PiP');
   if (document.pictureInPictureElement) await document.exitPictureInPicture();
   else if (vid.requestPictureInPicture) try { await vid.requestPictureInPicture(); } catch {}
 };
 
 fsBtn.onclick = () => {
+  dbg('ACTION', document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen');
   if (!document.fullscreenElement) playerWrap.requestFullscreen?.();
   else document.exitFullscreen?.();
 };
@@ -853,6 +914,15 @@ document.addEventListener('keydown', e => {
   if (e.key === 'f' || e.key === 'F') { fsBtn.click(); return; }
   if (e.key === 's' || e.key === 'S') { speedBtn.click(); return; }
 
+  // Batch mode toggle: press B (only when enabled in settings)
+  if ((e.key === 'b' || e.key === 'B') && batchModeEnabled) {
+    e.preventDefault();
+    batchModeActive = !batchModeActive;
+    $('batchPanel').style.display = batchModeActive ? '' : 'none';
+    dbg('ACTION', 'Batch mode ' + (batchModeActive ? 'ON' : 'OFF'));
+    return;
+  }
+
   // Catch-up mode: press C to toggle catch-up speed
   if (e.key === 'c' || e.key === 'C') {
     e.preventDefault();
@@ -860,11 +930,13 @@ document.addEventListener('keydown', e => {
       vid.playbackRate = userConfig.catchUpSpeed || 1.5;
       speedBtn.textContent = vid.playbackRate + 'x';
       speedBtn.classList.add('catch-up-active');
+      dbg('ACTION', 'Catch-up mode ON', { speed: vid.playbackRate });
     } else {
       vid.playbackRate = 1.0;
       speedBtn.textContent = '1.0x';
       speedBtn.classList.remove('catch-up-active');
       speedIdx = 3;
+      dbg('ACTION', 'Catch-up mode OFF');
     }
     return;
   }
@@ -880,9 +952,10 @@ markOutBtn.onclick = handleMarkOut;
 
 function handleMarkIn() {
   if (vid.style.display === 'none') return;
-  if (markingIn) { cancelMarking(); return; }
+  if (markingIn) { dbg('ACTION', 'Mark IN cancelled (toggled off)'); cancelMarking(); return; }
 
   pendingInTime = vid.currentTime;
+  dbg('ACTION', 'Mark IN pressed', { currentTime: pendingInTime });
   markingIn = true;
   markInBtn.classList.add('active');
   markOutBtn.disabled = false;
@@ -892,14 +965,16 @@ function handleMarkIn() {
 
   const seekable = vid.seekable;
   markerState._seekableStart = seekable.length > 0 ? seekable.start(0) : 0;
+  dbg('MARK', 'IN set', { inTime: pendingInTime, seekableStart: markerState._seekableStart, seekableEnd: seekable.length > 0 ? seekable.end(seekable.length-1) : null, isLive, currentTime: vid.currentTime });
 }
 
 function handleMarkOut() {
   if (!markingIn || pendingInTime === null) return;
   const outTime = vid.currentTime;
-  if (outTime <= pendingInTime) { alert('OUT must be after IN.'); return; }
+  dbg('ACTION', 'Mark OUT pressed', { currentTime: outTime, inTime: pendingInTime });
+  if (outTime <= pendingInTime) { dbg('ACTION', 'Mark OUT rejected — before IN'); alert('OUT must be after IN.'); return; }
 
-  pendingClips.push({
+  const clipObj = {
     id: uid(),
     name: 'Clip ' + (pendingClips.length + completedClips.length + 1),
     caption: '',
@@ -908,8 +983,22 @@ function handleMarkOut() {
     m3u8Url: currentM3U8,
     isLive,
     seekableStart: markerState._seekableStart || 0,
-  });
-  renderPendingClips();
+  };
+  dbg('MARK', 'OUT set — clip created', { name: clipObj.name, inTime: clipObj.inTime, outTime: clipObj.outTime, duration: outTime - pendingInTime, seekableStart: clipObj.seekableStart, isLive, m3u8: currentM3U8?.slice(0, 80) });
+
+  if (batchModeActive) {
+    // Batch mode: store reference clip for test suite, do NOT add to pending list
+    window._batchTestClip = clipObj;
+    dbg('ACTION', 'Batch: IN/OUT captured for test suite', { inTime: clipObj.inTime, outTime: clipObj.outTime, duration: outTime - pendingInTime });
+    // Auto-open the test suite modal
+    if (window._batchTesting?.openTestSuiteModal) {
+      window._batchTesting.openTestSuiteModal(clipObj);
+    }
+  } else {
+    pendingClips.push(clipObj);
+    renderPendingClips();
+  }
+
   cancelMarking();
 }
 
@@ -999,12 +1088,12 @@ function renderPendingClips() {
     const btn = e.target.closest('[data-action], .clip-card-remove');
     if (!btn) return;
     const idx = parseInt(btn.dataset.idx);
-    if (btn.classList.contains('clip-card-remove')) { pendingClips.splice(idx, 1); renderPendingClips(); return; }
-    if (btn.dataset.action === 'download') downloadClip(idx);
-    if (btn.dataset.action === 'jumpin') vid.currentTime = pendingClips[idx].inTime;
-    if (btn.dataset.action === 'jumpout') vid.currentTime = pendingClips[idx].outTime;
-    if (btn.dataset.action === 'watermark') openWatermarkModal(idx);
-    if (btn.dataset.action === 'outro') openOutroModal(idx);
+    if (btn.classList.contains('clip-card-remove')) { dbg('ACTION', 'Remove clip', { idx, name: pendingClips[idx]?.name }); pendingClips.splice(idx, 1); renderPendingClips(); return; }
+    if (btn.dataset.action === 'download') { dbg('ACTION', 'Download clip clicked', { idx, name: pendingClips[idx]?.name }); downloadClip(idx); }
+    if (btn.dataset.action === 'jumpin') { dbg('ACTION', 'Jump to IN', { idx, time: pendingClips[idx]?.inTime }); vid.currentTime = pendingClips[idx].inTime; }
+    if (btn.dataset.action === 'jumpout') { dbg('ACTION', 'Jump to OUT', { idx, time: pendingClips[idx]?.outTime }); vid.currentTime = pendingClips[idx].outTime; }
+    if (btn.dataset.action === 'watermark') { dbg('ACTION', 'Open watermark modal', { idx }); openWatermarkModal(idx); }
+    if (btn.dataset.action === 'outro') { dbg('ACTION', 'Open outro modal', { idx }); openOutroModal(idx); }
   };
   list.oninput = e => {
     const idx = parseInt(e.target.dataset.idx);
@@ -1249,24 +1338,19 @@ async function downloadClip(idx) {
 
   if (!clip.m3u8Url) { alert('No stream URL for this clip.'); return; }
 
-  let startSec;
-  if (clip.isLive && isLive && vid.seekable.length > 0) {
-    const currentSeekableStart = vid.seekable.start(0);
-    startSec = clip.inTime - currentSeekableStart;
-    if (startSec < 0) {
-      const ok = confirm(
-        'Segments for the IN point may have expired from the live buffer.\n' +
-        'The clip may start later than expected.\n\nTry anyway?'
-      );
-      if (!ok) {
-        pendingClips.push(clip);
-        renderPendingClips();
-        return;
-      }
-      startSec = 0;
+  let startSec = clip.inTime - (clip.seekableStart || 0);
+  dbg('CLIP', 'Download initiated', { name: clip.name, inTime: clip.inTime, outTime: clip.outTime, seekableStart: clip.seekableStart, computedStartSec: startSec, isLive: clip.isLive });
+  if (startSec < 0) {
+    const ok = confirm(
+      'Segments for the IN point may have expired from the live buffer.\n' +
+      'The clip may start later than expected.\n\nTry anyway?'
+    );
+    if (!ok) {
+      pendingClips.push(clip);
+      renderPendingClips();
+      return;
     }
-  } else {
-    startSec = clip.inTime - (clip.seekableStart || 0);
+    startSec = 0;
   }
   const durationSec = clip.outTime - clip.inTime;
 
@@ -1284,7 +1368,7 @@ async function downloadClip(idx) {
   const ffmpegOptions = { ...userConfig.ffmpeg };
 
   try {
-    const result = await window.clipper.downloadClip({
+    const dlParams = {
       m3u8Url: clip.m3u8Url,
       startSec,
       durationSec,
@@ -1292,19 +1376,41 @@ async function downloadClip(idx) {
       watermark,
       outro,
       ffmpegOptions,
-    });
+    };
+
+    // Batch mode: add output dir override and manifest info
+    if (clip._batchMode) {
+      const cfg = userConfig.ffmpeg;
+      const folderParts = [cfg.videoCodec, cfg.preset, 'crf' + cfg.crf, cfg.audioCodec, cfg.audioBitrate];
+      if (cfg.hwaccel) folderParts.push('hw-' + cfg.hwaccel);
+      dlParams.batchOutputDir = folderParts.join('_');
+      dlParams.batchManifest = {
+        batchId: clip._batchId,
+        batchIndex: clip._batchIndex,
+        batchTotal: clip._batchTotal,
+        ffmpegConfig: { ...cfg },
+        hasWatermark: !!watermark,
+        hasOutro: !!outro,
+      };
+    }
+
+    dbg('CLIP', 'Sending to main process', { startSec: dlParams.startSec, durationSec: dlParams.durationSec, hasWatermark: !!watermark, hasOutro: !!outro, batch: !!clip._batchMode });
+    const result = await window.clipper.downloadClip(dlParams);
 
     downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
     renderDownloadingClips();
 
     if (result && result.success) {
-      completedClips.push({ id: clip.id, name: clip.name, caption: clip.caption,
+      dbg('CLIP', 'Download succeeded', { name: clip.name, filePath: result.filePath, fileSize: result.fileSize });
+      completedClips.unshift({ id: clip.id, name: clip.name, caption: clip.caption,
         filePath: result.filePath, fileName: result.fileName, fileSize: result.fileSize });
       renderCompletedClips();
     } else {
+      dbg('ERROR', 'Download failed', { name: clip.name, error: result?.error });
       alert('Download failed: ' + (result?.error || 'Unknown error'));
     }
   } catch (err) {
+    dbg('ERROR', 'Download exception', { name: clip.name, error: err.message });
     downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
     renderDownloadingClips();
     alert('Download error: ' + err.message);
@@ -1332,6 +1438,8 @@ function renderCompletedClips() {
     updateClipCount(); return;
   }
 
+  const showFfmpegLog = userConfig.devFeatures?.ffmpegLogs;
+
   list.innerHTML = completedClips.map((clip, idx) => `
     <div class="completed-card" draggable="true" data-path="${escAttr(clip.filePath)}">
       <span class="completed-card-icon">&#127916;</span>
@@ -1340,6 +1448,7 @@ function renderCompletedClips() {
         <div class="completed-card-meta">${escH(clip.fileName)} · ${fmtSize(clip.fileSize)}</div>
       </div>
       <div class="completed-card-actions">
+        ${showFfmpegLog ? `<button class="btn btn-ghost btn-xs ffmpeg-log-btn" data-action="ffmpeglog" data-idx="${idx}" title="View FFMPEG Log">&#128220;</button>` : ''}
         <button class="btn btn-ghost btn-xs" data-action="show" data-idx="${idx}">&#128193;</button>
       </div>
     </div>`).join('');
@@ -1349,7 +1458,10 @@ function renderCompletedClips() {
   });
   list.onclick = e => {
     const btn = e.target.closest('[data-action]');
-    if (btn && btn.dataset.action === 'show') window.clipper.showInFolder(completedClips[parseInt(btn.dataset.idx)].filePath);
+    if (!btn) return;
+    const ci = parseInt(btn.dataset.idx);
+    if (btn.dataset.action === 'show') { dbg('ACTION', 'Show in folder', { name: completedClips[ci]?.name }); window.clipper.showInFolder(completedClips[ci].filePath); }
+    if (btn.dataset.action === 'ffmpeglog') { dbg('ACTION', 'View FFMPEG log', { name: completedClips[ci]?.name }); window.clipper.openClipFfmpegLog(completedClips[ci].name); }
   };
 
   updateClipCount();
@@ -1516,6 +1628,14 @@ function openConfigModal() {
           </label>
         </div>
 
+        <!-- Dev Features -->
+        <div class="config-section" style="border:1px dashed #ef4444; border-radius:6px; padding:10px; margin-top:8px;">
+          <div class="config-section-title" style="color:#ef4444;">Developer Features <span style="font-weight:400;color:#71717a;">(FOR DEVELOPMENT PURPOSES)</span></div>
+          <p class="config-note">When enabled, press <kbd>B</kbd> to toggle batch mode. Creates N identical clips from a single IN/OUT for encoding comparison. Each batch outputs to a subfolder named after the ffmpeg config, with a manifest .txt documenting all commands.</p>
+          <label class="config-toggle"><input type="checkbox" id="cfgBatchEnabled" ${batchModeEnabled?'checked':''}> <span>Enable Batch Testing Mode</span></label>
+          <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgFfmpegLogs" ${cfg.devFeatures?.ffmpegLogs?'checked':''}> <span>Show "View FFMPEG Log" on completed clips</span></label>
+        </div>
+
       </div>
       <div class="wm-modal-actions">
         <button class="btn btn-ghost btn-sm" id="cfgClose">Close</button>
@@ -1616,10 +1736,18 @@ function openConfigModal() {
     universalOutro.enabled = overlay.querySelector('#cfgOutroEnabled').checked;
     universalOutro.filePath = overlay.querySelector('#cfgOutroPath').value.trim();
 
+    // Dev features
+    batchModeEnabled = overlay.querySelector('#cfgBatchEnabled').checked;
+    if (!batchModeEnabled) { batchModeActive = false; $('batchPanel').style.display = 'none'; }
+    if (!userConfig.devFeatures) userConfig.devFeatures = {};
+    userConfig.devFeatures.ffmpegLogs = overlay.querySelector('#cfgFfmpegLogs').checked;
+
+    dbg('ACTION', 'Settings saved', { videoCodec: userConfig.ffmpeg.videoCodec, hwaccel: userConfig.ffmpeg.hwaccel || 'none', catchUpSpeed: userConfig.catchUpSpeed, batchEnabled: batchModeEnabled, ffmpegLogs: userConfig.devFeatures.ffmpegLogs });
     await saveConfig();
     await saveUniversalConfigs();
     applyConfig();
     renderPendingClips();
+    renderCompletedClips();
     overlay.remove();
   };
 }
@@ -1765,13 +1893,14 @@ function openUniversalWatermarkModal() {
 
 /* ─── Settings ──────────────────────────────────────────────── */
 $('settingsBtn').onclick = $('outputPath').onclick = async () => {
+  dbg('ACTION', 'Choose clips directory');
   const d = await window.clipper.chooseClipsDir();
-  if (d) $('outputPath').textContent = d;
+  if (d) { dbg('ACTION', 'Clips directory changed', { path: d }); $('outputPath').textContent = d; }
 };
-$('openFolderBtn').onclick = $('openCompletedFolder').onclick = () => window.clipper.openClipsFolder();
+$('openFolderBtn').onclick = $('openCompletedFolder').onclick = () => { dbg('ACTION', 'Open clips folder'); window.clipper.openClipsFolder(); };
 
 // Config gear button
-$('configBtn').onclick = () => openConfigModal();
+$('configBtn').onclick = () => { dbg('ACTION', 'Open settings modal'); openConfigModal(); };
 
 /* ─── Initial renders ───────────────────────────────────────── */
 renderPendingClips();

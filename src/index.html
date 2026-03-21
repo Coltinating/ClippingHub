@@ -161,6 +161,15 @@
         <span class="marker-state-label">Ready to mark</span>
         <span class="marker-state-hint">Press <kbd>I</kbd> to set IN point during playback</span>
       </div>
+
+      <!-- Batch Testing Panel (dev only, hidden by default) -->
+      <div class="batch-panel" id="batchPanel" style="display:none">
+        <span class="batch-badge">BATCH MODE</span>
+        <label class="batch-field">Clips <input type="number" id="batchCount" value="5" min="1" max="50" class="batch-input batch-input-num"></label>
+        <label class="batch-field">Name <input type="text" id="batchNameScheme" value="test-clip" class="batch-input batch-input-name" placeholder="test-clip" spellcheck="false"></label>
+        <button class="batch-suite-btn" id="batchSuiteBtn">Test Suite</button>
+        <span class="batch-hint">IN/OUT to batch &mdash; <kbd>B</kbd> to exit</span>
+      </div>
     </div>
 
     <!-- Right: Clip Hub -->
@@ -219,6 +228,11 @@
 
 </div><!-- /app -->
 
+<!-- Debug toggle -->
+<button id="debugToggleBtn" title="Open Debug Log window">DEBUG</button>
+
+<link rel="stylesheet" href="batch/batch-testing.css">
 <script src="renderer.js"></script>
+<script src="batch/batch-testing.js"></script>
 </body>
 </html>
