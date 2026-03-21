@@ -73,6 +73,8 @@ let pendingInTime = null;
 let pendingClips = [];
 let downloadingClips = [];
 let completedClips = [];
+let activeDownloadId = null;   // id of clip currently being processed
+let repickState = null;        // { idx, field } when re-picking IN/OUT
 
 // Live DVR state
 let liveStartWall = null;
@@ -108,8 +110,10 @@ let userConfig = {
     audioBitrate: '192k',
   },
   keybinds: {
-    markIn: 'i',
-    markOut: 'o',
+    markIn: 'g',
+    markOut: 'k',
+    editIn: 'h',
+    editOut: 'j',
     playPause: ' ',
     seekBackSmall: 'ArrowLeft',
     seekForwardSmall: 'ArrowRight',
@@ -131,6 +135,7 @@ let userConfig = {
 
 // Universal watermark config (cached separately)
 let universalWatermark = null;
+let universalImageWatermark = null;
 // Universal outro config
 let universalOutro = { enabled: false, filePath: '' };
 
@@ -199,6 +204,7 @@ backBtn.onclick = () => { dbg('ACTION', 'Back to channel browser clicked'); show
   const savedWm = await window.clipper.loadWatermarkConfig();
   if (savedWm) {
     universalWatermark = savedWm.watermark || null;
+    universalImageWatermark = savedWm.imageWatermark || null;
     universalOutro = savedWm.outro || { enabled: false, filePath: '' };
   }
 
@@ -282,6 +288,7 @@ async function saveConfig() {
 async function saveUniversalConfigs() {
   await window.clipper.saveWatermarkConfig({
     watermark: universalWatermark,
+    imageWatermark: universalImageWatermark,
     outro: universalOutro,
   });
 }
@@ -839,16 +846,37 @@ function matchKeybind(e, bind) {
 
 document.addEventListener('keydown', e => {
   if (['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) return;
+
+  // Cancel re-pick mode on Escape
+  if (e.key === 'Escape' && repickState) {
+    repickState = null;
+    cancelMarking();
+    markerState.classList.remove('repicking');
+    return;
+  }
+
   const kb = userConfig.keybinds;
 
   // Play/Pause
-  if (matchKeybind(e, kb.playPause) || e.key === 'k') {
+  if (matchKeybind(e, kb.playPause)) {
     e.preventDefault(); togglePlay(); return;
   }
 
   // Mark IN/OUT
   if (matchKeybind(e, kb.markIn)) { e.preventDefault(); handleMarkIn(); return; }
   if (matchKeybind(e, kb.markOut)) { e.preventDefault(); handleMarkOut(); return; }
+
+  // Edit IN/OUT (re-pick most recent pending clip)
+  if (matchKeybind(e, kb.editIn) && pendingClips.length > 0) {
+    e.preventDefault();
+    enterRepickMode(pendingClips.length - 1, 'inTime');
+    return;
+  }
+  if (matchKeybind(e, kb.editOut) && pendingClips.length > 0) {
+    e.preventDefault();
+    enterRepickMode(pendingClips.length - 1, 'outTime');
+    return;
+  }
 
   // Seek — large (Ctrl+Arrow)
   if (matchKeybind(e, kb.seekBackLarge)) {
@@ -954,6 +982,17 @@ markOutBtn.onclick = handleMarkOut;
 
 function handleMarkIn() {
   if (vid.style.display === 'none') return;
+  // Re-pick mode: block normal IN logic for ANY repick state
+  if (repickState) {
+    if (repickState.field === 'inTime') {
+      pendingClips[repickState.idx].inTime = vid.currentTime;
+      dbg('ACTION', 'Re-picked IN', { idx: repickState.idx, newTime: vid.currentTime });
+      repickState = null;
+      cancelMarking();
+      renderPendingClips();
+    }
+    return;  // Block normal IN logic for ANY repick state
+  }
   if (markingIn) { dbg('ACTION', 'Mark IN cancelled (toggled off)'); cancelMarking(); return; }
 
   pendingInTime = vid.currentTime;
@@ -971,6 +1010,15 @@ function handleMarkIn() {
 }
 
 function handleMarkOut() {
+  // Re-pick mode: update existing clip's OUT time
+  if (repickState && repickState.field === 'outTime') {
+    pendingClips[repickState.idx].outTime = vid.currentTime;
+    dbg('ACTION', 'Re-picked OUT', { idx: repickState.idx, newTime: vid.currentTime });
+    repickState = null;
+    cancelMarking();
+    renderPendingClips();
+    return;
+  }
   if (!markingIn || pendingInTime === null) return;
   const outTime = vid.currentTime;
   dbg('ACTION', 'Mark OUT pressed', { currentTime: outTime, inTime: pendingInTime });
@@ -1009,6 +1057,7 @@ function cancelMarking() {
   markInBtn.classList.remove('active');
   markOutBtn.disabled = true;
   markerState.classList.remove('marking');
+  markerState.classList.remove('repicking');
   markerState.querySelector('.marker-state-label').textContent = 'Ready to mark';
   markerState.querySelector('.marker-state-hint').innerHTML = 'Press <kbd>I</kbd> to set IN point during playback';
   markerState._seekableStart = null;
@@ -1068,8 +1117,8 @@ function renderPendingClips() {
         <button class="clip-card-remove" data-idx="${idx}">&times;</button>
       </div>
       <div class="clip-card-times">
-        <span><span class="label">IN</span> <span class="in-val">${fmtHMS(clip.inTime)}</span></span>
-        <span><span class="label">OUT</span> <span class="out-val">${fmtHMS(clip.outTime)}</span></span>
+        <span><span class="label">IN</span> <span class="in-val timestamp-editable" data-field="inTime" data-idx="${idx}" title="Click to edit">${fmtHMS(clip.inTime)}</span><button class="repick-btn" data-action="repickIn" data-idx="${idx}" title="Re-pick IN from video">&#9998;</button></span>
+        <span><span class="label">OUT</span> <span class="out-val timestamp-editable" data-field="outTime" data-idx="${idx}" title="Click to edit">${fmtHMS(clip.outTime)}</span><button class="repick-btn" data-action="repickOut" data-idx="${idx}" title="Re-pick OUT from video">&#9998;</button></span>
         <span><span class="label">DUR</span> <span class="dur-val">${fmtDur(clip.outTime - clip.inTime)}</span></span>
       </div>
       <textarea class="clip-card-caption" data-idx="${idx}" placeholder="Caption / summary idea..." rows="1">${escH(clip.caption)}</textarea>
@@ -1077,9 +1126,9 @@ function renderPendingClips() {
         <button class="btn btn-success btn-xs" data-action="download" data-idx="${idx}">&#11015; Download</button>
         ${btns.jumpToIn ? `<button class="btn btn-ghost btn-xs" data-action="jumpin" data-idx="${idx}">Jump to IN</button>` : ''}
         ${btns.jumpToEnd ? `<button class="btn btn-ghost btn-xs" data-action="jumpout" data-idx="${idx}">Jump to OUT</button>` : ''}
-        ${btns.watermark ? `<button class="btn btn-accent btn-xs wm-btn-icon" data-action="watermark" data-idx="${idx}" title="Watermark${clip.watermark ? ' (configured)' : ''}">
+        ${btns.watermark ? `<button class="btn btn-accent btn-xs wm-btn-icon" data-action="watermark" data-idx="${idx}" title="Watermark${(clip.watermark || clip.imageWatermark) ? ' (configured)' : ''}">
           <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-          ${clip.watermark ? '<span class="wm-dot"></span>' : ''}
+          ${(clip.watermark || clip.imageWatermark) ? '<span class="wm-dot"></span>' : ''}
         </button>` : ''}
         ${btns.appendOutro ? `<button class="btn btn-ghost btn-xs" data-action="outro" data-idx="${idx}" title="Add Outro${clip.outro ? ' (set)' : ''}">Add Outro${clip.outro ? ' *' : ''}</button>` : ''}
       </div>
@@ -1087,6 +1136,10 @@ function renderPendingClips() {
   `).join('');
 
   list.onclick = e => {
+    // Handle timestamp click-to-edit
+    const tsEl = e.target.closest('.timestamp-editable');
+    if (tsEl) { startInlineTimestampEdit(tsEl, parseInt(tsEl.dataset.idx), tsEl.dataset.field); return; }
+
     const btn = e.target.closest('[data-action], .clip-card-remove');
     if (!btn) return;
     const idx = parseInt(btn.dataset.idx);
@@ -1096,6 +1149,8 @@ function renderPendingClips() {
     if (btn.dataset.action === 'jumpout') { dbg('ACTION', 'Jump to OUT', { idx, time: pendingClips[idx]?.outTime }); vid.currentTime = pendingClips[idx].outTime; }
     if (btn.dataset.action === 'watermark') { dbg('ACTION', 'Open watermark modal', { idx }); openWatermarkModal(idx); }
     if (btn.dataset.action === 'outro') { dbg('ACTION', 'Open outro modal', { idx }); openOutroModal(idx); }
+    if (btn.dataset.action === 'repickIn') { enterRepickMode(idx, 'inTime'); }
+    if (btn.dataset.action === 'repickOut') { enterRepickMode(idx, 'outTime'); }
   };
   list.oninput = e => {
     const idx = parseInt(e.target.dataset.idx);
@@ -1105,6 +1160,57 @@ function renderPendingClips() {
   };
 
   updateClipCount();
+  syncHubState();
+}
+
+/* ─── Inline Timestamp Editing ─────────────────────────────────── */
+function startInlineTimestampEdit(el, idx, field) {
+  const clip = pendingClips[idx];
+  if (!clip) return;
+  const currentVal = fmtHMS(clip[field]);
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = currentVal;
+  input.className = 'timestamp-edit-input';
+  el.replaceWith(input);
+  input.focus();
+  input.select();
+
+  function commit() {
+    const val = input.value.trim();
+    const parts = val.split(':').map(Number);
+    let seconds;
+    if (parts.length === 3) seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
+    else if (parts.length === 2) seconds = parts[0] * 60 + parts[1];
+    else seconds = parseFloat(val);
+    if (!isNaN(seconds) && seconds >= 0) {
+      clip[field] = seconds;
+      dbg('ACTION', `Edited ${field}`, { idx, newValue: seconds, formatted: fmtHMS(seconds) });
+    }
+    renderPendingClips();
+  }
+  let committed = false;
+  input.onblur = () => { if (!committed) { committed = true; commit(); } };
+  input.onkeydown = e => {
+    if (e.key === 'Enter') { e.preventDefault(); committed = true; commit(); }
+    if (e.key === 'Escape') { renderPendingClips(); }
+  };
+}
+
+/* ─── Re-pick Mode ─────────────────────────────────────────────── */
+function enterRepickMode(idx, field) {
+  const clip = pendingClips[idx];
+  if (!clip) return;
+  repickState = { idx, field };
+  if (field === 'outTime') markOutBtn.disabled = false;
+  dbg('ACTION', `Enter re-pick mode for ${field}`, { idx, clipName: clip.name });
+  markerState.style.display = '';
+  markerState.classList.remove('marking');
+  markerState.classList.add('repicking');
+  markerState.querySelector('.marker-state-label').textContent =
+    `Re-picking ${field === 'inTime' ? 'IN' : 'OUT'} for "${clip.name}"`;
+  markerState.querySelector('.marker-state-hint').innerHTML =
+    `Navigate to the desired point, then press <kbd>${field === 'inTime' ? userConfig.keybinds.markIn.toUpperCase() : userConfig.keybinds.markOut.toUpperCase()}</kbd> · <kbd>Esc</kbd> to cancel`;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1117,10 +1223,19 @@ function openWatermarkModal(idx) {
   const old = document.querySelector('.wm-modal-overlay');
   if (old) old.remove();
 
-  // Start with clip-specific watermark, fall back to universal, fall back to defaults
+  // Determine initial mode: image if clip has imageWatermark, else text
+  const hasImgWm = !!clip.imageWatermark;
+  const initMode = hasImgWm ? 'image' : 'text';
+
+  // Text watermark defaults
   const wm = clip.watermark || universalWatermark || {
     text: '', fontFamily: 'Arial', fontSize: 48, opacity: 0.7,
     color: '#ffffff', position: 'bottom-right'
+  };
+
+  // Image watermark defaults
+  const iwm = clip.imageWatermark || universalImageWatermark || {
+    imagePath: '', opacity: 0.7, position: 'bottom-right', width: '', height: ''
   };
 
   const overlay = document.createElement('div');
@@ -1129,33 +1244,52 @@ function openWatermarkModal(idx) {
     <div class="wm-modal">
       <div class="wm-modal-title">Watermark Settings</div>
       <div class="wm-modal-body">
-        <label class="wm-label">Text
-          <input class="wm-input" id="wmText" type="text" value="${escAttr(wm.text)}" placeholder="Your watermark text..." autofocus>
-        </label>
-        <div class="wm-row">
-          <label class="wm-label wm-half">Font
-            <select class="wm-select" id="wmFont">
-              ${['Arial','Impact','Georgia','Courier New','Verdana','Tahoma','Trebuchet MS','Comic Sans MS'].map(f =>
-                `<option value="${f}"${wm.fontFamily===f?' selected':''}>${f}</option>`
-              ).join('')}
-            </select>
-          </label>
-          <label class="wm-label wm-half">Color
-            <input class="wm-color" id="wmColor" type="color" value="${wm.color}">
-          </label>
+        <div class="wm-type-toggle">
+          <button class="wm-type-btn${initMode==='text'?' active':''}" data-type="text">Text</button>
+          <button class="wm-type-btn${initMode==='image'?' active':''}" data-type="image">Image</button>
         </div>
-        <div class="wm-row">
-          <label class="wm-label wm-half">Size <span class="wm-val" id="wmSizeVal">${wm.fontSize}px</span>
-            <input class="wm-range" id="wmSize" type="range" min="16" max="120" value="${wm.fontSize}">
+
+        <div id="wmTextFields" style="display:${initMode==='text'?'block':'none'}">
+          <label class="wm-label">Text
+            <input class="wm-input" id="wmText" type="text" value="${escAttr(wm.text)}" placeholder="Your watermark text...">
           </label>
-          <label class="wm-label wm-half">Opacity <span class="wm-val" id="wmOpacityVal">${Math.round(wm.opacity*100)}%</span>
-            <input class="wm-range" id="wmOpacity" type="range" min="10" max="100" value="${Math.round(wm.opacity*100)}">
-          </label>
+          <div class="wm-row">
+            <label class="wm-label wm-half">Font
+              <select class="wm-select" id="wmFont">
+                ${['Arial','Impact','Georgia','Courier New','Verdana','Tahoma','Trebuchet MS','Comic Sans MS'].map(f =>
+                  `<option value="${f}"${wm.fontFamily===f?' selected':''}>${f}</option>`
+                ).join('')}
+              </select>
+            </label>
+            <label class="wm-label wm-half">Color
+              <input class="wm-color" id="wmColor" type="color" value="${wm.color}">
+            </label>
+          </div>
+          <div class="wm-row">
+            <label class="wm-label wm-half">Size <span class="wm-val" id="wmSizeVal">${wm.fontSize}px</span>
+              <input class="wm-range" id="wmSize" type="range" min="16" max="120" value="${wm.fontSize}">
+            </label>
+          </div>
         </div>
+
+        <div id="wmImageFields" style="display:${initMode==='image'?'block':'none'}">
+          <label class="wm-label">Image File</label>
+          <div class="wm-row" style="gap:8px; align-items:center;">
+            <button class="btn btn-accent btn-sm" id="wmChooseImage">Choose Image...</button>
+            <span class="wm-val" id="wmImageName" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${iwm.imagePath ? iwm.imagePath.split(/[/\\]/).pop() : 'No image selected'}</span>
+          </div>
+          <input type="hidden" id="wmImagePath" value="${escAttr(iwm.imagePath || '')}">
+          <label class="wm-label">Scale <span class="wm-val" id="wmScaleVal">${Math.round((iwm.scale || 1) * 100)}%</span></label>
+          <input class="wm-range" id="wmScale" type="range" min="10" max="200" value="${Math.round((iwm.scale || 1) * 100)}">
+        </div>
+
+        <label class="wm-label">Opacity <span class="wm-val" id="wmOpacityVal">${Math.round((initMode==='image'?iwm.opacity:wm.opacity)*100)}%</span></label>
+        <input class="wm-range" id="wmOpacity" type="range" min="10" max="100" value="${Math.round((initMode==='image'?iwm.opacity:wm.opacity)*100)}">
+
         <label class="wm-label">Position</label>
-        <div class="wm-position-grid" id="wmPosGrid">
+        <div class="wm-position-grid${initMode==='image'?' wm-pos-corners':''}" id="wmPosGrid">
           ${['top-left','top-center','top-right','center-left','center','center-right','bottom-left','bottom-center','bottom-right'].map(pos =>
-            `<button class="wm-pos${wm.position===pos?' active':''}" data-pos="${pos}">${
+            `<button class="wm-pos${(initMode==='image'?iwm.position:wm.position)===pos?' active':''}" data-pos="${pos}">${
               {
                 'top-left':'&#8598;','top-center':'&#8593;','top-right':'&#8599;',
                 'center-left':'&#8592;','center':'&#9679;','center-right':'&#8594;',
@@ -1164,9 +1298,11 @@ function openWatermarkModal(idx) {
             }</button>`
           ).join('')}
         </div>
+
         <div class="wm-preview-wrap">
           <div class="wm-preview" id="wmPreview">
-            <span class="wm-preview-text" id="wmPreviewText">${escH(wm.text || 'Preview')}</span>
+            <span class="wm-preview-text" id="wmPreviewText" style="display:${initMode==='text'?'block':'none'}">${escH(wm.text || 'Preview')}</span>
+            <span class="wm-preview-img" id="wmPreviewImg" style="display:${initMode==='image'?'block':'none'}; position:absolute; font-size:10px; color:var(--green); opacity:0.8;">IMG</span>
           </div>
         </div>
       </div>
@@ -1181,33 +1317,71 @@ function openWatermarkModal(idx) {
   `;
   document.body.appendChild(overlay);
 
+  let currentMode = initMode;
   const txtIn = overlay.querySelector('#wmText');
   const fontSel = overlay.querySelector('#wmFont');
   const colorIn = overlay.querySelector('#wmColor');
   const sizeIn = overlay.querySelector('#wmSize');
   const opacIn = overlay.querySelector('#wmOpacity');
   const prevText = overlay.querySelector('#wmPreviewText');
+  const prevImg = overlay.querySelector('#wmPreviewImg');
   const posGrid = overlay.querySelector('#wmPosGrid');
+  const imgPathIn = overlay.querySelector('#wmImagePath');
+  const imgNameEl = overlay.querySelector('#wmImageName');
 
-  let selectedPos = wm.position;
+  let selectedPos = (initMode === 'image' ? iwm.position : wm.position) || 'bottom-right';
+
+  // ── Type toggle ──
+  overlay.querySelectorAll('.wm-type-btn').forEach(btn => {
+    btn.onclick = () => {
+      overlay.querySelectorAll('.wm-type-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentMode = btn.dataset.type;
+      overlay.querySelector('#wmTextFields').style.display = currentMode === 'text' ? 'block' : 'none';
+      overlay.querySelector('#wmImageFields').style.display = currentMode === 'image' ? 'block' : 'none';
+      prevText.style.display = currentMode === 'text' ? 'block' : 'none';
+      prevImg.style.display = currentMode === 'image' ? 'block' : 'none';
+      posGrid.classList.toggle('wm-pos-corners', currentMode === 'image');
+      updatePreview();
+    };
+  });
+
+  // ── Image picker ──
+  overlay.querySelector('#wmChooseImage').onclick = async () => {
+    const result = await window.clipper.chooseWatermarkImage();
+    if (result && result.success) {
+      imgPathIn.value = result.filePath;
+      imgNameEl.textContent = result.filePath.split(/[/\\]/).pop();
+    }
+  };
 
   function updatePreview() {
-    const txt = txtIn.value || 'Preview';
-    prevText.textContent = txt;
-    prevText.style.fontFamily = fontSel.value;
-    prevText.style.fontSize = sizeIn.value / 2 + 'px';
-    prevText.style.color = colorIn.value;
-    prevText.style.opacity = opacIn.value / 100;
-    overlay.querySelector('#wmSizeVal').textContent = sizeIn.value + 'px';
-    overlay.querySelector('#wmOpacityVal').textContent = opacIn.value + '%';
+    opacIn && (overlay.querySelector('#wmOpacityVal').textContent = opacIn.value + '%');
+    if (sizeIn) overlay.querySelector('#wmSizeVal').textContent = sizeIn.value + 'px';
+    const scaleEl = overlay.querySelector('#wmScaleVal');
+    const scaleIn = overlay.querySelector('#wmScale');
+    if (scaleEl && scaleIn) scaleEl.textContent = scaleIn.value + '%';
 
-    prevText.style.position = 'absolute';
+    if (currentMode === 'text') {
+      const txt = txtIn.value || 'Preview';
+      prevText.textContent = txt;
+      prevText.style.fontFamily = fontSel.value;
+      prevText.style.fontSize = sizeIn.value / 2 + 'px';
+      prevText.style.color = colorIn.value;
+      prevText.style.opacity = opacIn.value / 100;
+    } else {
+      prevImg.style.opacity = opacIn.value / 100;
+    }
+
+    // Position the active preview element
+    const el = currentMode === 'text' ? prevText : prevImg;
+    el.style.position = 'absolute';
     const [vy, vx] = selectedPos.includes('-') ? selectedPos.split('-') : ['center', selectedPos === 'center' ? 'center' : selectedPos];
-    prevText.style.top = vy === 'top' ? '8px' : vy === 'bottom' ? '' : '50%';
-    prevText.style.bottom = vy === 'bottom' ? '8px' : '';
-    prevText.style.left = vx === 'left' ? '8px' : vx === 'center' ? '50%' : '';
-    prevText.style.right = vx === 'right' ? '8px' : '';
-    prevText.style.transform = (vy === 'center' && vx === 'center') ? 'translate(-50%,-50%)'
+    el.style.top = vy === 'top' ? '8px' : vy === 'bottom' ? '' : '50%';
+    el.style.bottom = vy === 'bottom' ? '8px' : '';
+    el.style.left = vx === 'left' ? '8px' : vx === 'center' ? '50%' : '';
+    el.style.right = vx === 'right' ? '8px' : '';
+    el.style.transform = (vy === 'center' && vx === 'center') ? 'translate(-50%,-50%)'
       : vy === 'center' ? 'translateY(-50%)' : vx === 'center' ? 'translateX(-50%)' : 'none';
   }
 
@@ -1216,6 +1390,8 @@ function openWatermarkModal(idx) {
   colorIn.oninput = updatePreview;
   sizeIn.oninput = updatePreview;
   opacIn.oninput = updatePreview;
+  const scaleSlider = overlay.querySelector('#wmScale');
+  if (scaleSlider) scaleSlider.oninput = updatePreview;
 
   posGrid.onclick = e => {
     const btn = e.target.closest('[data-pos]');
@@ -1233,23 +1409,41 @@ function openWatermarkModal(idx) {
 
   overlay.querySelector('#wmClear').onclick = () => {
     delete pendingClips[idx].watermark;
+    delete pendingClips[idx].imageWatermark;
     overlay.remove();
     renderPendingClips();
   };
 
   overlay.querySelector('#wmApply').onclick = () => {
-    const text = txtIn.value.trim();
-    if (!text) {
-      delete pendingClips[idx].watermark;
+    if (currentMode === 'text') {
+      const text = txtIn.value.trim();
+      if (!text) {
+        delete pendingClips[idx].watermark;
+      } else {
+        pendingClips[idx].watermark = {
+          text,
+          fontFamily: fontSel.value,
+          fontSize: parseInt(sizeIn.value),
+          opacity: parseInt(opacIn.value) / 100,
+          color: colorIn.value,
+          position: selectedPos
+        };
+      }
+      delete pendingClips[idx].imageWatermark;
     } else {
-      pendingClips[idx].watermark = {
-        text,
-        fontFamily: fontSel.value,
-        fontSize: parseInt(sizeIn.value),
-        opacity: parseInt(opacIn.value) / 100,
-        color: colorIn.value,
-        position: selectedPos
-      };
+      const imagePath = imgPathIn.value.trim();
+      if (!imagePath) {
+        delete pendingClips[idx].imageWatermark;
+      } else {
+        const scaleVal = parseInt(overlay.querySelector('#wmScale').value) / 100;
+        pendingClips[idx].imageWatermark = {
+          imagePath,
+          opacity: parseInt(opacIn.value) / 100,
+          position: selectedPos,
+          ...(scaleVal && scaleVal !== 1 ? { scale: scaleVal } : {}),
+        };
+      }
+      delete pendingClips[idx].watermark;
     }
     overlay.remove();
     renderPendingClips();
@@ -1331,11 +1525,10 @@ function openOutroModal(idx) {
   };
 }
 
-/* ─── Downloading (CLIPPER'S EXACT LOGIC + watermark/outro) ── */
-async function downloadClip(idx) {
+/* ─── Downloading (queue-based, with cancel/pause) ────────── */
+function downloadClip(idx) {
   const clip = pendingClips.splice(idx, 1)[0];
   if (!clip) return;
-
   renderPendingClips();
 
   if (!clip.m3u8Url) { alert('No stream URL for this clip.'); return; }
@@ -1347,35 +1540,38 @@ async function downloadClip(idx) {
       'Segments for the IN point may have expired from the live buffer.\n' +
       'The clip may start later than expected.\n\nTry anyway?'
     );
-    if (!ok) {
-      pendingClips.push(clip);
-      renderPendingClips();
-      return;
-    }
+    if (!ok) { pendingClips.push(clip); renderPendingClips(); return; }
     startSec = 0;
   }
   const durationSec = clip.outTime - clip.inTime;
 
-  const dl = { id: clip.id, name: clip.name, progress: 0 };
+  const dl = { id: clip.id, name: clip.name, progress: 0, clip, startSec, durationSec };
   downloadingClips.push(dl);
   renderDownloadingClips();
+  processDownloadQueue();
+}
 
-  // Determine watermark: clip-specific > universal
+async function processDownloadQueue() {
+  if (activeDownloadId) return;
+  const next = downloadingClips.find(dl => dl.progress === 0);
+  if (!next) return;
+
+  activeDownloadId = next.id;
+  const clip = next.clip;
+
   const watermark = clip.watermark || universalWatermark || null;
-
-  // Determine outro: clip-specific > universal (if enabled)
+  const imageWatermark = clip.imageWatermark || universalImageWatermark || null;
   const outro = clip.outro || (universalOutro.enabled && universalOutro.filePath ? universalOutro : null);
-
-  // FFmpeg options from config
   const ffmpegOptions = { ...userConfig.ffmpeg };
 
   try {
     const dlParams = {
       m3u8Url: clip.m3u8Url,
-      startSec,
-      durationSec,
+      startSec: next.startSec,
+      durationSec: next.durationSec,
       clipName: clip.name,
       watermark,
+      imageWatermark,
       outro,
       ffmpegOptions,
       keepTempFiles: userConfig.devFeatures?.keepTempFiles || false,
@@ -1389,50 +1585,116 @@ async function downloadClip(idx) {
       if (cfg.hwaccel) folderParts.push('hw-' + cfg.hwaccel);
       dlParams.batchOutputDir = folderParts.join('_');
       dlParams.batchManifest = {
-        batchId: clip._batchId,
-        batchIndex: clip._batchIndex,
-        batchTotal: clip._batchTotal,
-        ffmpegConfig: { ...cfg },
-        hasWatermark: !!watermark,
-        hasOutro: !!outro,
+        batchId: clip._batchId, batchIndex: clip._batchIndex, batchTotal: clip._batchTotal,
+        ffmpegConfig: { ...cfg }, hasWatermark: !!watermark, hasOutro: !!outro,
       };
     }
 
     dbg('CLIP', 'Sending to main process', { startSec: dlParams.startSec, durationSec: dlParams.durationSec, hasWatermark: !!watermark, hasOutro: !!outro, batch: !!clip._batchMode });
     const result = await window.clipper.downloadClip(dlParams);
-
-    downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
-    renderDownloadingClips();
+    activeDownloadId = null;
 
     if (result && result.success) {
+      downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
+      renderDownloadingClips();
       dbg('CLIP', 'Download succeeded', { name: clip.name, filePath: result.filePath, fileSize: result.fileSize });
-      completedClips.unshift({ id: clip.id, name: clip.name, caption: clip.caption,
-        filePath: result.filePath, fileName: result.fileName, fileSize: result.fileSize });
+      completedClips.unshift({
+        id: clip.id, name: clip.name, caption: clip.caption,
+        filePath: result.filePath, displayPath: result.displayPath, fileName: result.fileName, fileSize: result.fileSize,
+        // Preserve timing for Re-Stage
+        inTime: clip.inTime, outTime: clip.outTime, m3u8Url: clip.m3u8Url,
+        isLive: clip.isLive, seekableStart: clip.seekableStart,
+      });
       renderCompletedClips();
+    } else if (result && result.cancelled) {
+      downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
+      renderDownloadingClips();
+      dbg('CLIP', 'Download cancelled by user', { name: clip.name });
     } else {
+      downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
+      renderDownloadingClips();
       dbg('ERROR', 'Download failed', { name: clip.name, error: result?.error });
       alert('Download failed: ' + (result?.error || 'Unknown error'));
     }
   } catch (err) {
     dbg('ERROR', 'Download exception', { name: clip.name, error: err.message });
     downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
+    activeDownloadId = null;
     renderDownloadingClips();
     alert('Download error: ' + err.message);
   }
+
+  // Process next in queue
+  processDownloadQueue();
 }
 
 function renderDownloadingClips() {
   const list = $('downloadingClipList');
-  list.innerHTML = downloadingClips.length === 0
-    ? '<div class="empty-state"><small>Clips being processed will appear here</small></div>'
-    : downloadingClips.map(dl => `
-        <div class="download-card">
+
+  if (downloadingClips.length === 0) {
+    list.innerHTML = '<div class="empty-state"><small>Clips being processed will appear here</small></div>';
+    updateClipCount(); syncHubState(); return;
+  }
+
+  // Remove empty state if present
+  const empty = list.querySelector('.empty-state');
+  if (empty) empty.remove();
+
+  // Remove cards for clips no longer downloading
+  const currentIds = new Set(downloadingClips.map(dl => dl.id));
+  list.querySelectorAll('.download-card').forEach(card => {
+    if (!currentIds.has(card.dataset.clipId)) card.remove();
+  });
+
+  // Update or create cards
+  downloadingClips.forEach(dl => {
+    let card = list.querySelector(`.download-card[data-clip-id="${dl.id}"]`);
+    if (card) {
+      // IN-PLACE UPDATE — only touch progress bar and text
+      const fill = card.querySelector('.download-progress-fill');
+      if (fill) fill.style.width = dl.progress + '%';
+      const text = card.querySelector('.download-progress-text');
+      if (text) text.textContent = dl.progress + '% \u2014 processing with ffmpeg...';
+    } else {
+      // CREATE new card (with one-time fadeIn)
+      card = document.createElement('div');
+      card.className = 'download-card';
+      card.dataset.clipId = dl.id;
+      card.innerHTML = `
+        <div class="download-card-header">
           <div class="download-card-name">${escH(dl.name)}</div>
-          <div class="download-progress"><div class="download-progress-fill" style="width:${dl.progress}%"></div></div>
-          <div class="download-progress-text">${dl.progress}% — processing with ffmpeg...</div>
-        </div>`).join('');
-  updateClipCount();
+        </div>
+        <div class="download-progress"><div class="download-progress-fill" style="width:${dl.progress}%"></div></div>
+        <div class="download-progress-text">${dl.progress}% \u2014 processing with ffmpeg...</div>
+        <div class="download-card-actions">
+          <button class="btn btn-danger btn-xs dl-cancel-btn" data-id="${dl.id}">\u2715 Cancel</button>
+        </div>`;
+      card.style.animation = 'fadeIn 0.15s ease';
+      list.appendChild(card);
+    }
+  });
+
+  updateClipCount(); syncHubState();
 }
+
+// ONE-TIME event delegation for downloading list (wired after DOM ready)
+document.addEventListener('DOMContentLoaded', () => {
+  $('downloadingClipList').addEventListener('click', e => {
+    const cancelBtn = e.target.closest('.dl-cancel-btn');
+    if (cancelBtn) {
+      const id = cancelBtn.dataset.id;
+      const dl = downloadingClips.find(d => d.id === id);
+      if (dl) {
+        dbg('ACTION', 'Cancel download', { name: dl.name });
+        window.clipper.cancelClip(dl.name);
+        downloadingClips = downloadingClips.filter(d => d.id !== id);
+        if (activeDownloadId === id) activeDownloadId = null;
+        renderDownloadingClips();
+        processDownloadQueue();
+      }
+    }
+  });
+});
 
 /* ─── Completed ─────────────────────────────────────────────── */
 function renderCompletedClips() {
@@ -1445,13 +1707,14 @@ function renderCompletedClips() {
   const showFfmpegLog = userConfig.devFeatures?.ffmpegLogs;
 
   list.innerHTML = completedClips.map((clip, idx) => `
-    <div class="completed-card" draggable="true" data-path="${escAttr(clip.filePath)}">
+    <div class="completed-card" draggable="true" data-path="${escAttr(clip.displayPath || clip.filePath)}">
       <span class="completed-card-icon">&#127916;</span>
       <div class="completed-card-info">
         <div class="completed-card-name">${escH(clip.name)}</div>
         <div class="completed-card-meta">${escH(clip.fileName)} · ${fmtSize(clip.fileSize)}</div>
       </div>
       <div class="completed-card-actions">
+        ${clip.m3u8Url ? `<button class="btn btn-ghost btn-xs restage-btn" data-action="restage" data-idx="${idx}" title="Send back to Pending">Re-Stage</button>` : ''}
         ${showFfmpegLog ? `<button class="btn btn-ghost btn-xs ffmpeg-log-btn" data-action="ffmpeglog" data-idx="${idx}" title="View FFMPEG Log">&#128220;</button>` : ''}
         <button class="btn btn-ghost btn-xs" data-action="show" data-idx="${idx}">&#128193;</button>
       </div>
@@ -1466,15 +1729,221 @@ function renderCompletedClips() {
     const ci = parseInt(btn.dataset.idx);
     if (btn.dataset.action === 'show') { dbg('ACTION', 'Show in folder', { name: completedClips[ci]?.name }); window.clipper.showInFolder(completedClips[ci].filePath); }
     if (btn.dataset.action === 'ffmpeglog') { dbg('ACTION', 'View FFMPEG log', { name: completedClips[ci]?.name }); window.clipper.openClipFfmpegLog(completedClips[ci].name); }
+    if (btn.dataset.action === 'restage') { showRestageConfirmation(ci, completedClips[ci]); }
   };
 
   updateClipCount();
+  syncHubState();
 }
 
 function updateClipCount() {
   const n = pendingClips.length + downloadingClips.length + completedClips.length;
   $('clipCount').textContent = n + (n === 1 ? ' clip' : ' clips');
 }
+
+/* ─── Re-Stage Confirmation ────────────────────────────────────── */
+function showRestageConfirmation(idx, clip) {
+  if (!clip || !clip.m3u8Url) {
+    alert('Cannot re-stage: original stream data not available for this clip.');
+    return;
+  }
+  const overlay = document.createElement('div');
+  overlay.className = 'wm-modal-overlay';
+  overlay.innerHTML = `
+    <div class="wm-modal" style="width:380px;">
+      <div class="wm-modal-title">Re-Stage Clip?</div>
+      <div class="wm-modal-body">
+        <p style="color: var(--text-secondary); font-size: 12px;">
+          This will move <strong>${escH(clip.name)}</strong> back to Pending
+          and <strong style="color:var(--red)">delete the downloaded file</strong>.
+        </p>
+        <p style="color: var(--dim); font-size: 11px; margin-top: 4px;">
+          ${escH(clip.fileName)} (${fmtSize(clip.fileSize)})
+        </p>
+      </div>
+      <div class="wm-modal-actions">
+        <button class="btn btn-ghost btn-sm" id="restageCancel">Cancel</button>
+        <button class="btn btn-danger btn-sm" id="restageConfirm">Delete &amp; Re-Stage</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#restageCancel').onclick = () => overlay.remove();
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  overlay.querySelector('#restageConfirm').onclick = async () => {
+    dbg('ACTION', 'Re-stage confirmed', { name: clip.name });
+    await window.clipper.deleteClipFile(clip.filePath);
+    pendingClips.push({
+      id: uid(), name: clip.name, caption: clip.caption || '',
+      inTime: clip.inTime, outTime: clip.outTime,
+      m3u8Url: clip.m3u8Url, isLive: clip.isLive,
+      seekableStart: clip.seekableStart || 0,
+    });
+    completedClips.splice(idx, 1);
+    renderPendingClips();
+    renderCompletedClips();
+    overlay.remove();
+  };
+}
+
+/* ─── Clear Completed ──────────────────────────────────────────── */
+$('clearCompleted').onclick = () => {
+  if (completedClips.length === 0) return;
+  dbg('ACTION', 'Clear all completed clips');
+  completedClips = [];
+  renderCompletedClips();
+};
+
+/* ─── Hub Detach / Sync ────────────────────────────────────────── */
+$('detachHubBtn').onclick = async () => {
+  dbg('ACTION', 'Detach hub window');
+  await window.clipper.openHubWindow();
+  $('hubSection').classList.add('detached');
+  syncHubState();
+};
+
+window.clipper.onHubReattached(() => {
+  dbg('ACTION', 'Hub window closed, re-attaching');
+  $('hubSection').classList.remove('detached');
+});
+
+function syncHubState() {
+  try {
+    window.clipper.sendHubStateUpdate({
+      pendingClips: pendingClips.map(c => ({
+        id: c.id, name: c.name, caption: c.caption,
+        inTime: c.inTime, outTime: c.outTime,
+        watermark: c.watermark || null,
+        outro: c.outro || null,
+      })),
+      downloadingClips: downloadingClips.map(d => ({
+        id: d.id, name: d.name, progress: d.progress
+      })),
+      completedClips: completedClips.map(c => ({
+        id: c.id, name: c.name, caption: c.caption || '',
+        fileName: c.fileName, fileSize: c.fileSize,
+        filePath: c.filePath, displayPath: c.displayPath,
+        m3u8Url: c.m3u8Url, inTime: c.inTime, outTime: c.outTime,
+        isLive: c.isLive, seekableStart: c.seekableStart,
+      })),
+      config: {
+        buttons: userConfig.buttons,
+        devFeatures: userConfig.devFeatures,
+      },
+      universalWatermark,
+      universalImageWatermark,
+      universalOutro,
+      outputPath: $('outputPath')?.textContent || '',
+    });
+  } catch (_) { /* hub window may not be open */ }
+}
+
+// Handle actions sent from the detached hub window
+window.clipper.onHubAction(async (action) => {
+  switch (action.type) {
+    case 'download': downloadClip(action.idx); break;
+    case 'jumpin':
+      if (pendingClips[action.idx]) { dbg('ACTION', 'Jump to IN from hub', { idx: action.idx, time: pendingClips[action.idx].inTime }); vid.currentTime = pendingClips[action.idx].inTime; }
+      break;
+    case 'jumpout':
+      if (pendingClips[action.idx]) { dbg('ACTION', 'Jump to OUT from hub', { idx: action.idx, time: pendingClips[action.idx].outTime }); vid.currentTime = pendingClips[action.idx].outTime; }
+      break;
+    case 'repickIn':
+      if (pendingClips[action.idx]) enterRepickMode(action.idx, 'inTime');
+      break;
+    case 'repickOut':
+      if (pendingClips[action.idx]) enterRepickMode(action.idx, 'outTime');
+      break;
+    case 'cancel': {
+      const dl = downloadingClips.find(d => d.id === action.id);
+      if (dl) { window.clipper.cancelClip(dl.name); downloadingClips = downloadingClips.filter(d => d.id !== action.id); if (activeDownloadId === action.id) activeDownloadId = null; renderDownloadingClips(); processDownloadQueue(); }
+      break;
+    }
+    case 'remove': {
+      if (action.idx >= 0 && action.idx < pendingClips.length) {
+        dbg('ACTION', 'Remove pending clip from hub', { idx: action.idx, name: pendingClips[action.idx].name });
+        pendingClips.splice(action.idx, 1);
+        renderPendingClips();
+      }
+      break;
+    }
+    case 'editName':
+      if (pendingClips[action.idx]) { pendingClips[action.idx].name = action.value; renderPendingClips(); }
+      break;
+    case 'editCaption':
+      if (pendingClips[action.idx]) { pendingClips[action.idx].caption = action.value; renderPendingClips(); }
+      break;
+    case 'editTimestamp':
+      if (pendingClips[action.idx]) { pendingClips[action.idx][action.field] = action.value; renderPendingClips(); }
+      break;
+    case 'setWatermark':
+      if (pendingClips[action.idx]) { pendingClips[action.idx].watermark = action.watermark; renderPendingClips(); }
+      break;
+    case 'clearWatermark':
+      if (pendingClips[action.idx]) { delete pendingClips[action.idx].watermark; renderPendingClips(); }
+      break;
+    case 'setImageWatermark':
+      if (pendingClips[action.idx]) { pendingClips[action.idx].imageWatermark = action.imageWatermark; renderPendingClips(); }
+      break;
+    case 'clearImageWatermark':
+      if (pendingClips[action.idx]) { delete pendingClips[action.idx].imageWatermark; renderPendingClips(); }
+      break;
+    case 'setOutro':
+      if (pendingClips[action.idx]) { pendingClips[action.idx].outro = action.outro; renderPendingClips(); }
+      break;
+    case 'clearOutro':
+      if (pendingClips[action.idx]) { delete pendingClips[action.idx].outro; renderPendingClips(); }
+      break;
+    case 'ffmpeglog':
+      if (completedClips[action.idx]) window.clipper.openClipFfmpegLog(completedClips[action.idx].name);
+      break;
+    case 'restageConfirmed': {
+      const clip = completedClips[action.idx];
+      if (clip && clip.m3u8Url) {
+        await window.clipper.deleteClipFile(clip.filePath);
+        pendingClips.push({ id: uid(), name: clip.name, caption: clip.caption || '', inTime: clip.inTime, outTime: clip.outTime, m3u8Url: clip.m3u8Url, isLive: clip.isLive, seekableStart: clip.seekableStart || 0 });
+        completedClips.splice(action.idx, 1);
+        renderPendingClips(); renderCompletedClips();
+      }
+      break;
+    }
+    case 'restage': showRestageConfirmation(action.idx, completedClips[action.idx]); break;
+    case 'clearCompleted': completedClips = []; renderCompletedClips(); break;
+    case 'show': if (completedClips[action.idx]) window.clipper.showInFolder(completedClips[action.idx].filePath); break;
+    case 'openDebug': if (window.clipper?.openDebugWindow) window.clipper.openDebugWindow(); break;
+    case 'outputPathChanged':
+      $('outputPath').textContent = action.path;
+      syncHubState();
+      break;
+  }
+});
+
+/* ─── Hub Resize Handles ──────────────────────────────────────── */
+document.querySelectorAll('.hub-resize-handle').forEach(handle => {
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault();
+    const groups = [...document.querySelectorAll('#hubSection .hub-group')];
+    const idx = parseInt(handle.dataset.resize);
+    const above = groups[idx], below = groups[idx + 1];
+    if (!above || !below) return;
+    handle.classList.add('dragging');
+    const startY = e.clientY;
+    const startAbove = above.getBoundingClientRect().height;
+    const startBelow = below.getBoundingClientRect().height;
+    function onMove(e) {
+      const delta = e.clientY - startY;
+      above.style.flex = '0 0 ' + Math.max(60, startAbove + delta) + 'px';
+      below.style.flex = '0 0 ' + Math.max(60, startBelow - delta) + 'px';
+    }
+    function onUp() {
+      handle.classList.remove('dragging');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+});
 
 /* ═══════════════════════════════════════════════════════════════
    ── Config Settings Modal ────────────────────────────────────
@@ -1515,8 +1984,9 @@ function openConfigModal() {
         <div class="config-section">
           <div class="config-section-title">Universal Watermark</div>
           <p class="config-note">Set a default watermark applied to all clips unless overridden per-clip.</p>
-          <button class="btn btn-accent btn-sm" id="cfgEditWatermark">${universalWatermark ? 'Edit Universal Watermark' : 'Configure Universal Watermark'}</button>
-          ${universalWatermark ? `<span style="color:var(--green);font-size:10px;margin-left:8px;">Active: "${escH(universalWatermark.text)}"</span>` : ''}
+          <button class="btn btn-accent btn-sm" id="cfgEditWatermark">${(universalWatermark || universalImageWatermark) ? 'Edit Universal Watermark' : 'Configure Universal Watermark'}</button>
+          ${universalWatermark ? `<span style="color:var(--green);font-size:10px;margin-left:8px;">Active: Text "${escH(universalWatermark.text)}"</span>` : ''}
+          ${universalImageWatermark ? `<span style="color:var(--green);font-size:10px;margin-left:8px;">Active: Image "${escH(universalImageWatermark.imagePath.split(/[/\\\\]/).pop())}"</span>` : ''}
         </div>
 
         <!-- Universal Outro Config -->
@@ -1549,6 +2019,8 @@ function openConfigModal() {
           <div class="config-grid">
             <label class="config-kb"><span>Mark IN</span><input class="wm-input config-kb-input" data-bind="markIn" value="${escAttr(cfg.keybinds.markIn)}"></label>
             <label class="config-kb"><span>Mark OUT</span><input class="wm-input config-kb-input" data-bind="markOut" value="${escAttr(cfg.keybinds.markOut)}"></label>
+            <label class="config-kb"><span>Edit IN</span><input class="wm-input config-kb-input" data-bind="editIn" value="${escAttr(cfg.keybinds.editIn)}"></label>
+            <label class="config-kb"><span>Edit OUT</span><input class="wm-input config-kb-input" data-bind="editOut" value="${escAttr(cfg.keybinds.editOut)}"></label>
             <label class="config-kb"><span>Play/Pause</span><input class="wm-input config-kb-input" data-bind="playPause" value="${escAttr(cfg.keybinds.playPause === ' ' ? 'Space' : cfg.keybinds.playPause)}"></label>
           </div>
           <div class="config-section-title" style="margin-top:12px; font-size:10px;">Jump Sizes (seconds)</div>
@@ -1651,6 +2123,33 @@ function openConfigModal() {
   `;
   document.body.appendChild(overlay);
 
+  // Snapshot all form inputs for dirty-checking
+  function snapshotFormValues() {
+    const snap = {};
+    overlay.querySelectorAll('input, select, textarea').forEach(el => {
+      const key = el.id || el.dataset.bind || el.dataset.size;
+      if (!key) return;
+      snap[key] = el.type === 'checkbox' ? el.checked : el.value;
+    });
+    return snap;
+  }
+  const initialSnapshot = snapshotFormValues();
+
+  function hasUnsavedChanges() {
+    const current = snapshotFormValues();
+    for (const key of Object.keys(initialSnapshot)) {
+      if (initialSnapshot[key] !== current[key]) return true;
+    }
+    return false;
+  }
+
+  function tryClose() {
+    if (hasUnsavedChanges()) {
+      if (!confirm('You have unsaved changes! Close without saving?')) return;
+    }
+    overlay.remove();
+  }
+
   // Wire up events
   overlay.querySelector('#cfgImport').onclick = async () => {
     const result = await window.clipper.importUserConfig();
@@ -1664,7 +2163,9 @@ function openConfigModal() {
 
   overlay.querySelector('#cfgExport').onclick = () => window.clipper.exportUserConfig();
 
-  overlay.querySelector('#cfgEditWatermark').onclick = () => {
+  overlay.querySelector('#cfgEditWatermark').onclick = async () => {
+    // Auto-save current config state before switching modals
+    await collectAndSaveConfig();
     overlay.remove();
     openUniversalWatermarkModal();
   };
@@ -1699,11 +2200,11 @@ function openConfigModal() {
     overlay.querySelector('#cfgCatchUpVal').textContent = this.value + 'x';
   };
 
-  overlay.querySelector('#cfgClose').onclick = () => overlay.remove();
-  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  overlay.querySelector('#cfgClose').onclick = () => tryClose();
+  overlay.onclick = e => { if (e.target === overlay) tryClose(); };
 
-  // Save all
-  overlay.querySelector('#cfgSave').onclick = overlay.querySelector('#cfgApply').onclick = async () => {
+  // Reusable save: collect all form values and persist
+  async function collectAndSaveConfig() {
     // Buttons
     userConfig.buttons.jumpToIn = overlay.querySelector('#cfgJumpIn').checked;
     userConfig.buttons.jumpToEnd = overlay.querySelector('#cfgJumpEnd').checked;
@@ -1756,6 +2257,11 @@ function openConfigModal() {
     applyConfig();
     renderPendingClips();
     renderCompletedClips();
+  }
+
+  // Save buttons
+  overlay.querySelector('#cfgSave').onclick = overlay.querySelector('#cfgApply').onclick = async () => {
+    await collectAndSaveConfig();
     overlay.remove();
   };
 }
@@ -1765,12 +2271,17 @@ function openUniversalWatermarkModal() {
   const old = document.querySelector('.wm-modal-overlay');
   if (old) old.remove();
 
+  const hasImgWm = !!universalImageWatermark;
+  const initMode = hasImgWm ? 'image' : 'text';
+
   const wm = universalWatermark || {
     text: '', fontFamily: 'Arial', fontSize: 48, opacity: 0.7,
     color: '#ffffff', position: 'bottom-right'
   };
+  const iwm = universalImageWatermark || {
+    imagePath: '', opacity: 0.7, position: 'bottom-right', width: '', height: ''
+  };
 
-  // Reuse the same watermark modal structure
   const overlay = document.createElement('div');
   overlay.className = 'wm-modal-overlay';
   overlay.innerHTML = `
@@ -1778,40 +2289,61 @@ function openUniversalWatermarkModal() {
       <div class="wm-modal-title">Universal Watermark</div>
       <div class="wm-modal-body">
         <p style="color: var(--text-secondary); font-size: 11px; margin-bottom: 8px;">This watermark will be applied to all clips unless overridden per-clip.</p>
-        <label class="wm-label">Text
-          <input class="wm-input" id="wmText" type="text" value="${escAttr(wm.text)}" placeholder="Your watermark text..." autofocus>
-        </label>
-        <div class="wm-row">
-          <label class="wm-label wm-half">Font
-            <select class="wm-select" id="wmFont">
-              ${['Arial','Impact','Georgia','Courier New','Verdana','Tahoma','Trebuchet MS','Comic Sans MS'].map(f =>
-                `<option value="${f}"${wm.fontFamily===f?' selected':''}>${f}</option>`
-              ).join('')}
-            </select>
-          </label>
-          <label class="wm-label wm-half">Color
-            <input class="wm-color" id="wmColor" type="color" value="${wm.color}">
-          </label>
+        <div class="wm-type-toggle">
+          <button class="wm-type-btn${initMode==='text'?' active':''}" data-type="text">Text</button>
+          <button class="wm-type-btn${initMode==='image'?' active':''}" data-type="image">Image</button>
         </div>
-        <div class="wm-row">
-          <label class="wm-label wm-half">Size <span class="wm-val" id="wmSizeVal">${wm.fontSize}px</span>
-            <input class="wm-range" id="wmSize" type="range" min="16" max="120" value="${wm.fontSize}">
+
+        <div id="wmTextFields" style="display:${initMode==='text'?'block':'none'}">
+          <label class="wm-label">Text
+            <input class="wm-input" id="wmText" type="text" value="${escAttr(wm.text)}" placeholder="Your watermark text...">
           </label>
-          <label class="wm-label wm-half">Opacity <span class="wm-val" id="wmOpacityVal">${Math.round(wm.opacity*100)}%</span>
-            <input class="wm-range" id="wmOpacity" type="range" min="10" max="100" value="${Math.round(wm.opacity*100)}">
-          </label>
+          <div class="wm-row">
+            <label class="wm-label wm-half">Font
+              <select class="wm-select" id="wmFont">
+                ${['Arial','Impact','Georgia','Courier New','Verdana','Tahoma','Trebuchet MS','Comic Sans MS'].map(f =>
+                  `<option value="${f}"${wm.fontFamily===f?' selected':''}>${f}</option>`
+                ).join('')}
+              </select>
+            </label>
+            <label class="wm-label wm-half">Color
+              <input class="wm-color" id="wmColor" type="color" value="${wm.color}">
+            </label>
+          </div>
+          <div class="wm-row">
+            <label class="wm-label wm-half">Size <span class="wm-val" id="wmSizeVal">${wm.fontSize}px</span>
+              <input class="wm-range" id="wmSize" type="range" min="16" max="120" value="${wm.fontSize}">
+            </label>
+          </div>
         </div>
+
+        <div id="wmImageFields" style="display:${initMode==='image'?'block':'none'}">
+          <label class="wm-label">Image File</label>
+          <div class="wm-row" style="gap:8px; align-items:center;">
+            <button class="btn btn-accent btn-sm" id="wmChooseImage">Choose Image...</button>
+            <span class="wm-val" id="wmImageName" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${iwm.imagePath ? iwm.imagePath.split(/[/\\]/).pop() : 'No image selected'}</span>
+          </div>
+          <input type="hidden" id="wmImagePath" value="${escAttr(iwm.imagePath || '')}">
+          <label class="wm-label">Scale <span class="wm-val" id="wmScaleVal">${Math.round((iwm.scale || 1) * 100)}%</span></label>
+          <input class="wm-range" id="wmScale" type="range" min="10" max="200" value="${Math.round((iwm.scale || 1) * 100)}">
+        </div>
+
+        <label class="wm-label">Opacity <span class="wm-val" id="wmOpacityVal">${Math.round((initMode==='image'?iwm.opacity:wm.opacity)*100)}%</span></label>
+        <input class="wm-range" id="wmOpacity" type="range" min="10" max="100" value="${Math.round((initMode==='image'?iwm.opacity:wm.opacity)*100)}">
+
         <label class="wm-label">Position</label>
-        <div class="wm-position-grid" id="wmPosGrid">
+        <div class="wm-position-grid${initMode==='image'?' wm-pos-corners':''}" id="wmPosGrid">
           ${['top-left','top-center','top-right','center-left','center','center-right','bottom-left','bottom-center','bottom-right'].map(pos =>
-            `<button class="wm-pos${wm.position===pos?' active':''}" data-pos="${pos}">${
+            `<button class="wm-pos${(initMode==='image'?iwm.position:wm.position)===pos?' active':''}" data-pos="${pos}">${
               {'top-left':'&#8598;','top-center':'&#8593;','top-right':'&#8599;','center-left':'&#8592;','center':'&#9679;','center-right':'&#8594;','bottom-left':'&#8601;','bottom-center':'&#8595;','bottom-right':'&#8600;'}[pos]
             }</button>`
           ).join('')}
         </div>
+
         <div class="wm-preview-wrap">
           <div class="wm-preview" id="wmPreview">
-            <span class="wm-preview-text" id="wmPreviewText">${escH(wm.text || 'Preview')}</span>
+            <span class="wm-preview-text" id="wmPreviewText" style="display:${initMode==='text'?'block':'none'}">${escH(wm.text || 'Preview')}</span>
+            <span class="wm-preview-img" id="wmPreviewImg" style="display:${initMode==='image'?'block':'none'}; position:absolute; font-size:10px; color:var(--green); opacity:0.8;">IMG</span>
           </div>
         </div>
       </div>
@@ -1826,31 +2358,66 @@ function openUniversalWatermarkModal() {
   `;
   document.body.appendChild(overlay);
 
+  let currentMode = initMode;
   const txtIn = overlay.querySelector('#wmText');
   const fontSel = overlay.querySelector('#wmFont');
   const colorIn = overlay.querySelector('#wmColor');
   const sizeIn = overlay.querySelector('#wmSize');
   const opacIn = overlay.querySelector('#wmOpacity');
   const prevText = overlay.querySelector('#wmPreviewText');
+  const prevImg = overlay.querySelector('#wmPreviewImg');
   const posGrid = overlay.querySelector('#wmPosGrid');
-  let selectedPos = wm.position;
+  const imgPathIn = overlay.querySelector('#wmImagePath');
+  const imgNameEl = overlay.querySelector('#wmImageName');
+  let selectedPos = (initMode === 'image' ? iwm.position : wm.position) || 'bottom-right';
+
+  // ── Type toggle ──
+  overlay.querySelectorAll('.wm-type-btn').forEach(btn => {
+    btn.onclick = () => {
+      overlay.querySelectorAll('.wm-type-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentMode = btn.dataset.type;
+      overlay.querySelector('#wmTextFields').style.display = currentMode === 'text' ? 'block' : 'none';
+      overlay.querySelector('#wmImageFields').style.display = currentMode === 'image' ? 'block' : 'none';
+      prevText.style.display = currentMode === 'text' ? 'block' : 'none';
+      prevImg.style.display = currentMode === 'image' ? 'block' : 'none';
+      posGrid.classList.toggle('wm-pos-corners', currentMode === 'image');
+      updatePreview();
+    };
+  });
+
+  // ── Image picker ──
+  overlay.querySelector('#wmChooseImage').onclick = async () => {
+    const result = await window.clipper.chooseWatermarkImage();
+    if (result && result.success) {
+      imgPathIn.value = result.filePath;
+      imgNameEl.textContent = result.filePath.split(/[/\\]/).pop();
+    }
+  };
 
   function updatePreview() {
-    const txt = txtIn.value || 'Preview';
-    prevText.textContent = txt;
-    prevText.style.fontFamily = fontSel.value;
-    prevText.style.fontSize = sizeIn.value / 2 + 'px';
-    prevText.style.color = colorIn.value;
-    prevText.style.opacity = opacIn.value / 100;
-    overlay.querySelector('#wmSizeVal').textContent = sizeIn.value + 'px';
     overlay.querySelector('#wmOpacityVal').textContent = opacIn.value + '%';
-    prevText.style.position = 'absolute';
+    if (sizeIn) overlay.querySelector('#wmSizeVal').textContent = sizeIn.value + 'px';
+
+    if (currentMode === 'text') {
+      const txt = txtIn.value || 'Preview';
+      prevText.textContent = txt;
+      prevText.style.fontFamily = fontSel.value;
+      prevText.style.fontSize = sizeIn.value / 2 + 'px';
+      prevText.style.color = colorIn.value;
+      prevText.style.opacity = opacIn.value / 100;
+    } else {
+      prevImg.style.opacity = opacIn.value / 100;
+    }
+
+    const el = currentMode === 'text' ? prevText : prevImg;
+    el.style.position = 'absolute';
     const [vy, vx] = selectedPos.includes('-') ? selectedPos.split('-') : ['center', selectedPos === 'center' ? 'center' : selectedPos];
-    prevText.style.top = vy === 'top' ? '8px' : vy === 'bottom' ? '' : '50%';
-    prevText.style.bottom = vy === 'bottom' ? '8px' : '';
-    prevText.style.left = vx === 'left' ? '8px' : vx === 'center' ? '50%' : '';
-    prevText.style.right = vx === 'right' ? '8px' : '';
-    prevText.style.transform = (vy === 'center' && vx === 'center') ? 'translate(-50%,-50%)'
+    el.style.top = vy === 'top' ? '8px' : vy === 'bottom' ? '' : '50%';
+    el.style.bottom = vy === 'bottom' ? '8px' : '';
+    el.style.left = vx === 'left' ? '8px' : vx === 'center' ? '50%' : '';
+    el.style.right = vx === 'right' ? '8px' : '';
+    el.style.transform = (vy === 'center' && vx === 'center') ? 'translate(-50%,-50%)'
       : vy === 'center' ? 'translateY(-50%)' : vx === 'center' ? 'translateX(-50%)' : 'none';
   }
 
@@ -1874,24 +2441,42 @@ function openUniversalWatermarkModal() {
 
   overlay.querySelector('#wmClear').onclick = async () => {
     universalWatermark = null;
+    universalImageWatermark = null;
     await saveUniversalConfigs();
     overlay.remove();
     openConfigModal();
   };
 
   overlay.querySelector('#wmApply').onclick = async () => {
-    const text = txtIn.value.trim();
-    if (!text) {
-      universalWatermark = null;
+    if (currentMode === 'text') {
+      const text = txtIn.value.trim();
+      if (!text) {
+        universalWatermark = null;
+      } else {
+        universalWatermark = {
+          text,
+          fontFamily: fontSel.value,
+          fontSize: parseInt(sizeIn.value),
+          opacity: parseInt(opacIn.value) / 100,
+          color: colorIn.value,
+          position: selectedPos
+        };
+      }
+      universalImageWatermark = null;
     } else {
-      universalWatermark = {
-        text,
-        fontFamily: fontSel.value,
-        fontSize: parseInt(sizeIn.value),
-        opacity: parseInt(opacIn.value) / 100,
-        color: colorIn.value,
-        position: selectedPos
-      };
+      const imagePath = imgPathIn.value.trim();
+      if (!imagePath) {
+        universalImageWatermark = null;
+      } else {
+        const scaleVal = parseInt(overlay.querySelector('#wmScale').value) / 100;
+        universalImageWatermark = {
+          imagePath,
+          opacity: parseInt(opacIn.value) / 100,
+          position: selectedPos,
+          ...(scaleVal && scaleVal !== 1 ? { scale: scaleVal } : {}),
+        };
+      }
+      universalWatermark = null;
     }
     await saveUniversalConfigs();
     overlay.remove();

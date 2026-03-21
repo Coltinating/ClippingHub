@@ -64,16 +64,15 @@ function buildImageWatermarkArgs(wm) {
   if (!wm || !wm.imagePath) return null;
 
   const pos = wm.position || 'center';
-  const pad = 20;
   let x, y;
 
   switch (pos) {
-    case 'top-left':     x = String(pad);    y = String(pad);    break;
-    case 'top-right':    x = `W-w-${pad}`;   y = String(pad);    break;
-    case 'bottom-left':  x = String(pad);    y = `H-h-${pad}`;  break;
-    case 'bottom-right': x = `W-w-${pad}`;   y = `H-h-${pad}`;  break;
+    case 'top-left':     x = '0';       y = '0';       break;
+    case 'top-right':    x = 'W-w';     y = '0';       break;
+    case 'bottom-left':  x = '0';       y = 'H-h';     break;
+    case 'bottom-right': x = 'W-w';     y = 'H-h';     break;
     case 'center':
-    default:             x = '(W-w)/2';      y = '(H-h)/2';     break;
+    default:             x = '(W-w)/2'; y = '(H-h)/2'; break;
   }
 
   const opacity = wm.opacity ?? 1;
@@ -81,8 +80,10 @@ function buildImageWatermarkArgs(wm) {
   // Build overlay input filter chain
   let overlayChain = '[1:v]format=rgba';
 
-  // Scale if dimensions specified (handles same-aspect-ratio, different-resolution)
-  if (wm.width && wm.height) {
+  // Scale: multiplier (e.g. 0.5 = half), or explicit width/height
+  if (wm.scale && wm.scale !== 1) {
+    overlayChain += `,scale=iw*${wm.scale}:ih*${wm.scale}`;
+  } else if (wm.width && wm.height) {
     overlayChain += `,scale=${wm.width}:${wm.height}`;
   } else if (wm.width) {
     overlayChain += `,scale=${wm.width}:-1`;

@@ -29,7 +29,7 @@ describe('buildImageWatermarkArgs', () => {
       opacity: 1,
     });
     expect(result).not.toBe(null);
-    expect(result.filterComplex).toContain('overlay=x=20:y=20');
+    expect(result.filterComplex).toContain('overlay=x=0:y=0');
   });
 
   it('builds top-right overlay with correct position', () => {
@@ -38,7 +38,7 @@ describe('buildImageWatermarkArgs', () => {
       position: 'top-right',
       opacity: 1,
     });
-    expect(result.filterComplex).toContain('overlay=x=W-w-20:y=20');
+    expect(result.filterComplex).toContain('overlay=x=W-w:y=0');
   });
 
   it('builds bottom-left overlay with correct position', () => {
@@ -47,7 +47,7 @@ describe('buildImageWatermarkArgs', () => {
       position: 'bottom-left',
       opacity: 1,
     });
-    expect(result.filterComplex).toContain('overlay=x=20:y=H-h-20');
+    expect(result.filterComplex).toContain('overlay=x=0:y=H-h');
   });
 
   it('builds bottom-right overlay with correct position', () => {
@@ -56,7 +56,7 @@ describe('buildImageWatermarkArgs', () => {
       position: 'bottom-right',
       opacity: 1,
     });
-    expect(result.filterComplex).toContain('overlay=x=W-w-20:y=H-h-20');
+    expect(result.filterComplex).toContain('overlay=x=W-w:y=H-h');
   });
 
   // ── Position: center ──
@@ -106,7 +106,25 @@ describe('buildImageWatermarkArgs', () => {
     expect(result.filterComplex).not.toContain('colorchannelmixer');
   });
 
-  // ── Scaling (resize for resolution mismatch) ──
+  // ── Scaling ──
+
+  it('applies scale multiplier when scale specified', () => {
+    const result = buildImageWatermarkArgs({
+      imagePath: '/tmp/logo.png',
+      position: 'center',
+      scale: 0.5,
+    });
+    expect(result.filterComplex).toContain('scale=iw*0.5:ih*0.5');
+  });
+
+  it('skips scale multiplier when scale is 1', () => {
+    const result = buildImageWatermarkArgs({
+      imagePath: '/tmp/logo.png',
+      position: 'center',
+      scale: 1,
+    });
+    expect(result.filterComplex).not.toContain('scale=');
+  });
 
   it('applies scale when width specified', () => {
     const result = buildImageWatermarkArgs({
