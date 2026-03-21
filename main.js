@@ -29,12 +29,42 @@ function initDebugLog() {
   debugLog('SESSION', `Log file: ${logPath}`);
 }
 
+// Sanitize paths and identifiers from log output
+const _userDir = require('os').homedir();
+const _userDirRegex = new RegExp(_userDir.replace(/[\\\/]/g, '[\\\\/\\\\\\\\]'), 'gi');
+const _usernameRegex = new RegExp('(?<=[\\\\/\\\\\\\\])' + path.basename(_userDir) + '(?=[\\\\/\\\\\\\\])', 'gi');
+const _computerNameRegex = process.env.COMPUTERNAME
+  ? new RegExp(process.env.COMPUTERNAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+  : null;
+
+function sanitize(str) {
+  if (typeof str !== 'string') return str;
+  let s = str.replace(_userDirRegex, 'C:\\Users\\ANON');
+  s = s.replace(_usernameRegex, 'ANON');
+  if (_computerNameRegex) s = s.replace(_computerNameRegex, 'ANON-PC');
+  return s;
+}
+
+function sanitizeData(obj) {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === 'string') return sanitize(obj);
+  if (Array.isArray(obj)) return obj.map(sanitizeData);
+  if (typeof obj === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) out[k] = sanitizeData(v);
+    return out;
+  }
+  return obj;
+}
+
 function debugLog(category, message, data) {
   const ts = new Date().toISOString();
-  const entry = { ts, category, message, data };
-  const line = data !== undefined
-    ? `[${ts}] [${category}] ${message} ${JSON.stringify(data)}`
-    : `[${ts}] [${category}] ${message}`;
+  const safeMessage = sanitize(message);
+  const safeData = sanitizeData(data);
+  const entry = { ts, category, message: safeMessage, data: safeData };
+  const line = safeData !== undefined
+    ? `[${ts}] [${category}] ${safeMessage} ${JSON.stringify(safeData)}`
+    : `[${ts}] [${category}] ${safeMessage}`;
   if (debugLogStream) debugLogStream.write(line + '\n');
   console.log(line);
   // Buffer for debug window replay
@@ -57,6 +87,19 @@ const DEBUG_BUFFER_MAX = 5000;
 
 // Per-clip ffmpeg log storage (clipName → { commands, logs })
 const clipFfmpegLogs = new Map();
+
+// Active download process registry (clipName → { proc, phase, cancelled })
+const activeDownloads = new Map();
+
+// Detachable hub window
+let hubWindow = null;
+
+// Broadcast progress to main window + hub window
+function broadcastProgress(clipName, progress) {
+  const data = { clipName, progress };
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('clip-progress', data);
+  if (hubWindow && !hubWindow.isDestroyed()) hubWindow.webContents.send('clip-progress', data);
+}
 
 // ── Config paths (AppData/Roaming) ──────────────────────────────
 const APPDATA = process.env.APPDATA || path.join(require('os').homedir(), 'AppData', 'Roaming');
@@ -360,6 +403,87 @@ ipcMain.handle('open-clip-ffmpeg-log', (_, clipName) => {
   return { opened: true };
 });
 
+// ── IPC: cancel active download ──────────────────────────────────
+ipcMain.handle('cancel-clip', (_, { clipName }) => {
+  const entry = activeDownloads.get(clipName);
+  if (entry) {
+    debugLog('CLIP', 'Cancelling download', { clipName, phase: entry.phase, hasProc: !!entry.proc });
+    entry.cancelled = true;
+    if (entry.proc) entry.proc.kill('SIGTERM');
+    return { success: true };
+  }
+  return { success: false };
+});
+
+// ── IPC: delete clip file (for Re-Stage) ─────────────────────────
+ipcMain.handle('delete-clip-file', (_, { filePath }) => {
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      debugLog('CLIP', 'Deleted clip file for re-stage', { filePath: sanitize(filePath) });
+      return { success: true };
+    }
+    return { success: false, error: 'File not found' };
+  } catch (err) {
+    debugLog('ERROR', 'Failed to delete clip file', { error: err.message });
+    return { success: false, error: err.message };
+  }
+});
+
+// ── IPC: detachable hub window ───────────────────────────────────
+ipcMain.handle('open-hub-window', () => {
+  if (hubWindow && !hubWindow.isDestroyed()) {
+    hubWindow.focus();
+    return { opened: true };
+  }
+  hubWindow = new BrowserWindow({
+    width: 420, height: 700,
+    minWidth: 350, minHeight: 400,
+    backgroundColor: '#0a0a0a',
+    title: 'Clip Hub — Clipper Hub',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-hub.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    }
+  });
+  hubWindow.setMenuBarVisibility(false);
+  hubWindow.loadFile(path.join(__dirname, 'src', 'hub.html'));
+  hubWindow.webContents.on('did-finish-load', () => {
+    if (lastHubState && hubWindow && !hubWindow.isDestroyed()) {
+      hubWindow.webContents.send('hub-state-update', lastHubState);
+    }
+  });
+  hubWindow.on('closed', () => {
+    hubWindow = null;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('hub-reattached');
+    }
+  });
+  return { opened: true };
+});
+
+ipcMain.handle('close-hub-window', () => {
+  if (hubWindow && !hubWindow.isDestroyed()) hubWindow.close();
+  hubWindow = null;
+});
+
+// Relay state from main renderer → hub window (cache for startup)
+let lastHubState = null;
+ipcMain.on('hub-state-update', (_, state) => {
+  lastHubState = state;
+  if (hubWindow && !hubWindow.isDestroyed()) {
+    hubWindow.webContents.send('hub-state-update', state);
+  }
+});
+
+// Relay actions from hub window → main renderer
+ipcMain.on('hub-action', (_, action) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('hub-action', action);
+  }
+});
+
 // Save filtered debug output to file and open in explorer
 ipcMain.handle('save-debug-log', async (_, { text, filterName }) => {
   fs.mkdirSync(DEBUG_DIR, { recursive: true });
@@ -375,7 +499,7 @@ ipcMain.handle('save-debug-log', async (_, { text, filterName }) => {
 ipcMain.handle('get-proxy-port', () => proxyPort);
 
 // ── IPC: clips directory ─────────────────────────────────────────
-ipcMain.handle('get-clips-dir', () => clipsDir);
+ipcMain.handle('get-clips-dir', () => sanitize(clipsDir));
 
 ipcMain.handle('choose-clips-dir', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -551,8 +675,8 @@ function buildWatermarkFilter(wm) {
 // Added: watermark filter, outro concatenation, GPU accel options
 // ══════════════════════════════════════════════════════════════════
 
-ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, clipName, watermark, outro, ffmpegOptions, batchOutputDir, batchManifest, keepTempFiles, logFfmpegCommands }) => {
-  debugLog('CLIP', 'Download requested', { clipName, startSec, durationSec, m3u8Url: m3u8Url?.slice(0, 120), hasWatermark: !!watermark, hasOutro: !!outro, ffmpegOptions, batch: !!batchOutputDir });
+ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, clipName, watermark, imageWatermark, outro, ffmpegOptions, batchOutputDir, batchManifest, keepTempFiles, logFfmpegCommands }) => {
+  debugLog('CLIP', 'Download requested', { clipName, startSec, durationSec, m3u8Url: m3u8Url?.slice(0, 120), hasWatermark: !!watermark, hasImageWatermark: !!imageWatermark, hasOutro: !!outro, ffmpegOptions, batch: !!batchOutputDir });
 
   // Determine output directory (batch mode overrides)
   let outputDir = clipsDir;
@@ -626,6 +750,9 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
   fs.mkdirSync(tempDir, { recursive: true });
 
   try {
+    // Register early so cancelClip() can set the cancelled flag during segment download
+    activeDownloads.set(clipName, { proc: null, phase: 'segments', cancelled: false });
+
     // 1. Resolve to a media playlist and parse segments
     debugLog('CLIP', 'Resolving media playlist...');
     const { text: mediaText } = await resolveMediaUrl(m3u8Url);
@@ -642,14 +769,15 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
     // 3. Download each segment through the proxy
     const tsPaths = [];
     for (let i = 0; i < relevant.length; i++) {
+      if (activeDownloads.get(clipName)?.cancelled) {
+        throw Object.assign(new Error('Cancelled'), { cancelled: true });
+      }
       const seg = relevant[i];
       const tsPath = path.join(tempDir, `seg_${String(i).padStart(4, '0')}.ts`);
       const buf = await fetchBuffer(seg.url);
       fs.writeFileSync(tsPath, buf);
       tsPaths.push(tsPath);
-      mainWindow?.webContents.send('clip-progress', {
-        clipName, progress: Math.round(((i + 1) / relevant.length) * 60)
-      });
+      broadcastProgress(clipName, Math.round(((i + 1) / relevant.length) * 60));
     }
 
     // 4. Write ffmpeg concat list and join segments into a single .ts
@@ -657,34 +785,42 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
     fs.writeFileSync(listFile, tsPaths.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n'));
 
     const concatPath = path.join(tempDir, 'concat.ts');
-    const { buildConcatArgs } = require('./src/lib/ffmpeg-args.js');
+    const { buildConcatArgs, buildImageWatermarkArgs } = require('./src/lib/ffmpeg-args.js');
     const concatArgs = buildConcatArgs(listFile, concatPath);
     ffmpegCommands.push({ step: '1. Segment concat (join .ts segments)', args: ['ffmpeg', ...concatArgs] });
     await new Promise((resolve, reject) => {
       const proc = spawn('ffmpeg', concatArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+      activeDownloads.set(clipName, { proc, phase: 'concat', cancelled: false });
       let stderr = '';
       proc.stderr.on('data', d => { stderr += d; });
       proc.on('close', code => {
         ffmpegStepLogs.push({ step: '1. Segment concat', stderr });
+        if (activeDownloads.get(clipName)?.cancelled) { reject(Object.assign(new Error('Cancelled'), { cancelled: true })); return; }
         code === 0 ? resolve() : reject(new Error(`ffmpeg concat failed (code ${code})`));
       });
       proc.on('error', reject);
     });
 
-    mainWindow?.webContents.send('clip-progress', { clipName, progress: 70 });
+    broadcastProgress(clipName, 70);
 
     // 5. Trim to exact range — with optional watermark, GPU accel, custom ffmpeg options
     const ssOffset = Math.max(0, startSec - relevant[0].startTime);
     debugLog('CLIP', 'Trim params', { ssOffset, startSec, firstSegStart: relevant[0].startTime, durationSec });
     const wmFilter = buildWatermarkFilter(watermark);
+    const imgWmArgs = buildImageWatermarkArgs(imageWatermark);
     const hasOutro = outro && outro.filePath && fs.existsSync(outro.filePath);
     const trimmedPath = hasOutro ? path.join(tempDir, 'trimmed.mp4') : out;
+
+    // FFmpeg encoding config — shared across steps 2, 3, 4
+    const opts = ffmpegOptions || {};
+    const videoCodec = opts.videoCodec || 'libx264';
+    const preset = opts.preset || 'fast';
+    const crf = opts.crf || '18';
 
     await new Promise((resolve, reject) => {
       const ffArgs = ['-y'];
 
       // GPU acceleration (input side)
-      const opts = ffmpegOptions || {};
       if (opts.hwaccel) {
         ffArgs.push('-hwaccel', opts.hwaccel);
         if (opts.hwaccelOutputFormat) ffArgs.push('-hwaccel_output_format', opts.hwaccelOutputFormat);
@@ -693,13 +829,24 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
 
       ffArgs.push('-i', concatPath, '-ss', String(ssOffset), '-t', String(durationSec));
 
-      const ptsFilter = 'setpts=PTS-STARTPTS';
-      ffArgs.push('-vf', wmFilter ? ptsFilter + ',' + wmFilter : ptsFilter);
-
-      // Video codec
-      const videoCodec = opts.videoCodec || 'libx264';
-      const preset = opts.preset || 'fast';
-      const crf = opts.crf || '18';
+      if (imgWmArgs) {
+        // Image watermark — use filter_complex with second input
+        ffArgs.push(...imgWmArgs.inputs);
+        if (wmFilter) {
+          // Both text + image: apply text drawtext on video, then overlay image
+          const fc = imgWmArgs.filterComplex.replace(
+            '[0:v]setpts=PTS-STARTPTS[base]',
+            `[0:v]setpts=PTS-STARTPTS,${wmFilter}[base]`
+          );
+          ffArgs.push('-filter_complex', fc);
+        } else {
+          ffArgs.push('-filter_complex', imgWmArgs.filterComplex);
+        }
+      } else {
+        // No image watermark — simple -vf (existing behavior)
+        const ptsFilter = 'setpts=PTS-STARTPTS';
+        ffArgs.push('-vf', wmFilter ? ptsFilter + ',' + wmFilter : ptsFilter);
+      }
       ffArgs.push('-c:v', videoCodec);
       if (videoCodec === 'libx264' || videoCodec === 'libx265') {
         ffArgs.push('-preset', preset, '-crf', crf);
@@ -716,6 +863,7 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
       ffmpegCommands.push({ step: '2. Trim & encode (seek, cut, transcode)', args: ['ffmpeg', ...ffArgs] });
       debugLog('FFMPEG', 'Trim command', { args: ffArgs.join(' ') });
       const proc = spawn('ffmpeg', ffArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+      activeDownloads.set(clipName, { proc, phase: 'trim', cancelled: false });
 
       let stderr = '';
       proc.stderr.on('data', d => {
@@ -724,13 +872,12 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
         if (m) {
           const elapsed = +m[1] * 3600 + +m[2] * 60 + +m[3];
           const trimProgress = hasOutro ? 20 : 30;
-          mainWindow?.webContents.send('clip-progress', {
-            clipName, progress: 70 + Math.min(trimProgress, Math.round((elapsed / durationSec) * trimProgress))
-          });
+          broadcastProgress(clipName, 70 + Math.min(trimProgress, Math.round((elapsed / durationSec) * trimProgress)));
         }
       });
       proc.on('close', code => {
         ffmpegStepLogs.push({ step: '2. Trim & encode', stderr: stderr.toString() });
+        if (activeDownloads.get(clipName)?.cancelled) { reject(Object.assign(new Error('Cancelled'), { cancelled: true })); return; }
         if (code === 0 && fs.existsSync(trimmedPath)) resolve();
         else reject(new Error(`ffmpeg trim failed (code ${code}):\n${stderr.toString().slice(-400)}`));
       });
@@ -739,7 +886,7 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
 
     // 6. Append outro if provided
     if (hasOutro) {
-      mainWindow?.webContents.send('clip-progress', { clipName, progress: 90 });
+      broadcastProgress(clipName, 90);
 
       // Get the clip's resolution via ffprobe
       const probeResult = await new Promise((resolve, reject) => {
@@ -763,21 +910,35 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
 
       // Re-encode outro to match clip format
       const outroResized = path.join(tempDir, 'outro_resized.mp4');
-      const outroResizeArgs = [
-        '-y', '-i', outro.filePath,
+      const outroResizeArgs = ['-y'];
+      if (opts.hwaccel) {
+        outroResizeArgs.push('-hwaccel', opts.hwaccel);
+        if (opts.hwaccelDevice !== undefined && opts.hwaccelDevice !== '') outroResizeArgs.push('-hwaccel_device', String(opts.hwaccelDevice));
+      }
+      outroResizeArgs.push(
+        '-i', outro.filePath,
         '-vf', `scale=${probeResult.width}:${probeResult.height}:force_original_aspect_ratio=decrease,pad=${probeResult.width}:${probeResult.height}:(ow-iw)/2:(oh-ih)/2`,
-        '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
+        '-c:v', videoCodec
+      );
+      if (videoCodec === 'libx264' || videoCodec === 'libx265') {
+        outroResizeArgs.push('-preset', preset, '-crf', '15');
+      } else if (videoCodec === 'h264_nvenc' || videoCodec === 'hevc_nvenc') {
+        outroResizeArgs.push('-preset', opts.nvencPreset || 'p4', '-cq', '15');
+      }
+      outroResizeArgs.push(
         '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2',
         '-movflags', '+faststart',
         outroResized
-      ];
+      );
       ffmpegCommands.push({ step: '3. Outro resize (scale to clip resolution)', args: ['ffmpeg', ...outroResizeArgs] });
       await new Promise((resolve, reject) => {
         const proc = spawn('ffmpeg', outroResizeArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+        activeDownloads.set(clipName, { proc, phase: 'outro-resize', cancelled: false });
         let stderr = '';
         proc.stderr.on('data', d => { stderr += d; });
         proc.on('close', code => {
           ffmpegStepLogs.push({ step: '3. Outro resize', stderr });
+          if (activeDownloads.get(clipName)?.cancelled) { reject(Object.assign(new Error('Cancelled'), { cancelled: true })); return; }
           code === 0 ? resolve() : reject(new Error('Outro resize failed'));
         });
         proc.on('error', reject);
@@ -785,20 +946,34 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
 
       // Re-encode trimmed clip to ensure matching codec params
       const clipReady = path.join(tempDir, 'clip_ready.mp4');
-      const clipPrepArgs = [
-        '-y', '-i', trimmedPath,
-        '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
+      const clipPrepArgs = ['-y'];
+      if (opts.hwaccel) {
+        clipPrepArgs.push('-hwaccel', opts.hwaccel);
+        if (opts.hwaccelDevice !== undefined && opts.hwaccelDevice !== '') clipPrepArgs.push('-hwaccel_device', String(opts.hwaccelDevice));
+      }
+      clipPrepArgs.push(
+        '-i', trimmedPath,
+        '-c:v', videoCodec
+      );
+      if (videoCodec === 'libx264' || videoCodec === 'libx265') {
+        clipPrepArgs.push('-preset', preset, '-crf', '15');
+      } else if (videoCodec === 'h264_nvenc' || videoCodec === 'hevc_nvenc') {
+        clipPrepArgs.push('-preset', opts.nvencPreset || 'p4', '-cq', '15');
+      }
+      clipPrepArgs.push(
         '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2',
         '-movflags', '+faststart',
         clipReady
-      ];
+      );
       ffmpegCommands.push({ step: '4. Clip prep (normalize for concat)', args: ['ffmpeg', ...clipPrepArgs] });
       await new Promise((resolve, reject) => {
         const proc = spawn('ffmpeg', clipPrepArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+        activeDownloads.set(clipName, { proc, phase: 'clip-prep', cancelled: false });
         let stderr = '';
         proc.stderr.on('data', d => { stderr += d; });
         proc.on('close', code => {
           ffmpegStepLogs.push({ step: '4. Clip prep', stderr });
+          if (activeDownloads.get(clipName)?.cancelled) { reject(Object.assign(new Error('Cancelled'), { cancelled: true })); return; }
           code === 0 ? resolve() : reject(new Error('Clip prep failed'));
         });
         proc.on('error', reject);
@@ -812,26 +987,29 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
       ffmpegCommands.push({ step: '5. Final concat (clip + outro)', args: ['ffmpeg', ...finalConcatArgs] });
       await new Promise((resolve, reject) => {
         const proc = spawn('ffmpeg', finalConcatArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+        activeDownloads.set(clipName, { proc, phase: 'final-concat', cancelled: false });
         let stderr = '';
         proc.stderr.on('data', d => { stderr += d; });
         proc.on('close', code => {
           ffmpegStepLogs.push({ step: '5. Final concat', stderr });
+          if (activeDownloads.get(clipName)?.cancelled) { reject(Object.assign(new Error('Cancelled'), { cancelled: true })); return; }
           code === 0 ? resolve() : reject(new Error('Final concat failed'));
         });
         proc.on('error', reject);
       });
     }
 
-    mainWindow?.webContents.send('clip-progress', { clipName, progress: 100 });
+    broadcastProgress(clipName, 100);
+    activeDownloads.delete(clipName);
     const fileSize = fs.statSync(out).size;
     debugLog('CLIP', 'Download complete', { clipName, filePath: out, fileSize });
 
     // Store ffmpeg commands + logs for clip log viewer
     clipFfmpegLogs.set(clipName, {
-      commands: ffmpegCommands.map(c => ({ step: c.step, args: c.args.join(' ') })),
-      logs: ffmpegStepLogs.map(l => ({ step: l.step, stderr: l.stderr })),
+      commands: ffmpegCommands.map(c => ({ step: c.step, args: sanitize(c.args.join(' ')) })),
+      logs: ffmpegStepLogs.map(l => ({ step: l.step, stderr: sanitize(l.stderr) })),
       timestamp: new Date().toISOString(),
-      filePath: out,
+      filePath: sanitize(out),
       fileSize,
     });
 
@@ -873,12 +1051,12 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
         `Outro:           ${batchManifest.hasOutro ? 'yes' : 'no'}`,
         ``,
         `--- FFmpeg Commands (${ffmpegCommands.length} steps) ---`,
-        ...ffmpegCommands.map(cmd => `\n[${cmd.step}]\n${cmd.args.join(' ')}`),
+        ...ffmpegCommands.map(cmd => `\n[${cmd.step}]\n${sanitize(cmd.args.join(' '))}`),
         ``,
         `--- Output ---`,
         `File: ${path.basename(out)}`,
         `Size: ${fileSize} bytes (${(fileSize / 1048576).toFixed(1)} MB)`,
-        `Path: ${out}`,
+        `Path: ${sanitize(out)}`,
         ``,
         ``,
       ];
@@ -886,8 +1064,16 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
       debugLog('CLIP', 'Batch manifest written', { manifestPath });
     }
 
-    return { success: true, filePath: out, fileName: path.basename(out), fileSize };
+    return { success: true, filePath: out, displayPath: sanitize(out), fileName: path.basename(out), fileSize };
 
+  } catch (err) {
+    activeDownloads.delete(clipName);
+    if (err.cancelled) {
+      debugLog('CLIP', 'Download cancelled by user', { clipName });
+      return { success: false, cancelled: true };
+    }
+    debugLog('ERROR', 'Download failed', { clipName, error: err.message });
+    throw err;
   } finally {
     if (keepTempFiles) {
       debugLog('CLIP', 'Keeping temp files (dev feature enabled)', { tempDir });
@@ -927,7 +1113,12 @@ function createWindow() {
   mainWindow.setMenuBarVisibility(false);
   mainWindow.loadURL(`http://localhost:${proxyPort}`);
   mainWindow.webContents.openDevTools({ mode: 'bottom' });
-  mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+    // Close child windows so the app quits
+    if (hubWindow && !hubWindow.isDestroyed()) hubWindow.close();
+    if (debugWindow && !debugWindow.isDestroyed()) debugWindow.close();
+  });
 }
 
 // ── Boot ─────────────────────────────────────────────────────────
