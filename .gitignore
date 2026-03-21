@@ -7,9 +7,3 @@ _tmp_*
 _cap_*
 docs/
 .claude/
-channel.json
-preload-batch.js
-preload-debug.js
-src/batch/
-src/debug.html
-src/debug.js
