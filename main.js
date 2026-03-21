@@ -551,7 +551,7 @@ function buildWatermarkFilter(wm) {
 // Added: watermark filter, outro concatenation, GPU accel options
 // ══════════════════════════════════════════════════════════════════
 
-ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, clipName, watermark, outro, ffmpegOptions, batchOutputDir, batchManifest }) => {
+ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, clipName, watermark, outro, ffmpegOptions, batchOutputDir, batchManifest, keepTempFiles, logFfmpegCommands }) => {
   debugLog('CLIP', 'Download requested', { clipName, startSec, durationSec, m3u8Url: m3u8Url?.slice(0, 120), hasWatermark: !!watermark, hasOutro: !!outro, ffmpegOptions, batch: !!batchOutputDir });
 
   // Determine output directory (batch mode overrides)
@@ -835,6 +835,13 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
       fileSize,
     });
 
+    // Output all FFmpeg commands to debug log (dev feature)
+    if (logFfmpegCommands) {
+      for (const cmd of ffmpegCommands) {
+        debugLog('FFMPEG', `[${clipName}] ${cmd.step}`, { command: `ffmpeg ${cmd.args.join(' ')}` });
+      }
+    }
+
     // Write batch manifest if in batch mode
     if (batchManifest) {
       const manifestPath = path.join(outputDir, '_manifest.txt');
@@ -882,8 +889,11 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
     return { success: true, filePath: out, fileName: path.basename(out), fileSize };
 
   } finally {
-    // TEMP: keep temp files for debugging — revert when done
-    // try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    if (keepTempFiles) {
+      debugLog('CLIP', 'Keeping temp files (dev feature enabled)', { tempDir });
+    } else {
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    }
   }
 });
 

@@ -124,6 +124,8 @@ let userConfig = {
   catchUpSpeed: 1.5,
   devFeatures: {
     ffmpegLogs: false,
+    keepTempFiles: false,
+    logFfmpegCommands: false,
   },
 };
 
@@ -1376,6 +1378,8 @@ async function downloadClip(idx) {
       watermark,
       outro,
       ffmpegOptions,
+      keepTempFiles: userConfig.devFeatures?.keepTempFiles || false,
+      logFfmpegCommands: userConfig.devFeatures?.logFfmpegCommands || false,
     };
 
     // Batch mode: add output dir override and manifest info
@@ -1634,6 +1638,8 @@ function openConfigModal() {
           <p class="config-note">When enabled, press <kbd>B</kbd> to toggle batch mode. Creates N identical clips from a single IN/OUT for encoding comparison. Each batch outputs to a subfolder named after the ffmpeg config, with a manifest .txt documenting all commands.</p>
           <label class="config-toggle"><input type="checkbox" id="cfgBatchEnabled" ${batchModeEnabled?'checked':''}> <span>Enable Batch Testing Mode</span></label>
           <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgFfmpegLogs" ${cfg.devFeatures?.ffmpegLogs?'checked':''}> <span>Show "View FFMPEG Log" on completed clips</span></label>
+          <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgKeepTempFiles" ${cfg.devFeatures?.keepTempFiles?'checked':''}> <span>Keep temp files after clip download</span></label>
+          <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgLogFfmpegCommands" ${cfg.devFeatures?.logFfmpegCommands?'checked':''}> <span>Output all FFmpeg commands to debug log</span></label>
         </div>
 
       </div>
@@ -1741,8 +1747,10 @@ function openConfigModal() {
     if (!batchModeEnabled) { batchModeActive = false; $('batchPanel').style.display = 'none'; }
     if (!userConfig.devFeatures) userConfig.devFeatures = {};
     userConfig.devFeatures.ffmpegLogs = overlay.querySelector('#cfgFfmpegLogs').checked;
+    userConfig.devFeatures.keepTempFiles = overlay.querySelector('#cfgKeepTempFiles').checked;
+    userConfig.devFeatures.logFfmpegCommands = overlay.querySelector('#cfgLogFfmpegCommands').checked;
 
-    dbg('ACTION', 'Settings saved', { videoCodec: userConfig.ffmpeg.videoCodec, hwaccel: userConfig.ffmpeg.hwaccel || 'none', catchUpSpeed: userConfig.catchUpSpeed, batchEnabled: batchModeEnabled, ffmpegLogs: userConfig.devFeatures.ffmpegLogs });
+    dbg('ACTION', 'Settings saved', { videoCodec: userConfig.ffmpeg.videoCodec, hwaccel: userConfig.ffmpeg.hwaccel || 'none', catchUpSpeed: userConfig.catchUpSpeed, batchEnabled: batchModeEnabled, ffmpegLogs: userConfig.devFeatures.ffmpegLogs, keepTempFiles: userConfig.devFeatures.keepTempFiles, logFfmpegCommands: userConfig.devFeatures.logFfmpegCommands });
     await saveConfig();
     await saveUniversalConfigs();
     applyConfig();
