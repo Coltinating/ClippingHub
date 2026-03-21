@@ -619,6 +619,19 @@ ipcMain.handle('choose-outro-file', async () => {
   return { success: false };
 });
 
+// ── IPC: choose watermark image ──────────────────────────────────
+ipcMain.handle('choose-watermark-image', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Select Watermark Image',
+    filters: [{ name: 'Image Files', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'webp'] }],
+    properties: ['openFile'],
+  });
+  if (!result.canceled && result.filePaths[0]) {
+    return { success: true, filePath: result.filePaths[0] };
+  }
+  return { success: false };
+});
+
 // ══════════════════════════════════════════════════════════════════
 // ── Watermark: build ffmpeg drawtext filter ──────────────────────
 // (Ported from ClipperWATERMARKTESTING)
@@ -827,11 +840,17 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
         if (opts.hwaccelDevice !== undefined && opts.hwaccelDevice !== '') ffArgs.push('-hwaccel_device', String(opts.hwaccelDevice));
       }
 
-      ffArgs.push('-i', concatPath, '-ss', String(ssOffset), '-t', String(durationSec));
+      ffArgs.push('-i', concatPath);
 
       if (imgWmArgs) {
-        // Image watermark — use filter_complex with second input
+        // Image watermark — add image input BEFORE -ss/-t so they stay as output options
+        // (placing -ss/-t between two -i flags causes FFmpeg to apply them to the image input)
         ffArgs.push(...imgWmArgs.inputs);
+      }
+
+      ffArgs.push('-ss', String(ssOffset), '-t', String(durationSec));
+
+      if (imgWmArgs) {
         if (wmFilter) {
           // Both text + image: apply text drawtext on video, then overlay image
           const fc = imgWmArgs.filterComplex.replace(
