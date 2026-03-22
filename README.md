@@ -1,6 +1,6 @@
 # ClippingHub
 
-Desktop app for clipping Rumble streams and VODs. Paste a URL, set your in/out points, and export clips with optional watermarks and outros. Built on Electron + ffmpeg.
+Desktop app for clipping Rumble streams and VODs. Navigate to your desired Channel or Paste a URL, set your in/out points, and export clips with optional watermarks and outros. Built on Electron + ffmpeg.
 
 ![ClippingHub UI](assets/ui.png)
 
