@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld('clipper', {
   // M3U8 extraction (Electron-native hidden window)
   extractM3U8: (opts) => ipcRenderer.invoke('extract-m3u8', opts),
 
-  // Built-in Rumble navigator window
+  // Built-in stream navigator window
   openNavigator: (opts) => ipcRenderer.invoke('open-navigator', opts || {}),
   closeNavigator: () => ipcRenderer.invoke('close-navigator'),
 
@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld('clipper', {
   downloadClip: (opts) => ipcRenderer.invoke('download-clip', opts),
   onClipProgress: (cb) => ipcRenderer.on('clip-progress', (_, d) => cb(d)),
 
-  // Native drag-out (to Twitter etc.)
+  // Native drag-out (to social media etc.)
   startDrag: (filePath) => ipcRenderer.send('ondragstart', filePath),
 
   // ── Config management ─────────────────────────────────────────
@@ -44,10 +44,30 @@ contextBridge.exposeInMainWorld('clipper', {
   // Outro file picker
   chooseOutroFile: () => ipcRenderer.invoke('choose-outro-file'),
 
+  // Watermark image picker
+  chooseWatermarkImage: () => ipcRenderer.invoke('choose-watermark-image'),
+
+  // Watermark preview
+  previewWatermark: (opts) => ipcRenderer.invoke('preview-watermark', opts),
+  showPreview: (filePath) => ipcRenderer.invoke('show-preview', { filePath }),
+
   // Debug
   sendDebugLog: (entry) => ipcRenderer.send('renderer-debug-log', entry),
   openDebugWindow: () => ipcRenderer.invoke('open-debug-window'),
   openClipFfmpegLog: (clipName) => ipcRenderer.invoke('open-clip-ffmpeg-log', clipName),
+
+  // Cancel active download
+  cancelClip: (clipName) => ipcRenderer.invoke('cancel-clip', { clipName }),
+
+  // Delete clip file (for Re-Stage)
+  deleteClipFile: (filePath) => ipcRenderer.invoke('delete-clip-file', { filePath }),
+
+  // Detachable hub window
+  openHubWindow: () => ipcRenderer.invoke('open-hub-window'),
+  closeHubWindow: () => ipcRenderer.invoke('close-hub-window'),
+  onHubReattached: (cb) => ipcRenderer.on('hub-reattached', () => cb()),
+  sendHubStateUpdate: (state) => ipcRenderer.send('hub-state-update', state),
+  onHubAction: (cb) => ipcRenderer.on('hub-action', (_, action) => cb(action)),
 
   // Batch testing (dev)
   openBatchProgress: () => ipcRenderer.invoke('open-batch-progress'),

@@ -7,3 +7,5 @@ _tmp_*
 _cap_*
 docs/
 .claude/
+installerplans/
+tests/

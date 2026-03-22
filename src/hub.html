@@ -473,6 +473,7 @@ function renderPending() {
       <textarea class="clip-card-caption" data-idx="${idx}" placeholder="Caption / summary idea..." rows="1">${escH(clip.caption || '')}</textarea>
       <div class="clip-card-actions">
         <button class="btn btn-success btn-xs" data-action="download" data-idx="${idx}">&#11015; Download</button>
+        ${(clip.watermark || clip.imageWatermark || state.universalWatermark || state.universalImageWatermark) ? `<button class="btn btn-ghost btn-xs" data-action="preview" data-idx="${idx}" title="Preview watermark">Preview</button>` : ''}
         ${btns.jumpToIn ? `<button class="btn btn-ghost btn-xs" data-action="jumpin" data-idx="${idx}">Jump to IN</button>` : ''}
         ${btns.jumpToEnd ? `<button class="btn btn-ghost btn-xs" data-action="jumpout" data-idx="${idx}">Jump to OUT</button>` : ''}
         ${btns.watermark ? `<button class="btn btn-accent btn-xs wm-btn-icon" data-action="watermark" data-idx="${idx}" title="Watermark${(clip.watermark || clip.imageWatermark) ? ' (configured)' : ''}">
@@ -501,6 +502,7 @@ function renderPending() {
       return;
     }
     if (btn.dataset.action === 'download') hubBridge.sendAction({ type: 'download', idx });
+    if (btn.dataset.action === 'preview') hubBridge.sendAction({ type: 'preview', idx });
     if (btn.dataset.action === 'jumpin') hubBridge.sendAction({ type: 'jumpin', idx });
     if (btn.dataset.action === 'jumpout') hubBridge.sendAction({ type: 'jumpout', idx });
     if (btn.dataset.action === 'repickIn') hubBridge.sendAction({ type: 'repickIn', idx });

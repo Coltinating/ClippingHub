@@ -323,9 +323,9 @@ urlIn.onkeydown = e => { if (e.key === 'Enter') { dbg('ACTION', 'URL submitted v
 
 if (navBtn) navBtn.onclick = () => {
   const url = urlIn.value.trim();
-  dbg('ACTION', 'Browse Rumble clicked', { url: url || '(none)' });
+  dbg('ACTION', 'Browse Streams clicked', { url: url || '(none)' });
   window.clipper.openNavigator({ url: isRumble(url) ? url : undefined });
-  setStatus('', 'Rumble navigator open — play any video to grab the stream');
+  setStatus('', 'Stream navigator open — play any video to grab the stream');
 };
 
 importBtn && (importBtn.onclick = () => {
@@ -371,7 +371,7 @@ async function handleURL(raw) {
   if (isRumble(raw)) {
     const myId = ++_extractionId;
     extractBar.classList.add('on');
-    extractStep.textContent = 'Opening Rumble in background browser...';
+    extractStep.textContent = 'Opening stream in background browser...';
     try {
       const result = await window.clipper.extractM3U8({ pageUrl: raw });
       if (myId !== _extractionId) return;
@@ -386,7 +386,7 @@ async function handleURL(raw) {
       setStatus('err', 'Could not extract stream');
       const useNav = confirm(
         'Auto-extraction failed:\n' + err.message +
-        '\n\nOpen the Rumble browser navigator to grab it manually?'
+        '\n\nOpen the stream browser navigator to grab it manually?'
       );
       if (useNav) window.clipper.openNavigator({ url: raw });
     }
@@ -1124,6 +1124,7 @@ function renderPendingClips() {
       <textarea class="clip-card-caption" data-idx="${idx}" placeholder="Caption / summary idea..." rows="1">${escH(clip.caption)}</textarea>
       <div class="clip-card-actions">
         <button class="btn btn-success btn-xs" data-action="download" data-idx="${idx}">&#11015; Download</button>
+        ${(clip.watermark || clip.imageWatermark || universalWatermark || universalImageWatermark) ? `<button class="btn btn-ghost btn-xs" data-action="preview" data-idx="${idx}" title="Preview watermark placement">Preview</button>` : ''}
         ${btns.jumpToIn ? `<button class="btn btn-ghost btn-xs" data-action="jumpin" data-idx="${idx}">Jump to IN</button>` : ''}
         ${btns.jumpToEnd ? `<button class="btn btn-ghost btn-xs" data-action="jumpout" data-idx="${idx}">Jump to OUT</button>` : ''}
         ${btns.watermark ? `<button class="btn btn-accent btn-xs wm-btn-icon" data-action="watermark" data-idx="${idx}" title="Watermark${(clip.watermark || clip.imageWatermark) ? ' (configured)' : ''}">
@@ -1145,6 +1146,7 @@ function renderPendingClips() {
     const idx = parseInt(btn.dataset.idx);
     if (btn.classList.contains('clip-card-remove')) { dbg('ACTION', 'Remove clip', { idx, name: pendingClips[idx]?.name }); pendingClips.splice(idx, 1); renderPendingClips(); return; }
     if (btn.dataset.action === 'download') { dbg('ACTION', 'Download clip clicked', { idx, name: pendingClips[idx]?.name }); downloadClip(idx); }
+    if (btn.dataset.action === 'preview') { dbg('ACTION', 'Preview watermark clicked', { idx, name: pendingClips[idx]?.name }); previewClip(idx, btn); }
     if (btn.dataset.action === 'jumpin') { dbg('ACTION', 'Jump to IN', { idx, time: pendingClips[idx]?.inTime }); vid.currentTime = pendingClips[idx].inTime; }
     if (btn.dataset.action === 'jumpout') { dbg('ACTION', 'Jump to OUT', { idx, time: pendingClips[idx]?.outTime }); vid.currentTime = pendingClips[idx].outTime; }
     if (btn.dataset.action === 'watermark') { dbg('ACTION', 'Open watermark modal', { idx }); openWatermarkModal(idx); }
@@ -1448,6 +1450,47 @@ function openWatermarkModal(idx) {
     overlay.remove();
     renderPendingClips();
   };
+}
+
+/* ─── Watermark Preview ─────────────────────────────────────── */
+async function previewClip(idx, btn) {
+  const clip = pendingClips[idx];
+  if (!clip) return;
+
+  const watermark = clip.watermark || universalWatermark || null;
+  const imageWatermark = clip.imageWatermark || universalImageWatermark || null;
+
+  if (!watermark && !imageWatermark) {
+    dbg('PREVIEW', 'No watermark configured, skipping');
+    return;
+  }
+
+  // Loading state
+  const origText = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '...'; btn.disabled = true; }
+
+  try {
+    dbg('PREVIEW', 'Requesting preview', { m3u8Url: clip.m3u8Url?.slice(0, 80), startSec: clip.inTime });
+    const result = await window.clipper.previewWatermark({
+      m3u8Url: clip.m3u8Url,
+      startSec: clip.inTime,
+      watermark,
+      imageWatermark,
+    });
+
+    if (result.success) {
+      dbg('PREVIEW', 'Preview ready, opening', { path: result.previewPath });
+      await window.clipper.showPreview(result.previewPath);
+    } else {
+      dbg('ERROR', 'Preview failed', { error: result.error });
+      alert('Preview failed: ' + (result.error || 'Unknown error'));
+    }
+  } catch (err) {
+    dbg('ERROR', 'Preview error', { error: err.message });
+    alert('Preview error: ' + err.message);
+  } finally {
+    if (btn) { btn.textContent = origText; btn.disabled = false; }
+  }
 }
 
 /* ─── Outro Modal ───────────────────────────────────────────── */
@@ -1888,6 +1931,9 @@ window.clipper.onHubAction(async (action) => {
     case 'clearImageWatermark':
       if (pendingClips[action.idx]) { delete pendingClips[action.idx].imageWatermark; renderPendingClips(); }
       break;
+    case 'preview':
+      previewClip(action.idx, null);
+      break;
     case 'setOutro':
       if (pendingClips[action.idx]) { pendingClips[action.idx].outro = action.outro; renderPendingClips(); }
       break;
@@ -2003,7 +2049,7 @@ function openConfigModal() {
         <!-- Default Channel -->
         <div class="config-section">
           <div class="config-section-title">Default Channel</div>
-          <p class="config-note">Set a default Rumble channel to navigate to on startup.</p>
+          <p class="config-note">Set a default channel to navigate to on startup.</p>
           <label class="config-toggle"><input type="checkbox" id="cfgChannelEnabled" ${cfg.defaultChannel.enabled?'checked':''}> <span>Enable Default Channel</span></label>
           <div style="display:flex; gap:8px; align-items:center; margin-top:6px;">
             <input class="wm-input" id="cfgChannelId" type="text" value="${escAttr(cfg.defaultChannel.channel_id||'')}" placeholder="e.g. channelname" style="flex:1; font-size:11px;">

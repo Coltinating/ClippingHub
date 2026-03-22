@@ -88,6 +88,58 @@ const DEBUG_BUFFER_MAX = 5000;
 // Per-clip ffmpeg log storage (clipName → { commands, logs })
 const clipFfmpegLogs = new Map();
 
+// ── Proxy helpers (used by download-clip and preview-watermark) ──
+function toProxyUrl(url) {
+  const base = `http://127.0.0.1:${proxyPort}`;
+  if (!url.startsWith('http')) return base + url;
+  if (url.startsWith(base)) return url;
+  return `${base}/proxy?url=${encodeURIComponent(url)}`;
+}
+
+function proxyFetchText(url) {
+  return new Promise((resolve, reject) => {
+    http.get(toProxyUrl(url), res => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => resolve(data));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
+function proxyFetchBuffer(url) {
+  return new Promise((resolve, reject) => {
+    http.get(toProxyUrl(url), res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
+async function resolveMediaUrl(url, pickLowest = false) {
+  const text = await proxyFetchText(url);
+  if (!text.includes('#EXT-X-STREAM-INF')) return { url, text };
+  const lines = text.split('\n');
+  let bestBw = pickLowest ? Infinity : -1;
+  let bestUrl = null;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith('#EXT-X-STREAM-INF')) {
+      const bw = parseInt(lines[i].match(/BANDWIDTH=(\d+)/)?.[1] || '0');
+      const next = lines[i + 1]?.trim();
+      if (next && !next.startsWith('#')) {
+        if (pickLowest ? bw < bestBw : bw > bestBw) { bestBw = bw; bestUrl = next; }
+      }
+    }
+  }
+  if (!bestUrl) throw new Error('No variant stream found in master playlist');
+  const base = `http://127.0.0.1:${proxyPort}`;
+  const mediaUrl = bestUrl.startsWith('http') ? bestUrl : base + bestUrl;
+  const mediaText = await proxyFetchText(mediaUrl);
+  return { url: mediaUrl, text: mediaText };
+}
+
 // Active download process registry (clipName → { proc, phase, cancelled })
 const activeDownloads = new Map();
 
@@ -112,7 +164,7 @@ function ensureConfigDir() {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
 }
 
-// ── Rumble session partition ─────────────────────────────────────
+// ── Session partition ────────────────────────────────────────────
 const PARTITION = 'persist:rumble';
 
 // ── Express app ──────────────────────────────────────────────────
@@ -202,7 +254,7 @@ ipcMain.handle('extract-m3u8', (event, { pageUrl }) => {
 
     timer = setTimeout(() => {
       cleanup();
-      reject(new Error('No stream found in 25s. Try Browse Rumble to navigate manually.'));
+      reject(new Error('No stream found in 25s. Try Browse Streams to navigate manually.'));
     }, 25000);
 
     hidden.webContents.on('did-fail-load', (ev, code, desc) => {
@@ -228,7 +280,7 @@ ipcMain.handle('extract-m3u8', (event, { pageUrl }) => {
   });
 });
 
-// ── IPC: Rumble navigator ────────────────────────────────────────
+// ── IPC: Stream navigator ────────────────────────────────────────
 ipcMain.handle('open-navigator', (event, { url } = {}) => {
   if (navWindow && !navWindow.isDestroyed()) {
     navWindow.focus();
@@ -240,7 +292,7 @@ ipcMain.handle('open-navigator', (event, { url } = {}) => {
 
   navWindow = new BrowserWindow({
     width: 1100, height: 760,
-    title: 'Browse Rumble — Clipper Hub',
+    title: 'Browse Streams — Clipper Hub',
     backgroundColor: '#0f0f10',
     webPreferences: {
       partition: PARTITION,
@@ -683,12 +735,104 @@ function buildWatermarkFilter(wm) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// ── IPC: preview watermark (quick frame grab + overlay) ──────────
+// ══════════════════════════════════════════════════════════════════
+
+ipcMain.handle('preview-watermark', async (event, { m3u8Url, startSec, watermark, imageWatermark }) => {
+  debugLog('PREVIEW', 'Preview requested', { startSec, hasWatermark: !!watermark, hasImageWatermark: !!imageWatermark });
+
+  const { parseSegments, findCoveringSegments, buildImageWatermarkArgs } = require('./src/lib/ffmpeg-args.js');
+  const tempDir = path.join(clipsDir, `_preview_${Date.now()}`);
+  fs.mkdirSync(tempDir, { recursive: true });
+
+  try {
+    // 1. Resolve m3u8 — use SAME quality as download so watermark scale matches output
+    const { text: mediaText } = await resolveMediaUrl(m3u8Url);
+    const { segments } = parseSegments(mediaText);
+    if (!segments.length) throw new Error('No segments in playlist');
+
+    // 2. Find one segment overlapping startSec
+    const covering = findCoveringSegments(segments, startSec, 1);
+    const seg = covering.length ? covering[0] : segments[Math.floor(segments.length / 2)];
+    debugLog('PREVIEW', 'Using segment', { url: seg.url?.slice(0, 80), startTime: seg.startTime });
+
+    // 3. Download single segment
+    const segBuf = await proxyFetchBuffer(seg.url);
+    const segPath = path.join(tempDir, 'seg.ts');
+    fs.writeFileSync(segPath, segBuf);
+
+    // 4. Extract one frame
+    const framePath = path.join(tempDir, 'frame.png');
+    await new Promise((resolve, reject) => {
+      const proc = spawn('ffmpeg', ['-y', '-i', segPath, '-frames:v', '1', framePath], { stdio: 'pipe' });
+      proc.on('close', code => code === 0 ? resolve() : reject(new Error(`Frame extract failed (${code})`)));
+      proc.on('error', reject);
+    });
+
+    // 5. Apply watermark(s)
+    const wmFilter = buildWatermarkFilter(watermark);
+    const imgWmArgs = buildImageWatermarkArgs(imageWatermark);
+    let previewPath = framePath;
+
+    if (wmFilter || imgWmArgs) {
+      previewPath = path.join(tempDir, 'preview.png');
+      const ffArgs = ['-y', '-i', framePath];
+
+      if (imgWmArgs) {
+        ffArgs.push(...imgWmArgs.inputs);
+        if (wmFilter) {
+          const fc = imgWmArgs.filterComplex.replace(
+            '[0:v][wm]overlay',
+            `[0:v]${wmFilter}[txt];[txt][wm]overlay`
+          );
+          ffArgs.push('-filter_complex', fc);
+        } else {
+          ffArgs.push('-filter_complex', imgWmArgs.filterComplex);
+        }
+      } else {
+        // Text-only watermark
+        ffArgs.push('-vf', wmFilter);
+      }
+
+      ffArgs.push('-frames:v', '1', previewPath);
+
+      await new Promise((resolve, reject) => {
+        const proc = spawn('ffmpeg', ffArgs, { stdio: 'pipe' });
+        let stderr = '';
+        proc.stderr.on('data', d => stderr += d.toString());
+        proc.on('close', code => code === 0 ? resolve() : reject(new Error(`Overlay failed (${code}): ${stderr.slice(-300)}`)));
+        proc.on('error', reject);
+      });
+    }
+
+    debugLog('PREVIEW', 'Preview ready', { previewPath });
+    return { success: true, previewPath };
+
+  } catch (err) {
+    debugLog('ERROR', 'Preview failed', { error: err.message });
+    return { success: false, error: err.message };
+  } finally {
+    // Clean up segment file (keep preview for display)
+    try { fs.unlinkSync(path.join(tempDir, 'seg.ts')); } catch {}
+    try { fs.unlinkSync(path.join(tempDir, 'frame.png')); } catch {}
+  }
+});
+
+// ── IPC: show preview image ──────────────────────────────────────
+ipcMain.handle('show-preview', async (_, { filePath }) => {
+  const { shell } = require('electron');
+  await shell.openPath(filePath);
+  return { success: true };
+});
+
+// ══════════════════════════════════════════════════════════════════
 // ── IPC: download clip via ffmpeg ────────────────────────────────
 // Clipper's segment-based download pipeline — PRESERVED FROM CLIPPER
 // Added: watermark filter, outro concatenation, GPU accel options
 // ══════════════════════════════════════════════════════════════════
 
 ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, clipName, watermark, imageWatermark, outro, ffmpegOptions, batchOutputDir, batchManifest, keepTempFiles, logFfmpegCommands }) => {
+  const { parseSegments, findCoveringSegments, buildConcatArgs, buildImageWatermarkArgs } = require('./src/lib/ffmpeg-args.js');
   debugLog('CLIP', 'Download requested', { clipName, startSec, durationSec, m3u8Url: m3u8Url?.slice(0, 120), hasWatermark: !!watermark, hasImageWatermark: !!imageWatermark, hasOutro: !!outro, ffmpegOptions, batch: !!batchOutputDir });
 
   // Determine output directory (batch mode overrides)
@@ -708,56 +852,7 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
   const ffmpegCommands = [];
   const ffmpegStepLogs = [];  // { step, stderr } per ffmpeg invocation
 
-  const proxyBase = `http://127.0.0.1:${proxyPort}`;
-
-  const toProxyUrl = (url) => {
-    if (!url.startsWith('http')) return proxyBase + url;
-    if (url.startsWith(proxyBase)) return url;
-    return `${proxyBase}/proxy?url=${encodeURIComponent(url)}`;
-  };
-
-  const fetchText = (url) => new Promise((resolve, reject) => {
-    const abs = toProxyUrl(url);
-    http.get(abs, res => {
-      let data = '';
-      res.on('data', c => data += c);
-      res.on('end', () => resolve(data));
-      res.on('error', reject);
-    }).on('error', reject);
-  });
-
-  const fetchBuffer = (url) => new Promise((resolve, reject) => {
-    const abs = toProxyUrl(url);
-    http.get(abs, res => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
-      res.on('error', reject);
-    }).on('error', reject);
-  });
-
-  const parseSegments = (text) => {
-    const mod = require('./src/lib/ffmpeg-args.js');
-    return mod.parseSegments(text);
-  };
-
-  const resolveMediaUrl = async (url) => {
-    const text = await fetchText(url);
-    if (!text.includes('#EXT-X-STREAM-INF')) return { url, text };
-    const lines = text.split('\n');
-    let bestBw = -1, bestUrl = null;
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].startsWith('#EXT-X-STREAM-INF')) {
-        const bw = parseInt(lines[i].match(/BANDWIDTH=(\d+)/)?.[1] || '0');
-        const next = lines[i + 1]?.trim();
-        if (next && !next.startsWith('#') && bw > bestBw) { bestBw = bw; bestUrl = next; }
-      }
-    }
-    if (!bestUrl) throw new Error('No variant stream found in master playlist');
-    const mediaUrl = bestUrl.startsWith('http') ? bestUrl : proxyBase + bestUrl;
-    const mediaText = await fetchText(mediaUrl);
-    return { url: mediaUrl, text: mediaText };
-  };
+  // Proxy helpers are now at module scope: toProxyUrl, proxyFetchText, proxyFetchBuffer, resolveMediaUrl
 
   const tempDir = path.join(clipsDir, `_tmp_${Date.now()}`);
   fs.mkdirSync(tempDir, { recursive: true });
@@ -787,7 +882,7 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
       }
       const seg = relevant[i];
       const tsPath = path.join(tempDir, `seg_${String(i).padStart(4, '0')}.ts`);
-      const buf = await fetchBuffer(seg.url);
+      const buf = await proxyFetchBuffer(seg.url);
       fs.writeFileSync(tsPath, buf);
       tsPaths.push(tsPath);
       broadcastProgress(clipName, Math.round(((i + 1) / relevant.length) * 60));
@@ -798,7 +893,6 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, startSec, durationSec, 
     fs.writeFileSync(listFile, tsPaths.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n'));
 
     const concatPath = path.join(tempDir, 'concat.ts');
-    const { buildConcatArgs, buildImageWatermarkArgs } = require('./src/lib/ffmpeg-args.js');
     const concatArgs = buildConcatArgs(listFile, concatPath);
     ffmpegCommands.push({ step: '1. Segment concat (join .ts segments)', args: ['ffmpeg', ...concatArgs] });
     await new Promise((resolve, reject) => {

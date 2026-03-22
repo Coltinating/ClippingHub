@@ -6,13 +6,11 @@
   "scripts": {
     "start": "node launch.js",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "install-browsers": "npx playwright install chromium"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "electron": "^40.8.0",
-    "express": "^4.22.1",
-    "playwright": "^1.58.2"
+    "express": "^4.22.1"
   },
   "devDependencies": {
     "vitest": "^4.1.0"

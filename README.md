@@ -2,18 +2,15 @@
 
 Desktop app for clipping Rumble streams and VODs. Paste a URL, set your in/out points, and export clips with optional watermarks and outros. Built on Electron + ffmpeg.
 
-## What it does
+![ClippingHub UI](assets/ui.png)
 
-- Loads any Rumble video or live stream and auto-detects the HLS stream
-- Set start/end timestamps and clip segments from VODs or live streams
-- Live clipping mode with catch-up playback so you don't fall behind
-- Add image watermarks to clips (configurable position, size, opacity)
-- Append a custom outro video to the end of clips
-- Customizable keybinds for jumping around the timeline (Shift/Alt/Ctrl + Arrow keys)
-- Optional GPU acceleration for faster encoding (NVIDIA CUDA)
-- Config system that saves your preferences between sessions
-- Debug log viewer with category filtering and session logs
-- Batch testing mode for verifying clips across different encoding configs
+## Features
+
+- HLS stream auto-detection from Rumble URLs
+- Live and VOD clipping with catch-up playback
+- Image watermarks, outros, and preview before export
+- Detachable clip panel with resizable tabs
+- Customizable keybinds and GPU acceleration (NVIDIA CUDA)
 
 ## Requirements
 
@@ -70,48 +67,29 @@ Alternatively, on Windows you can just double-click `INSTALL.bat` instead of typ
 4. Use the timeline controls to set your clip start and end points
 5. Hit **Download** to export the clip to your Videos/ClippingHub folder
 
-### Watermarks
+### Image watermarking
 
-Click the watermark icon on a pending clip to add an image overlay. You can set the position (corner or center), scale, and opacity. If you want every clip to have the same watermark, set a universal watermark in the config menu — it gets applied automatically.
+Click the watermark icon on a pending clip to overlay a custom image watermark. Control placement (corners or center), size, and opacity to brand your content without extra tools. Set a universal watermark in the config menu to apply it automatically to every clip.
+
+### Image preview
+
+Click **Preview** on a pending clip to see a snapshot of the output before downloading. Verify framing, watermark placement, and quality without committing to a full export.
 
 ### Outros
 
-Click **Add Outro** on a pending clip to append a video to the end. You can set a universal outro in the config menu so it gets added to every clip by default.
+Click **Add Outro** on a pending clip to append a video to the end. Set a universal outro in the config menu so it gets added to every clip by default.
 
-### Config menu
+### Detachable clip panel
 
-The gear icon in the Pending Clips header opens the settings panel. From there you can:
-
-- Toggle which buttons show up on pending clips (Jump to In, Jump to End, Watermark, Outro)
-- Set a default channel to load on startup
-- Configure universal watermark and outro settings
-- Set up custom keybinds
-- Enable GPU acceleration and pick your CUDA device
-- Tweak ffmpeg encoding settings
-- Save/load your config to share between machines
-
-Config saves to `%APPDATA%/ClippingHub/user_config.json`.
-
-### Keybinds
-
-Arrow keys scrub the timeline by default. Hold Shift, Alt, or Ctrl for different jump sizes — all configurable in the settings. Useful for live clipping when you need to quickly find the right moment.
+Pop the clip hub out into its own window so you can clip full-screen while keeping your queue visible. The panel syncs in real time with the main window.
 
 ### Catch-up mode
 
-After making a clip during a live stream, you'll be behind real-time. Catch-up mode bumps the playback speed (1.1x to 2.5x, adjustable) so you can get back to the live edge without missing anything.
+After making a clip during a live stream, you'll be behind real-time. Catch-up mode bumps the playback speed so you can get back to the live edge without missing anything.
 
-### Debug logs
+### Config menu
 
-Open the debug log viewer from the settings panel to see real-time logs for stream detection, HLS events, clipping, and ffmpeg commands. Logs are saved per-session to `%APPDATA%/ClippingHub/logs/`. You can filter by category, search, copy, or save the output.
-
-## Encoding fixes
-
-This version includes several fixes to the ffmpeg clipping pipeline:
-
-- Segment timing uses integer-millisecond math to prevent float drift over long streams
-- Segment concat normalizes timestamps so clips from live streams with high wall-clock PTS values start at zero
-- Output-side seeking for precise trim points without video/audio desync
-- Video PTS normalization prevents black thumbnails on social media uploads
+The gear icon opens the settings panel where you can set a default channel, configure universal watermarks and outros, customize keybinds, enable GPU acceleration, and tweak encoding settings.
 
 ## Tech stack
 
@@ -119,4 +97,3 @@ This version includes several fixes to the ffmpeg clipping pipeline:
 - HLS.js
 - Express (local proxy)
 - ffmpeg
-- Vitest (testing)

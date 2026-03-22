@@ -33,7 +33,7 @@
       </button>
     </div>
     <div class="top-actions">
-      <!-- <button class="btn btn-accent btn-sm" id="navBtn" title="Browse Rumble">&#127760; Browse Rumble</button> -->
+      <!-- <button class="btn btn-accent btn-sm" id="navBtn" title="Browse Streams">&#127760; Browse Streams</button> -->
       <!-- <button class="btn btn-ghost btn-sm" id="importBtn" title="Import local file">&#128229; Import</button> -->
       <button class="btn btn-ghost btn-sm" id="openFolderBtn" title="Open clips folder">&#128193; Clips</button>
       <button class="btn btn-ghost btn-sm" id="settingsBtn" title="Change output folder">&#128194;</button>
@@ -48,7 +48,7 @@
   <div class="status-bar" id="statusBar">
     <div class="status-left">
       <div class="status-dot" id="statusDot"></div>
-      <span id="statusText">Paste a Rumble URL above and press Load Stream</span>
+      <span id="statusText">Paste a stream URL above and press Load Stream</span>
     </div>
     <div class="status-right">
       <span class="live-badge" id="liveBadge">&#9679; LIVE</span>
@@ -60,7 +60,7 @@
   <div class="extract-bar" id="extractBar">
     <div class="spinner-sm"></div>
     <span id="extractStep">Launching browser to find stream...</span>
-    <span class="extract-note">(may take ~30s for Rumble pages)</span>
+    <span class="extract-note">(may take ~30s for stream pages)</span>
   </div>
 
   <!-- ── Main Content ────────────────────────────────────── -->
@@ -84,7 +84,7 @@
             <path d="M26 22l16 10-16 10V22z" fill="currentColor" opacity="0.4"/>
           </svg>
           <p>No stream loaded</p>
-          <small>Supports Rumble live streams, VODs, and direct .m3u8 links</small>
+          <small>Supports live streams, VODs, and direct .m3u8 links</small>
         </div>
 
         <video id="vid" style="display:none"></video>
@@ -173,10 +173,11 @@
     </div>
 
     <!-- Right: Clip Hub -->
-    <div class="hub-section">
+    <div class="hub-section" id="hubSection">
       <div class="hub-header">
         <h2>Clip Hub</h2>
         <span class="clip-count" id="clipCount">0 clips</span>
+        <button class="btn btn-ghost btn-xs hub-detach-btn" id="detachHubBtn" title="Pop out hub">&#128470;</button>
       </div>
 
       <!-- Pending Clips -->
@@ -191,6 +192,7 @@
           </div>
         </div>
       </div>
+      <div class="hub-resize-handle" data-resize="0"></div>
 
       <!-- Downloading -->
       <div class="hub-group">
@@ -203,11 +205,13 @@
           </div>
         </div>
       </div>
+      <div class="hub-resize-handle" data-resize="1"></div>
 
       <!-- Completed Clips -->
       <div class="hub-group">
         <div class="hub-group-title">
           <span>&#10003; Completed</span>
+          <button class="btn btn-ghost btn-xs clear-btn" id="clearCompleted" title="Clear all completed">Clear</button>
           <button class="btn btn-ghost btn-xs" id="openCompletedFolder" title="Open folder">&#128193;</button>
         </div>
         <div class="clip-list" id="completedClipList">
@@ -228,7 +232,7 @@
 
 </div><!-- /app -->
 
-<!-- Debug toggle -->
+<!-- Debug toggle — always visible, independent of hub state -->
 <button id="debugToggleBtn" title="Open Debug Log window">DEBUG</button>
 
 <link rel="stylesheet" href="batch/batch-testing.css">
