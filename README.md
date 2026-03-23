@@ -4,6 +4,12 @@ Desktop app for clipping Rumble streams and VODs. Paste a URL, set your in/out p
 
 ![ClippingHub UI](assets/ui.png)
 
+## Installation:
+
+### 1. [Download Latest Release Here](https://github.com/Coltinating/ClippingHub/releases)
+   - Run Installer .exe
+   - Done.
+
 ## Features
 
 - HLS stream auto-detection from Rumble URLs
@@ -12,7 +18,10 @@ Desktop app for clipping Rumble streams and VODs. Paste a URL, set your in/out p
 - Detachable clip panel with resizable tabs
 - Customizable keybinds and GPU acceleration (NVIDIA CUDA)
 
-## Requirements
+  
+### 2. For those who would like to build the project using the git repo
+
+### Requirements (FOR MANUAL BUILDING/INSTALLATION):
 
 You need two things installed before running ClippingHub:
 
