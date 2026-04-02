@@ -8,6 +8,6 @@ _cap_*
 docs/
 .claude/
 installerplans/
-tests/
 build/ffmpeg/
-assets/
+resources/whisper/
+fix-starttime.bat
