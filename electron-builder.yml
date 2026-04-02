@@ -1,0 +1,39 @@
+appId: com.clippinghub.app
+productName: ClippingHub
+copyright: Copyright © 2026 Coltinating
+
+directories:
+  output: dist
+
+files:
+  - "**/*"
+  - "!dist/**"
+  - "!build/**"
+  - "!tests/**"
+  - "!assets/**"
+  - "!docs/**"
+  - "!misc/**"
+  - "!.claude/**"
+  - "!installerplans/**"
+  - "!fix-starttime.bat"
+  - "!*.log"
+  - "!_tmp_*"
+  - "!_cap_*"
+  - "!resources/whisper/**"
+
+extraResources:
+  - from: "build/ffmpeg"
+    to: "ffmpeg"
+    filter:
+      - "**/*"
+
+win:
+  target: nsis
+  icon: build/icon.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  include: build/installer.nsh

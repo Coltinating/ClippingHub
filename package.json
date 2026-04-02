@@ -1,7 +1,8 @@
 {
   "name": "clipper-hub",
-  "version": "2.0.1",
-  "description": "Streamer Clipper Hub — mark, clip, and export moments from Rumble streams",
+  "version": "1.4.0",
+  "description": "Streamer Clipper Hub — mark, clip, and export moments from streams",
+  "author": "Coltinating",
   "main": "main.js",
   "license": "PolyForm-Noncommercial-1.0.0",
   "scripts": {
@@ -11,11 +12,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "electron": "^40.8.0",
     "electron-updater": "^6.3.0",
     "express": "^4.22.1"
   },
   "devDependencies": {
+    "electron": "^40.8.0",
     "electron-builder": "^26.0.0",
     "vitest": "^4.1.0"
   }
