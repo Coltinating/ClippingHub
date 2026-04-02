@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Clip Hub — Clipper Hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #000000; --surface: #0a0a0a; --s2: #141414; --s3: #1a1a1a;
+  --s4: #222222; --border: #272727; --b2: #1e1e1e;
+  --accent: #7b61ff; --accent-d: #5a45c9; --accent-l: #a78bfa;
+  --grad-start: #00ccb1; --grad-mid: #7b61ff; --grad-end: #ff61dc;
+  --text: #fafafa; --text-secondary: #a1a1aa; --dim: #71717a; --muted: #52525b;
+  --red: #ef4444; --green: #22c55e;
+  --grad: linear-gradient(135deg, var(--grad-start), var(--grad-mid), var(--grad-end));
+  --grad-h: linear-gradient(90deg, var(--grad-start), var(--grad-mid), var(--grad-end));
+}
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; }
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+html, body {
+  height: 100%; background: var(--bg); color: var(--text);
+  font-family: 'Inter', -apple-system, sans-serif; font-size: 13px;
+  overflow: hidden; user-select: none;
+}
+.hub-wrap {
+  display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+}
+.hub-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 14px 12px; border-bottom: 1px solid var(--b2); flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+.hub-header > * { -webkit-app-region: no-drag; }
+.hub-header h2 { font-size: 14px; font-weight: 600; letter-spacing: 0.03em; color: #fff; }
+.clip-count {
+  font-family: 'DM Mono', monospace; font-size: 10px;
+  color: var(--dim); background: var(--s2); border: 1px solid var(--border);
+  border-radius: 9999px; padding: 2px 10px;
+}
+.hub-group { display: flex; flex-direction: column; flex: 1 1 0; min-height: 60px; }
+.hub-resize-handle {
+  height: 0; flex-shrink: 0; cursor: row-resize;
+  border-top: 1px solid var(--b2); border-bottom: 1px solid var(--b2);
+  transition: background 0.15s, height 0.1s;
+}
+.hub-resize-handle:hover { height: 3px; background: rgba(123,97,255,0.25); }
+.hub-resize-handle.dragging { height: 3px; background: var(--accent); }
+.hub-group-title {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px; font-size: 10px; font-weight: 600;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim);
+  background: var(--s2); border-bottom: 1px solid var(--b2);
+  border-top: 1px solid var(--b2); flex-shrink: 0;
+}
+.clip-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+.clip-list::-webkit-scrollbar { width: 4px; }
+.clip-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.empty-state { padding: 20px 14px; text-align: center; }
+.empty-state p { color: var(--dim); font-size: 11px; margin-bottom: 4px; }
+.empty-state small { color: var(--muted); font-size: 10px; }
+
+/* Buttons */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 600;
+  letter-spacing: 0.04em; border: none; border-radius: 9999px;
+  cursor: pointer; white-space: nowrap; transition: all 0.15s;
+}
+.btn-ghost {
+  background: rgba(255,255,255,0.06); color: var(--text-secondary);
+  border: 1px solid var(--border); padding: 6px 14px;
+}
+.btn-ghost:hover { color: var(--text); background: rgba(255,255,255,0.1); border-color: var(--dim); }
+.btn-primary {
+  background: var(--accent); color: #fff; border: 1px solid var(--accent);
+  padding: 6px 14px;
+}
+.btn-primary:hover { background: var(--accent-d); }
+.btn-accent { background: rgba(123,97,255,0.15); color: var(--accent-l); border: 1px solid rgba(123,97,255,0.3); }
+.btn-accent:hover { background: rgba(123,97,255,0.25); }
+.btn-xs { font-size: 12px; padding: 4px 10px; }
+.btn-sm { padding: 5px 12px; font-size: 12px; }
+.btn-success { background: rgba(34,197,94,0.15); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
+.btn-success:hover { background: rgba(34,197,94,0.25); }
+.btn-danger { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.3); }
+.btn-danger:hover { background: rgba(239,68,68,0.25); }
+
+/* Pending clips — full parity with main window */
+.clip-card { padding: 10px 14px; border-bottom: 1px solid var(--b2); animation: fadeIn 0.15s ease; transition: background 0.1s; }
+.clip-card:hover { background: rgba(255,255,255,0.015); }
+.clip-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.clip-card-name {
+  flex: 1; min-width: 0;
+  background: transparent; border: none; border-bottom: 1px solid transparent;
+  color: #fff; font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 500;
+  padding: 2px 0; outline: none; transition: border-color 0.2s;
+}
+.clip-card-name:hover { border-bottom-color: var(--border); }
+.clip-card-name:focus { border-bottom-color: var(--accent-d); }
+.clip-card-remove {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 14px; padding: 2px 4px; border-radius: 3px; flex-shrink: 0;
+  transition: color 0.15s;
+}
+.clip-card-remove:hover { color: var(--red); }
+.clip-card-times {
+  display: flex; gap: 12px; font-family: 'DM Mono', monospace;
+  font-size: 13px; color: var(--dim); margin-bottom: 6px; align-items: center;
+}
+.clip-card-times .label { color: var(--muted); margin-right: 3px; }
+.clip-card-times .in-val { color: var(--green); }
+.clip-card-times .out-val { color: var(--red); }
+.clip-card-times .dur-val {
+  background: var(--grad); background-size: 200% 200%;
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text; animation: gradientShift 10s ease infinite;
+}
+.clip-card-caption {
+  width: 100%;
+  background: var(--s2); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); font-family: 'Inter', sans-serif; font-size: 11px;
+  padding: 6px 10px; resize: vertical; min-height: 28px; max-height: 60px;
+  outline: none; transition: border-color 0.2s; line-height: 1.4;
+}
+.clip-card-caption::placeholder { color: var(--muted); }
+.clip-card-caption:focus { border-color: var(--accent); }
+.clip-card-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.timestamp-editable {
+  background: var(--s3); border: 1px solid var(--border); border-radius: 4px;
+  padding: 2px 6px; cursor: pointer; transition: all 0.15s;
+}
+.timestamp-editable:hover { border-color: var(--accent-d); background: var(--s4); }
+.timestamp-edit-input {
+  width: 76px; font-family: 'DM Mono', monospace; font-size: 13px;
+  background: var(--s3); color: var(--text); border: 1px solid var(--accent);
+  border-radius: 4px; padding: 2px 6px; outline: none;
+}
+.repick-btn {
+  background: none; border: 1px solid transparent; color: var(--muted);
+  cursor: pointer; font-size: 11px; padding: 1px 4px; border-radius: 3px;
+  margin-left: 2px; transition: all 0.15s; vertical-align: middle;
+}
+.repick-btn:hover { color: var(--accent-l); border-color: var(--border); background: var(--s3); }
+
+/* Watermark button icon */
+.wm-btn-icon { padding: 3px 6px !important; position: relative; }
+.wm-btn-icon svg { flex-shrink: 0; }
+.wm-dot {
+  position: absolute; top: -2px; right: -2px;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+}
+
+/* Download cards */
+.download-card { padding: 10px 14px; border-bottom: 1px solid var(--b2); position: relative; }
+.download-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.download-card-header .download-card-name { flex: 1; margin-bottom: 0; }
+.download-card-name { font-size: 12px; font-weight: 500; color: #fff; margin-bottom: 6px; }
+.download-card-remove {
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: 14px; padding: 2px 4px; border-radius: 3px; transition: color 0.15s;
+}
+.download-card-remove:hover { color: var(--red); }
+.download-progress { height: 4px; background: var(--s3); border-radius: 3px; overflow: hidden; margin-bottom: 4px; }
+.download-progress-fill {
+  height: 100%; border-radius: 3px; transition: width 0.3s;
+  background: var(--grad-h); background-size: 200% 200%;
+  animation: gradientShift 10s ease infinite;
+}
+.download-progress-text { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--dim); }
+.download-card-actions { display: flex; gap: 4px; margin-top: 6px; }
+.download-card.paused { opacity: 0.6; }
+.download-card.paused .download-progress-fill { background: var(--dim) !important; animation: none !important; }
+
+/* Completed cards */
+.completed-card {
+  padding: 8px 14px; border-bottom: 1px solid var(--b2);
+  cursor: grab; transition: background 0.1s;
+  display: flex; align-items: center; gap: 10px; animation: fadeIn 0.15s ease;
+}
+.completed-card:hover { background: rgba(123,97,255,0.04); }
+.completed-card:active { cursor: grabbing; }
+.completed-card-icon { font-size: 16px; flex-shrink: 0; opacity: 0.6; }
+.completed-card-info { flex: 1; min-width: 0; }
+.completed-card-name { font-size: 12px; font-weight: 500; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.completed-card-meta { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); }
+.completed-card-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.restage-btn { color: var(--accent-l) !important; }
+.restage-btn:hover { background: rgba(123,97,255,0.15) !important; border-color: rgba(123,97,255,0.3) !important; }
+.clear-btn { color: var(--muted) !important; }
+.clear-btn:hover { color: var(--red) !important; }
+.ffmpeg-log-btn { font-size: 11px; opacity: 0.5; transition: opacity 0.15s, color 0.15s; }
+.ffmpeg-log-btn:hover { opacity: 1; color: var(--red) !important; }
+
+/* Hub footer */
+.hub-footer {
+  padding: 8px 14px; border-top: 1px solid var(--b2);
+  font-size: 10px; display: flex; align-items: center; gap: 6px;
+  flex-shrink: 0;
+}
+.hub-footer-label { color: var(--muted); }
+.hub-footer-path {
+  color: var(--dim); cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
+}
+.hub-footer-path:hover { color: var(--accent-l); text-decoration: underline; }
+#debugToggleBtn {
+  background: #1a1a1a; color: #ef4444; border: 1px solid #333;
+  font-family: 'Courier New', monospace; font-size: 10px; font-weight: 700;
+  padding: 4px 10px; border-radius: 4px; cursor: pointer;
+  opacity: 0.7; transition: opacity 0.2s; margin-left: auto;
+}
+#debugToggleBtn:hover { opacity: 1; border-color: #ef4444; }
+
+/* Watermark / Outro Modals */
+.wm-modal-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,0.65); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  animation: fadeIn 0.15s ease;
+}
+.wm-modal {
+  background: var(--s2); border: 1px solid var(--border);
+  border-radius: 14px; width: 420px; max-width: 90vw;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  display: flex; flex-direction: column;
+}
+.wm-modal-title {
+  padding: 16px 20px 12px; font-size: 14px; font-weight: 600;
+  color: #fff; border-bottom: 1px solid var(--b2); letter-spacing: 0.02em;
+}
+.wm-modal-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+.wm-label {
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--dim);
+}
+.wm-row { display: flex; gap: 12px; }
+.wm-half { flex: 1; }
+.wm-input {
+  background: var(--s3); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-family: 'Inter', sans-serif; font-size: 13px;
+  padding: 8px 12px; outline: none; transition: border-color 0.2s;
+}
+.wm-input:focus { border-color: var(--accent); }
+.wm-input::placeholder { color: var(--muted); }
+.wm-select {
+  background: var(--s3); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-family: 'Inter', sans-serif; font-size: 12px;
+  padding: 7px 10px; outline: none; cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+}
+.wm-select:hover { border-color: var(--dim); }
+.wm-select option { background: var(--s2); color: var(--text); }
+.wm-color {
+  width: 100%; height: 34px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--s3); cursor: pointer; padding: 2px;
+}
+.wm-color::-webkit-color-swatch-wrapper { padding: 2px; }
+.wm-color::-webkit-color-swatch { border: none; border-radius: 5px; }
+.wm-range {
+  -webkit-appearance: none; width: 100%; height: 4px;
+  background: var(--s4); border-radius: 3px; outline: none; cursor: pointer; margin-top: 4px;
+}
+.wm-range::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px;
+  border-radius: 50%; background: var(--accent-l); cursor: pointer;
+}
+.wm-val {
+  font-family: 'DM Mono', monospace; font-size: 10px;
+  color: var(--accent-l); margin-left: 6px; text-transform: none; letter-spacing: 0;
+}
+.wm-position-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; max-width: 160px; }
+.wm-pos {
+  background: var(--s3); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--dim); font-size: 14px; padding: 6px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+}
+.wm-pos:hover { background: var(--s4); color: var(--text); border-color: var(--dim); }
+.wm-pos.active { background: rgba(123,97,255,0.2); border-color: var(--accent); color: var(--accent-l); }
+.wm-preview-wrap { margin-top: 4px; }
+.wm-preview {
+  position: relative; width: 100%; aspect-ratio: 16/9;
+  background: #000; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+}
+.wm-preview-text {
+  position: absolute; color: #fff; font-weight: 600; white-space: nowrap;
+  text-shadow: 1px 1px 3px rgba(0,0,0,0.7); pointer-events: none; transition: all 0.15s;
+}
+.wm-modal-actions {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 20px; border-top: 1px solid var(--b2); gap: 8px;
+}
+.wm-modal-actions-right { display: flex; gap: 6px; }
+.wm-type-toggle { display: flex; gap: 2px; margin-bottom: 10px; background: var(--s3); border-radius: 8px; padding: 2px; }
+.wm-type-btn { flex: 1; padding: 6px 0; border: none; border-radius: 6px; background: transparent; color: var(--dim); font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.15s; text-transform: uppercase; letter-spacing: 0.5px; }
+.wm-type-btn:hover { color: var(--text); }
+.wm-type-btn.active { background: var(--accent); color: #fff; }
+.wm-pos-corners .wm-pos[data-pos="top-center"],
+.wm-pos-corners .wm-pos[data-pos="center-left"],
+.wm-pos-corners .wm-pos[data-pos="center-right"],
+.wm-pos-corners .wm-pos[data-pos="bottom-center"] { visibility: hidden; }
+
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::selection { background: rgba(123,97,255,0.25); }
+</style>
+</head>
+<body>
+<div class="hub-wrap">
+  <div class="hub-header">
+    <h2>Clip Hub</h2>
+    <span class="clip-count" id="clipCount">0 clips</span>
+  </div>
+  <div class="hub-group">
+    <div class="hub-group-title"><span>&#9998; Pending Clips</span></div>
+    <div class="clip-list" id="pendingClipList">
+      <div class="empty-state"><p>No clips yet</p><small>Mark IN/OUT points in the main window</small></div>
+    </div>
+  </div>
+  <div class="hub-resize-handle" data-resize="0"></div>
+  <div class="hub-group">
+    <div class="hub-group-title"><span>&#9660; Downloading</span></div>
+    <div class="clip-list" id="downloadingClipList">
+      <div class="empty-state"><small>Clips being processed will appear here</small></div>
+    </div>
+  </div>
+  <div class="hub-resize-handle" data-resize="1"></div>
+  <div class="hub-group">
+    <div class="hub-group-title">
+      <span>&#10003; Completed</span>
+      <button class="btn btn-ghost btn-xs clear-btn" id="clearCompleted">Clear</button>
+    </div>
+    <div class="clip-list" id="completedClipList">
+      <div class="empty-state"><small>Downloaded clips appear here</small></div>
+    </div>
+  </div>
+  <div class="hub-footer">
+    <span class="hub-footer-label">Output:</span>
+    <span class="hub-footer-path" id="outputPath" title="Click to change output directory">Loading...</span>
+    <button id="debugToggleBtn">DEBUG</button>
+  </div>
+</div>
+
+<script>
+(function() {
+'use strict';
+
+const $ = id => document.getElementById(id);
+const hubBridge = window.hubBridge;
+function pad2(n) { return String(n).padStart(2, '0'); }
+function fmtHMS(s) {
+  s = Math.floor(Math.max(0, s));
+  return pad2(Math.floor(s/3600)) + ':' + pad2(Math.floor((s%3600)/60)) + ':' + pad2(s%60);
+}
+function fmtDur(s) {
+  if (!s || isNaN(s) || s < 0) return '0:00';
+  s = Math.floor(s);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return h > 0 ? h + ':' + pad2(m) + ':' + pad2(sec) : m + ':' + pad2(sec);
+}
+function fmtSize(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(1) + ' MB';
+}
+function escH(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+let state = { pendingClips: [], downloadingClips: [], completedClips: [], config: { buttons: {}, devFeatures: {} } };
+
+/* ─── Anti-clobber: save/restore focus during re-renders ──── */
+let _editLock = null;
+function saveFocusState() {
+  const focused = document.activeElement;
+  if (focused && focused.closest('#pendingClipList') && focused.dataset.idx !== undefined) {
+    _editLock = {
+      idx: parseInt(focused.dataset.idx),
+      cls: focused.classList.contains('clip-card-name') ? 'clip-card-name' : focused.classList.contains('clip-card-caption') ? 'clip-card-caption' : null,
+      selStart: focused.selectionStart,
+      selEnd: focused.selectionEnd,
+      value: focused.value,
+    };
+  } else {
+    _editLock = null;
+  }
+}
+function restoreFocusState() {
+  if (!_editLock || !_editLock.cls) return;
+  const el = document.querySelector('#pendingClipList [data-idx="' + _editLock.idx + '"].' + _editLock.cls);
+  if (el) {
+    el.value = _editLock.value;
+    el.focus();
+    if (el.setSelectionRange) el.setSelectionRange(_editLock.selStart, _editLock.selEnd);
+  }
+  _editLock = null;
+}
+
+/* ─── Debounce outgoing edit actions ──────────────────────── */
+const _editTimers = {};
+function debouncedAction(key, action, delay) {
+  clearTimeout(_editTimers[key]);
+  _editTimers[key] = setTimeout(() => hubBridge.sendAction(action), delay || 200);
+}
+
+/* ─── Receive state (batched with rAF) ────────────────────── */
+let _renderQueued = false;
+hubBridge.onStateUpdate(newState => {
+  state = newState;
+  if (state.outputPath) $('outputPath').textContent = state.outputPath;
+  if (!_renderQueued) {
+    _renderQueued = true;
+    requestAnimationFrame(() => { _renderQueued = false; renderAll(); });
+  }
+});
+
+// Receive progress updates (in-place, no full re-render)
+hubBridge.onClipProgress(({ clipName, progress }) => {
+  const dl = state.downloadingClips.find(d => d.name === clipName);
+  if (dl) {
+    dl.progress = progress;
+    const card = document.querySelector('.download-card[data-clip-name="' + clipName + '"]');
+    if (card) {
+      const fill = card.querySelector('.download-progress-fill');
+      if (fill) fill.style.width = progress + '%';
+      const text = card.querySelector('.download-progress-text');
+      if (text) text.textContent = progress + '% \u2014 processing with ffmpeg...';
+    }
+  }
+});
+
+function renderAll() {
+  saveFocusState();
+  renderPending();
+  renderDownloading();
+  renderCompleted();
+  updateCount();
+  restoreFocusState();
+}
+
+function updateCount() {
+  const n = state.pendingClips.length + state.downloadingClips.length + state.completedClips.length;
+  $('clipCount').textContent = n + (n === 1 ? ' clip' : ' clips');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ── Pending Clips (full parity with main window)
+   ═══════════════════════════════════════════════════════════ */
+function renderPending() {
+  const list = $('pendingClipList');
+  if (state.pendingClips.length === 0) {
+    list.innerHTML = '<div class="empty-state"><p>No clips yet</p><small>Mark IN/OUT points in the main window</small></div>';
+    return;
+  }
+  const btns = state.config?.buttons || {};
+
+  list.innerHTML = state.pendingClips.map((clip, idx) => `
+    <div class="clip-card">
+      <div class="clip-card-header">
+        <input class="clip-card-name" type="text" value="${escAttr(clip.name)}" data-idx="${idx}" placeholder="Clip name...">
+        <button class="clip-card-remove" data-idx="${idx}">&times;</button>
+      </div>
+      <div class="clip-card-times">
+        <span><span class="label">IN</span> <span class="in-val timestamp-editable" data-field="inTime" data-idx="${idx}" title="Click to edit">${fmtHMS(clip.inTime)}</span><button class="repick-btn" data-action="repickIn" data-idx="${idx}" title="Re-pick IN from video">&#9998;</button></span>
+        <span><span class="label">OUT</span> <span class="out-val timestamp-editable" data-field="outTime" data-idx="${idx}" title="Click to edit">${fmtHMS(clip.outTime)}</span><button class="repick-btn" data-action="repickOut" data-idx="${idx}" title="Re-pick OUT from video">&#9998;</button></span>
+        <span><span class="label">DUR</span> <span class="dur-val">${fmtDur(clip.outTime - clip.inTime)}</span></span>
+      </div>
+      <textarea class="clip-card-caption" data-idx="${idx}" placeholder="Caption / summary idea..." rows="1">${escH(clip.caption || '')}</textarea>
+      <div class="clip-card-actions">
+        <button class="btn btn-success btn-xs" data-action="download" data-idx="${idx}">&#11015; Download</button>
+        ${(clip.watermark || clip.imageWatermark || state.universalWatermark || state.universalImageWatermark) ? `<button class="btn btn-ghost btn-xs" data-action="preview" data-idx="${idx}" title="Preview watermark">Preview</button>` : ''}
+        ${btns.jumpToIn ? `<button class="btn btn-ghost btn-xs" data-action="jumpin" data-idx="${idx}">Jump to IN</button>` : ''}
+        ${btns.jumpToEnd ? `<button class="btn btn-ghost btn-xs" data-action="jumpout" data-idx="${idx}">Jump to OUT</button>` : ''}
+        ${btns.watermark ? `<button class="btn btn-accent btn-xs wm-btn-icon" data-action="watermark" data-idx="${idx}" title="Watermark${(clip.watermark || clip.imageWatermark) ? ' (configured)' : ''}">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+          ${(clip.watermark || clip.imageWatermark) ? '<span class="wm-dot"></span>' : ''}
+        </button>` : ''}
+        ${btns.appendOutro ? `<button class="btn btn-ghost btn-xs" data-action="outro" data-idx="${idx}" title="Add Outro${clip.outro ? ' (set)' : ''}">Add Outro${clip.outro ? ' *' : ''}</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+
+  // Event delegation: clicks
+  list.onclick = e => {
+    // Timestamp click-to-edit
+    const tsEl = e.target.closest('.timestamp-editable');
+    if (tsEl) { startInlineTimestampEdit(tsEl, parseInt(tsEl.dataset.idx), tsEl.dataset.field); return; }
+
+    const btn = e.target.closest('[data-action], .clip-card-remove');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.idx);
+    if (btn.classList.contains('clip-card-remove')) {
+      hubBridge.sendAction({ type: 'remove', idx });
+      // Optimistic local update — don't wait for IPC round-trip
+      state.pendingClips.splice(idx, 1);
+      renderAll();
+      return;
+    }
+    if (btn.dataset.action === 'download') hubBridge.sendAction({ type: 'download', idx });
+    if (btn.dataset.action === 'preview') hubBridge.sendAction({ type: 'preview', idx });
+    if (btn.dataset.action === 'jumpin') hubBridge.sendAction({ type: 'jumpin', idx });
+    if (btn.dataset.action === 'jumpout') hubBridge.sendAction({ type: 'jumpout', idx });
+    if (btn.dataset.action === 'repickIn') hubBridge.sendAction({ type: 'repickIn', idx });
+    if (btn.dataset.action === 'repickOut') hubBridge.sendAction({ type: 'repickOut', idx });
+    if (btn.dataset.action === 'watermark') openWatermarkModal(idx);
+    if (btn.dataset.action === 'outro') openOutroModal(idx);
+  };
+
+  // Event delegation: name/caption edits (debounced)
+  list.oninput = e => {
+    const idx = parseInt(e.target.dataset.idx);
+    if (isNaN(idx)) return;
+    if (e.target.classList.contains('clip-card-name')) {
+      state.pendingClips[idx].name = e.target.value;
+      debouncedAction('name-' + idx, { type: 'editName', idx, value: e.target.value });
+    }
+    if (e.target.classList.contains('clip-card-caption')) {
+      state.pendingClips[idx].caption = e.target.value;
+      debouncedAction('caption-' + idx, { type: 'editCaption', idx, value: e.target.value });
+    }
+  };
+}
+
+/* ─── Inline Timestamp Edit ───────────────────────────────── */
+function startInlineTimestampEdit(el, idx, field) {
+  const clip = state.pendingClips[idx];
+  if (!clip) return;
+  const currentVal = fmtHMS(clip[field]);
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = currentVal;
+  input.className = 'timestamp-edit-input';
+  el.replaceWith(input);
+  input.focus();
+  input.select();
+
+  function commit() {
+    const val = input.value.trim();
+    const parts = val.split(':').map(Number);
+    let seconds;
+    if (parts.length === 3) seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
+    else if (parts.length === 2) seconds = parts[0] * 60 + parts[1];
+    else seconds = parseFloat(val);
+    if (!isNaN(seconds) && seconds >= 0) {
+      hubBridge.sendAction({ type: 'editTimestamp', idx, field, value: seconds });
+    }
+    renderPending();
+  }
+  let committed = false;
+  input.onblur = () => { if (!committed) { committed = true; commit(); } };
+  input.onkeydown = e => {
+    if (e.key === 'Enter') { e.preventDefault(); committed = true; commit(); }
+    if (e.key === 'Escape') { renderPending(); }
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ── Watermark Modal
+   ═══════════════════════════════════════════════════════════ */
+function openWatermarkModal(idx) {
+  const clip = state.pendingClips[idx];
+  if (!clip) return;
+  const old = document.querySelector('.wm-modal-overlay');
+  if (old) old.remove();
+
+  const hasImgWm = !!clip.imageWatermark;
+  const initMode = hasImgWm ? 'image' : 'text';
+
+  const wm = clip.watermark || state.universalWatermark || {
+    text: '', fontFamily: 'Arial', fontSize: 48, opacity: 0.7,
+    color: '#ffffff', position: 'bottom-right'
+  };
+  const iwm = clip.imageWatermark || state.universalImageWatermark || {
+    imagePath: '', opacity: 0.7, position: 'bottom-right', width: '', height: ''
+  };
+
+  const overlay = document.createElement('div');
+  overlay.className = 'wm-modal-overlay';
+  overlay.innerHTML = `
+    <div class="wm-modal">
+      <div class="wm-modal-title">Watermark Settings</div>
+      <div class="wm-modal-body">
+        <div class="wm-type-toggle">
+          <button class="wm-type-btn${initMode==='text'?' active':''}" data-type="text">Text</button>
+          <button class="wm-type-btn${initMode==='image'?' active':''}" data-type="image">Image</button>
+        </div>
+
+        <div id="wmTextFields" style="display:${initMode==='text'?'block':'none'}">
+          <label class="wm-label">Text
+            <input class="wm-input" id="wmText" type="text" value="${escAttr(wm.text)}" placeholder="Your watermark text...">
+          </label>
+          <div class="wm-row">
+            <label class="wm-label wm-half">Font
+              <select class="wm-select" id="wmFont">
+                ${['Arial','Impact','Georgia','Courier New','Verdana','Tahoma','Trebuchet MS','Comic Sans MS'].map(f =>
+                  '<option value="' + f + '"' + (wm.fontFamily===f?' selected':'') + '>' + f + '</option>'
+                ).join('')}
+              </select>
+            </label>
+            <label class="wm-label wm-half">Color
+              <input class="wm-color" id="wmColor" type="color" value="${wm.color}">
+            </label>
+          </div>
+          <div class="wm-row">
+            <label class="wm-label wm-half">Size <span class="wm-val" id="wmSizeVal">${wm.fontSize}px</span>
+              <input class="wm-range" id="wmSize" type="range" min="16" max="120" value="${wm.fontSize}">
+            </label>
+          </div>
+        </div>
+
+        <div id="wmImageFields" style="display:${initMode==='image'?'block':'none'}">
+          <label class="wm-label">Image File</label>
+          <div class="wm-row" style="gap:8px; align-items:center;">
+            <button class="btn btn-accent btn-sm" id="wmChooseImage">Choose Image...</button>
+            <span class="wm-val" id="wmImageName" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${iwm.imagePath ? iwm.imagePath.split(/[/\\]/).pop() : 'No image selected'}</span>
+          </div>
+          <input type="hidden" id="wmImagePath" value="${escAttr(iwm.imagePath || '')}">
+          <label class="wm-label">Scale <span class="wm-val" id="wmScaleVal">${Math.round((iwm.scale || 1) * 100)}%</span></label>
+          <input class="wm-range" id="wmScale" type="range" min="10" max="200" value="${Math.round((iwm.scale || 1) * 100)}">
+        </div>
+
+        <label class="wm-label">Opacity <span class="wm-val" id="wmOpacityVal">${Math.round((initMode==='image'?iwm.opacity:wm.opacity)*100)}%</span></label>
+        <input class="wm-range" id="wmOpacity" type="range" min="10" max="100" value="${Math.round((initMode==='image'?iwm.opacity:wm.opacity)*100)}">
+
+        <label class="wm-label">Position</label>
+        <div class="wm-position-grid${initMode==='image'?' wm-pos-corners':''}" id="wmPosGrid">
+          ${['top-left','top-center','top-right','center-left','center','center-right','bottom-left','bottom-center','bottom-right'].map(pos =>
+            '<button class="wm-pos' + ((initMode==='image'?iwm.position:wm.position)===pos?' active':'') + '" data-pos="' + pos + '">' +
+            {'top-left':'&#8598;','top-center':'&#8593;','top-right':'&#8599;','center-left':'&#8592;','center':'&#9679;','center-right':'&#8594;','bottom-left':'&#8601;','bottom-center':'&#8595;','bottom-right':'&#8600;'}[pos] +
+            '</button>'
+          ).join('')}
+        </div>
+        <div class="wm-preview-wrap">
+          <div class="wm-preview" id="wmPreview">
+            <span class="wm-preview-text" id="wmPreviewText" style="display:${initMode==='text'?'block':'none'}">${escH(wm.text || 'Preview')}</span>
+            <span class="wm-preview-img" id="wmPreviewImg" style="display:${initMode==='image'?'block':'none'}; position:absolute; font-size:10px; color:var(--green); opacity:0.8;">IMG</span>
+          </div>
+        </div>
+      </div>
+      <div class="wm-modal-actions">
+        <button class="btn btn-ghost btn-sm" id="wmClear">Clear Watermark</button>
+        <div class="wm-modal-actions-right">
+          <button class="btn btn-ghost btn-sm" id="wmCancel">Cancel</button>
+          <button class="btn btn-primary btn-sm" id="wmApply">Apply</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  let currentMode = initMode;
+  const txtIn = overlay.querySelector('#wmText');
+  const fontSel = overlay.querySelector('#wmFont');
+  const colorIn = overlay.querySelector('#wmColor');
+  const sizeIn = overlay.querySelector('#wmSize');
+  const opacIn = overlay.querySelector('#wmOpacity');
+  const prevText = overlay.querySelector('#wmPreviewText');
+  const prevImg = overlay.querySelector('#wmPreviewImg');
+  const posGrid = overlay.querySelector('#wmPosGrid');
+  const imgPathIn = overlay.querySelector('#wmImagePath');
+  const imgNameEl = overlay.querySelector('#wmImageName');
+  let selectedPos = (initMode === 'image' ? iwm.position : wm.position) || 'bottom-right';
+
+  overlay.querySelectorAll('.wm-type-btn').forEach(btn => {
+    btn.onclick = () => {
+      overlay.querySelectorAll('.wm-type-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentMode = btn.dataset.type;
+      overlay.querySelector('#wmTextFields').style.display = currentMode === 'text' ? 'block' : 'none';
+      overlay.querySelector('#wmImageFields').style.display = currentMode === 'image' ? 'block' : 'none';
+      prevText.style.display = currentMode === 'text' ? 'block' : 'none';
+      prevImg.style.display = currentMode === 'image' ? 'block' : 'none';
+      posGrid.classList.toggle('wm-pos-corners', currentMode === 'image');
+      updatePreview();
+    };
+  });
+
+  overlay.querySelector('#wmChooseImage').onclick = async () => {
+    const result = await hubBridge.chooseWatermarkImage();
+    if (result && result.success) {
+      imgPathIn.value = result.filePath;
+      imgNameEl.textContent = result.filePath.split(/[/\\]/).pop();
+    }
+  };
+
+  function updatePreview() {
+    overlay.querySelector('#wmOpacityVal').textContent = opacIn.value + '%';
+    if (sizeIn) overlay.querySelector('#wmSizeVal').textContent = sizeIn.value + 'px';
+    const scaleEl = overlay.querySelector('#wmScaleVal');
+    const scaleIn = overlay.querySelector('#wmScale');
+    if (scaleEl && scaleIn) scaleEl.textContent = scaleIn.value + '%';
+
+    if (currentMode === 'text') {
+      const txt = txtIn.value || 'Preview';
+      prevText.textContent = txt;
+      prevText.style.fontFamily = fontSel.value;
+      prevText.style.fontSize = sizeIn.value / 2 + 'px';
+      prevText.style.color = colorIn.value;
+      prevText.style.opacity = opacIn.value / 100;
+    } else {
+      prevImg.style.opacity = opacIn.value / 100;
+    }
+
+    const el = currentMode === 'text' ? prevText : prevImg;
+    el.style.position = 'absolute';
+    const [vy, vx] = selectedPos.includes('-') ? selectedPos.split('-') : ['center', selectedPos === 'center' ? 'center' : selectedPos];
+    el.style.top = vy === 'top' ? '8px' : vy === 'bottom' ? '' : '50%';
+    el.style.bottom = vy === 'bottom' ? '8px' : '';
+    el.style.left = vx === 'left' ? '8px' : vx === 'center' ? '50%' : '';
+    el.style.right = vx === 'right' ? '8px' : '';
+    el.style.transform = (vy === 'center' && vx === 'center') ? 'translate(-50%,-50%)'
+      : vy === 'center' ? 'translateY(-50%)' : vx === 'center' ? 'translateX(-50%)' : 'none';
+  }
+
+  txtIn.oninput = updatePreview;
+  fontSel.onchange = updatePreview;
+  colorIn.oninput = updatePreview;
+  sizeIn.oninput = updatePreview;
+  opacIn.oninput = updatePreview;
+  const scaleSlider = overlay.querySelector('#wmScale');
+  if (scaleSlider) scaleSlider.oninput = updatePreview;
+  posGrid.onclick = e => {
+    const btn = e.target.closest('[data-pos]');
+    if (!btn) return;
+    posGrid.querySelectorAll('.wm-pos').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedPos = btn.dataset.pos;
+    updatePreview();
+  };
+  updatePreview();
+
+  overlay.querySelector('#wmCancel').onclick = () => overlay.remove();
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  overlay.querySelector('#wmClear').onclick = () => {
+    hubBridge.sendAction({ type: 'clearWatermark', idx });
+    hubBridge.sendAction({ type: 'clearImageWatermark', idx });
+    overlay.remove();
+  };
+  overlay.querySelector('#wmApply').onclick = () => {
+    if (!state.pendingClips[idx]) { overlay.remove(); return; }
+    if (currentMode === 'text') {
+      const text = txtIn.value.trim();
+      if (!text) {
+        hubBridge.sendAction({ type: 'clearWatermark', idx });
+      } else {
+        hubBridge.sendAction({ type: 'setWatermark', idx, watermark: {
+          text, fontFamily: fontSel.value, fontSize: parseInt(sizeIn.value),
+          opacity: parseInt(opacIn.value) / 100, color: colorIn.value, position: selectedPos
+        }});
+      }
+      hubBridge.sendAction({ type: 'clearImageWatermark', idx });
+    } else {
+      const imagePath = imgPathIn.value.trim();
+      if (!imagePath) {
+        hubBridge.sendAction({ type: 'clearImageWatermark', idx });
+      } else {
+        const scaleVal = parseInt(overlay.querySelector('#wmScale').value) / 100;
+        hubBridge.sendAction({ type: 'setImageWatermark', idx, imageWatermark: {
+          imagePath, opacity: parseInt(opacIn.value) / 100, position: selectedPos,
+          ...(scaleVal && scaleVal !== 1 ? { scale: scaleVal } : {}),
+        }});
+      }
+      hubBridge.sendAction({ type: 'clearWatermark', idx });
+    }
+    overlay.remove();
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ── Outro Modal
+   ═══════════════════════════════════════════════════════════ */
+function openOutroModal(idx) {
+  const clip = state.pendingClips[idx];
+  if (!clip) return;
+  const old = document.querySelector('.wm-modal-overlay');
+  if (old) old.remove();
+
+  const currentOutro = clip.outro || (state.universalOutro?.enabled ? state.universalOutro : null);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'wm-modal-overlay';
+  overlay.innerHTML = `
+    <div class="wm-modal">
+      <div class="wm-modal-title">Outro Settings</div>
+      <div class="wm-modal-body">
+        <p style="color: var(--text-secondary); font-size: 12px; margin-bottom: 12px;">
+          Select an MP4 video to append to the end of this clip.
+        </p>
+        <label class="wm-label">Outro Video File
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input class="wm-input" id="outroPath" type="text" value="${escAttr(currentOutro?.filePath || '')}" placeholder="No file selected..." readonly style="flex:1; cursor:pointer;">
+            <button class="btn btn-accent btn-sm" id="outroBrowse">Browse</button>
+          </div>
+        </label>
+        ${currentOutro?.filePath ? '<p style="color: var(--green); font-size: 10px; margin-top: 4px;">Outro configured</p>' : ''}
+      </div>
+      <div class="wm-modal-actions">
+        <button class="btn btn-ghost btn-sm" id="outroClear">Clear Outro</button>
+        <div class="wm-modal-actions-right">
+          <button class="btn btn-ghost btn-sm" id="outroCancel">Cancel</button>
+          <button class="btn btn-primary btn-sm" id="outroApply">Apply</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const pathIn = overlay.querySelector('#outroPath');
+  const browseHandler = async () => {
+    const result = await hubBridge.chooseOutroFile();
+    if (result && result.success) pathIn.value = result.filePath;
+  };
+  overlay.querySelector('#outroBrowse').onclick = browseHandler;
+  pathIn.onclick = browseHandler;
+
+  overlay.querySelector('#outroCancel').onclick = () => overlay.remove();
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  overlay.querySelector('#outroClear').onclick = () => {
+    hubBridge.sendAction({ type: 'clearOutro', idx });
+    overlay.remove();
+  };
+  overlay.querySelector('#outroApply').onclick = () => {
+    if (!state.pendingClips[idx]) { overlay.remove(); return; }
+    const fp = pathIn.value.trim();
+    if (fp) {
+      hubBridge.sendAction({ type: 'setOutro', idx, outro: { filePath: fp } });
+    } else {
+      hubBridge.sendAction({ type: 'clearOutro', idx });
+    }
+    overlay.remove();
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ── Downloading (unchanged, full parity already)
+   ═══════════════════════════════════════════════════════════ */
+function renderDownloading() {
+  const list = $('downloadingClipList');
+  if (state.downloadingClips.length === 0) {
+    list.innerHTML = '<div class="empty-state"><small>Clips being processed will appear here</small></div>';
+    return;
+  }
+  list.innerHTML = state.downloadingClips.map(dl => `
+    <div class="download-card" data-clip-name="${escH(dl.name)}">
+      <div class="download-card-header">
+        <div class="download-card-name">${escH(dl.name)}</div>
+      </div>
+      <div class="download-progress"><div class="download-progress-fill" style="width:${dl.progress}%"></div></div>
+      <div class="download-progress-text">${dl.progress + '% \u2014 processing with ffmpeg...'}</div>
+      <div class="download-card-actions">
+        <button class="btn btn-danger btn-xs" data-action="cancel" data-id="${dl.id}">\u2715 Cancel</button>
+      </div>
+    </div>
+  `).join('');
+
+  list.onclick = e => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const id = btn.dataset.id;
+    if (btn.dataset.action === 'cancel') {
+      hubBridge.sendAction({ type: 'cancel', id });
+    }
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ── Completed Clips (full parity: drag, ffmpeg log, restage)
+   ═══════════════════════════════════════════════════════════ */
+function renderCompleted() {
+  const list = $('completedClipList');
+  if (state.completedClips.length === 0) {
+    list.innerHTML = '<div class="empty-state"><small>Downloaded clips appear here</small></div>';
+    return;
+  }
+  const showFfmpegLog = state.config?.devFeatures?.ffmpegLogs;
+
+  list.innerHTML = state.completedClips.map((clip, idx) => `
+    <div class="completed-card" draggable="true" data-path="${escAttr(clip.displayPath || clip.filePath)}">
+      <span class="completed-card-icon">&#127916;</span>
+      <div class="completed-card-info">
+        <div class="completed-card-name">${escH(clip.name)}</div>
+        <div class="completed-card-meta">${escH(clip.fileName)} \u00B7 ${fmtSize(clip.fileSize)}</div>
+      </div>
+      <div class="completed-card-actions">
+        ${clip.m3u8Url ? '<button class="btn btn-ghost btn-xs restage-btn" data-action="restage" data-idx="' + idx + '" title="Send back to Pending">Re-Stage</button>' : ''}
+        ${showFfmpegLog ? '<button class="btn btn-ghost btn-xs ffmpeg-log-btn" data-action="ffmpeglog" data-idx="' + idx + '" title="View FFMPEG Log">&#128220;</button>' : ''}
+        <button class="btn btn-ghost btn-xs" data-action="show" data-idx="${idx}" title="Open folder">&#128193;</button>
+      </div>
+    </div>
+  `).join('');
+
+  // Drag-to-drop for completed clips
+  list.querySelectorAll('.completed-card').forEach((card, idx) => {
+    card.addEventListener('dragstart', e => {
+      e.preventDefault();
+      if (state.completedClips[idx]) hubBridge.startDrag(state.completedClips[idx].filePath);
+    });
+  });
+
+  list.onclick = e => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.idx);
+    if (btn.dataset.action === 'show') hubBridge.showInFolder(state.completedClips[idx]?.filePath);
+    if (btn.dataset.action === 'ffmpeglog') hubBridge.sendAction({ type: 'ffmpeglog', idx });
+    if (btn.dataset.action === 'restage') showRestageConfirmation(idx);
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ── Re-Stage Confirmation Modal
+   ═══════════════════════════════════════════════════════════ */
+function showRestageConfirmation(idx) {
+  const clip = state.completedClips[idx];
+  if (!clip || !clip.m3u8Url) return;
+  const old = document.querySelector('.wm-modal-overlay');
+  if (old) old.remove();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'wm-modal-overlay';
+  overlay.innerHTML = `
+    <div class="wm-modal" style="width:380px;">
+      <div class="wm-modal-title">Re-Stage Clip?</div>
+      <div class="wm-modal-body">
+        <p style="color: var(--text-secondary); font-size: 12px;">
+          This will move <strong>${escH(clip.name)}</strong> back to Pending
+          and <strong style="color:var(--red)">delete the downloaded file</strong>.
+        </p>
+        <p style="color: var(--dim); font-size: 11px; margin-top: 4px;">
+          ${escH(clip.fileName)} (${fmtSize(clip.fileSize)})
+        </p>
+      </div>
+      <div class="wm-modal-actions">
+        <button class="btn btn-ghost btn-sm" id="restageCancel">Cancel</button>
+        <button class="btn btn-danger btn-sm" id="restageConfirm">Delete &amp; Re-Stage</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#restageCancel').onclick = () => overlay.remove();
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  overlay.querySelector('#restageConfirm').onclick = () => {
+    hubBridge.sendAction({ type: 'restageConfirmed', idx });
+    overlay.remove();
+  };
+}
+
+/* ─── Footer wiring ───────────────────────────────────────── */
+$('clearCompleted').onclick = () => hubBridge.sendAction({ type: 'clearCompleted' });
+$('debugToggleBtn').onclick = () => hubBridge.sendAction({ type: 'openDebug' });
+$('outputPath').onclick = async () => {
+  const d = await hubBridge.chooseClipsDir();
+  if (d) {
+    $('outputPath').textContent = d;
+    hubBridge.sendAction({ type: 'outputPathChanged', path: d });
+  }
+};
+
+/* ─── Resize handles ──────────────────────────────────────── */
+document.querySelectorAll('.hub-resize-handle').forEach(handle => {
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault();
+    const groups = [...document.querySelectorAll('.hub-wrap .hub-group')];
+    const idx = parseInt(handle.dataset.resize);
+    const above = groups[idx], below = groups[idx + 1];
+    if (!above || !below) return;
+    handle.classList.add('dragging');
+    const startY = e.clientY;
+    const startAbove = above.getBoundingClientRect().height;
+    const startBelow = below.getBoundingClientRect().height;
+    function onMove(e) {
+      const delta = e.clientY - startY;
+      above.style.flex = '0 0 ' + Math.max(60, startAbove + delta) + 'px';
+      below.style.flex = '0 0 ' + Math.max(60, startBelow - delta) + 'px';
+    }
+    function onUp() {
+      handle.classList.remove('dragging');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+});
+
+})();
+</script>
+</body>
+</html>

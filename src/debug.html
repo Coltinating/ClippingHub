@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Debug Log — Clipper Hub</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0a0a0a;
+  --surface: #111111;
+  --s2: #181818;
+  --border: #272727;
+  --text: #d4d4d8;
+  --dim: #71717a;
+  --muted: #52525b;
+  --accent: #7b61ff;
+  --red: #ef4444;
+  --green: #22c55e;
+  --blue: #5b9cf5;
+  --yellow: #f59e0b;
+  --cyan: #06b6d4;
+  --purple: #a78bfa;
+}
+
+html, body {
+  height: 100%; overflow: hidden;
+  background: var(--bg); color: var(--text);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 13px; -webkit-app-region: no-drag;
+}
+
+/* ── Header Bar ─────────────────────────────────────────── */
+.debug-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag; flex-shrink: 0;
+}
+.debug-toolbar > * { -webkit-app-region: no-drag; }
+
+.debug-brand {
+  font-weight: 700; font-size: 12px; color: var(--red);
+  margin-right: 8px; letter-spacing: 0.5px; white-space: nowrap;
+}
+
+/* Filter bar (Chrome DevTools style) */
+.filter-bar {
+  display: flex; align-items: center; gap: 2px;
+  padding: 4px 12px; background: var(--surface);
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.filter-bar > * { -webkit-app-region: no-drag; }
+.filter-meta-btn {
+  background: none; border: 1px solid var(--border); color: var(--dim);
+  font-size: 10px; font-family: inherit; padding: 2px 8px;
+  border-radius: 3px; cursor: pointer; transition: all 0.12s;
+  margin-right: 4px;
+}
+.filter-meta-btn:hover { color: var(--text); border-color: #444; }
+.filter-sep {
+  width: 1px; height: 16px; background: var(--border); margin: 0 4px;
+}
+.filter-btn {
+  background: none; border: 1px solid transparent; color: var(--dim);
+  font-size: 10px; font-family: 'Courier New', monospace; font-weight: 600;
+  padding: 2px 8px; border-radius: 3px; cursor: pointer;
+  transition: all 0.12s; letter-spacing: 0.3px;
+}
+.filter-btn:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+.filter-btn.active { color: var(--text); border-color: var(--border); background: var(--s2); }
+/* Per-category active colors */
+.filter-btn.active[data-cat="ACTION"]  { color: #f472b6; border-color: #f472b6; }
+.filter-btn.active[data-cat="SESSION"] { color: var(--green); border-color: var(--green); }
+.filter-btn.active[data-cat="STREAM"]  { color: var(--cyan); border-color: var(--cyan); }
+.filter-btn.active[data-cat="HLS"]     { color: var(--purple); border-color: var(--purple); }
+.filter-btn.active[data-cat="MARK"]    { color: var(--accent); border-color: var(--accent); }
+.filter-btn.active[data-cat="CLIP"]    { color: var(--yellow); border-color: var(--yellow); }
+.filter-btn.active[data-cat="FFMPEG"]  { color: var(--red); border-color: var(--red); }
+.filter-btn.active[data-cat="PROXY"]   { color: var(--blue); border-color: var(--blue); }
+.filter-btn.active[data-cat="UI"]      { color: var(--dim); border-color: var(--dim); }
+.filter-btn.active[data-cat="ERROR"]   { color: var(--red); border-color: var(--red); }
+/* Count badge inside filter button */
+.filter-btn .filter-count {
+  font-size: 9px; opacity: 0.6; margin-left: 3px; font-weight: 400;
+}
+
+/* Search */
+.search-wrap {
+  position: relative; flex: 1; max-width: 260px; margin-left: auto;
+}
+.search-input {
+  width: 100%; background: var(--s2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px 8px 4px 26px; font-size: 11px;
+  font-family: inherit;
+}
+.search-input::placeholder { color: var(--muted); }
+.search-input:focus { outline: none; border-color: var(--accent); }
+.search-icon {
+  position: absolute; left: 8px; top: 50%;
+  transform: translateY(-50%); font-size: 11px; color: var(--muted);
+  pointer-events: none;
+}
+.search-count {
+  position: absolute; right: 8px; top: 50%;
+  transform: translateY(-50%); font-size: 9px; color: var(--dim);
+}
+
+/* Action buttons */
+.toolbar-actions { display: flex; gap: 4px; margin-left: 8px; flex-shrink: 0; }
+.tool-btn {
+  background: var(--s2); border: 1px solid var(--border); color: var(--dim);
+  width: 28px; height: 28px; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 13px; transition: all 0.15s;
+}
+.tool-btn:hover { color: var(--text); border-color: #444; background: #1e1e1e; }
+.tool-btn.active { color: var(--accent); border-color: var(--accent); }
+.tool-btn svg { width: 14px; height: 14px; fill: currentColor; }
+.tool-btn[title]::after { content: none; }
+
+/* ── Log Path Bar ───────────────────────────────────────── */
+.log-path-bar {
+  padding: 3px 12px; background: #0e0e0e;
+  border-bottom: 1px solid #1a1a1a;
+  font-size: 9px; color: var(--muted);
+  font-family: 'Courier New', monospace;
+  flex-shrink: 0; cursor: default;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ── Log Output ─────────────────────────────────────────── */
+.log-output {
+  flex: 1; overflow-y: auto; overflow-x: hidden;
+  padding: 4px 0; font-family: 'Courier New', 'Consolas', monospace;
+  font-size: 12px; line-height: 1.6; min-height: 0;
+  background: var(--bg);
+}
+.log-output::-webkit-scrollbar { width: 8px; }
+.log-output::-webkit-scrollbar-track { background: var(--bg); }
+.log-output::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 4px; }
+.log-output::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+
+.log-line {
+  padding: 0 12px; white-space: pre-wrap; word-break: break-all;
+  border-left: 2px solid transparent;
+}
+.log-line:hover { background: rgba(255,255,255,0.02); }
+.log-line.search-hit { background: rgba(250,204,21,0.08); border-left-color: var(--yellow); }
+.log-line.hidden { display: none; }
+
+/* Timestamps */
+.log-ts { color: var(--muted); }
+
+/* Category tags — no-color mode (default text) */
+.log-cat { font-weight: 700; color: var(--text); }
+
+/* Category tags — colored mode */
+.colors-on .log-cat-ACTION  { color: #f472b6; }
+.colors-on .log-cat-SESSION { color: var(--green); }
+.colors-on .log-cat-PROXY   { color: var(--blue); }
+.colors-on .log-cat-CLIP    { color: var(--yellow); }
+.colors-on .log-cat-FFMPEG  { color: var(--red); }
+.colors-on .log-cat-HLS     { color: var(--purple); }
+.colors-on .log-cat-MARK    { color: var(--accent); }
+.colors-on .log-cat-STREAM  { color: var(--cyan); }
+.colors-on .log-cat-UI      { color: var(--dim); }
+.colors-on .log-cat-ERROR   { color: var(--red); font-weight: 700; }
+
+/* Colored mode — also color the message text for errors */
+.colors-on .log-line[data-cat="ERROR"] .log-msg { color: var(--red); }
+
+/* Message + data */
+.log-msg { color: var(--text); }
+.log-data { color: var(--muted); font-size: 11px; }
+
+/* ── Status bar (bottom) ────────────────────────────────── */
+.debug-status {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 3px 12px; background: var(--surface);
+  border-top: 1px solid var(--border); flex-shrink: 0;
+  font-size: 10px; color: var(--dim);
+}
+
+/* ── Clip FFMPEG Log View ──────────────────────────────── */
+.clip-log-view {
+  flex: 1; display: flex; flex-direction: column;
+  min-height: 0; overflow: hidden;
+}
+
+.clip-log-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 14px; background: var(--surface);
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+
+.clip-log-back {
+  display: flex; align-items: center; gap: 5px;
+  background: rgba(255,255,255,0.06); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px 10px; cursor: pointer; font-size: 11px;
+  font-family: inherit; transition: all 0.15s;
+}
+.clip-log-back:hover { background: rgba(255,255,255,0.1); border-color: #444; }
+.clip-log-back svg { flex-shrink: 0; }
+
+.clip-log-title {
+  font-size: 12px; font-weight: 700; color: var(--red);
+  letter-spacing: 0.5px; font-family: 'Courier New', monospace;
+}
+
+.clip-log-content {
+  flex: 1; overflow-y: auto; overflow-x: hidden;
+  padding: 16px 20px;
+  font-family: 'Courier New', 'Consolas', monospace;
+  font-size: 12px; line-height: 1.7;
+  background: var(--bg);
+}
+.clip-log-content::-webkit-scrollbar { width: 8px; }
+.clip-log-content::-webkit-scrollbar-track { background: var(--bg); }
+.clip-log-content::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 4px; }
+
+.clip-log-section {
+  margin-bottom: 20px;
+}
+
+.clip-log-section-title {
+  font-size: 11px; font-weight: 700; color: var(--yellow);
+  letter-spacing: 0.5px; text-transform: uppercase;
+  padding-bottom: 6px; margin-bottom: 8px;
+  border-bottom: 1px solid rgba(245,158,11,0.2);
+}
+
+.clip-log-command {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 4px; padding: 10px 12px;
+  margin-bottom: 6px; white-space: pre-wrap;
+  word-break: break-all; color: var(--green);
+  font-size: 11px; line-height: 1.5;
+  position: relative;
+}
+
+.clip-log-command .cmd-label {
+  display: block; font-size: 10px; font-weight: 700;
+  color: var(--cyan); margin-bottom: 4px;
+  letter-spacing: 0.3px;
+}
+
+.clip-log-stderr {
+  background: rgba(239,68,68,0.04);
+  border: 1px solid rgba(239,68,68,0.15);
+  border-radius: 4px; padding: 10px 12px;
+  margin-top: 4px; margin-bottom: 12px;
+  white-space: pre-wrap; word-break: break-all;
+  color: var(--text); font-size: 10px; line-height: 1.5;
+  max-height: 200px; overflow-y: auto;
+}
+
+.clip-log-meta {
+  font-size: 10px; color: var(--muted);
+  padding: 4px 0;
+}
+
+.clip-log-no-data {
+  text-align: center; padding: 40px 20px;
+  color: var(--dim); font-size: 13px;
+}
+.clip-log-no-data p { margin-bottom: 8px; }
+.clip-log-no-data small { color: var(--muted); font-size: 11px; }
+
+/* ── Layout ─────────────────────────────────────────────── */
+.debug-app {
+  display: flex; flex-direction: column; height: 100vh;
+}
+</style>
+</head>
+<body>
+<div class="debug-app" id="debugApp">
+
+  <!-- Toolbar -->
+  <div class="debug-toolbar">
+    <span class="debug-brand">DEBUG LOG</span>
+
+    <div class="search-wrap">
+      <span class="search-icon">&#128269;</span>
+      <input class="search-input" id="searchInput" type="text" placeholder="Search debug output..." spellcheck="false">
+      <span class="search-count" id="searchCount"></span>
+    </div>
+
+    <div class="toolbar-actions">
+      <!-- Jump to bottom -->
+      <button class="tool-btn" id="btnJumpBottom" title="Jump to bottom">
+        <svg viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+      </button>
+      <!-- Color toggle -->
+      <button class="tool-btn" id="btnColors" title="Toggle log colors">
+        <svg viewBox="0 0 24 24"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-1-.01-.83.67-1.49 1.5-1.49H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
+      </button>
+      <!-- Copy to clipboard -->
+      <button class="tool-btn" id="btnCopy" title="Copy to clipboard">
+        <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+      </button>
+      <!-- Save output -->
+      <button class="tool-btn" id="btnSave" title="Save filtered output">
+        <svg viewBox="0 0 24 24"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Filter bar (Chrome DevTools style) -->
+  <div class="filter-bar" id="filterBar">
+    <button class="filter-meta-btn" id="btnSelectAll">Select All</button>
+    <button class="filter-meta-btn" id="btnDeselectAll">Deselect All</button>
+    <div class="filter-sep"></div>
+    <button class="filter-btn active" data-cat="ACTION">Actions<span class="filter-count"></span></button>
+    <button class="filter-btn active" data-cat="SESSION">Session<span class="filter-count"></span></button>
+    <button class="filter-btn active" data-cat="STREAM">Stream<span class="filter-count"></span></button>
+    <button class="filter-btn active" data-cat="HLS">HLS<span class="filter-count"></span></button>
+    <button class="filter-btn active" data-cat="MARK">Markers<span class="filter-count"></span></button>
+    <button class="filter-btn active" data-cat="CLIP">Clip<span class="filter-count"></span></button>
+    <button class="filter-btn active" data-cat="FFMPEG">FFmpeg<span class="filter-count"></span></button>
+    <button class="filter-btn active" data-cat="PROXY">Proxy<span class="filter-count"></span></button>
+    <button class="filter-btn active" data-cat="UI">UI<span class="filter-count"></span></button>
+    <button class="filter-btn active" data-cat="ERROR">Errors<span class="filter-count"></span></button>
+  </div>
+
+  <!-- Log path -->
+  <div class="log-path-bar" id="logPathBar">Initializing...</div>
+
+  <!-- Log output (normal debug view) -->
+  <div class="log-output" id="logOutput"></div>
+
+  <!-- Clip FFMPEG Log View (notepad-style, hidden by default) -->
+  <div class="clip-log-view" id="clipLogView" style="display:none;">
+    <div class="clip-log-header">
+      <button class="clip-log-back" id="clipLogBack" title="Back to Debug Log">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+        <span>Back to Debug Log</span>
+      </button>
+      <span class="clip-log-title" id="clipLogTitle">FFMPEG Log</span>
+    </div>
+    <div class="clip-log-content" id="clipLogContent"></div>
+  </div>
+
+  <!-- Status bar -->
+  <div class="debug-status">
+    <span id="statusLeft">0 entries</span>
+    <span id="statusRight">Filter: All</span>
+  </div>
+
+</div>
+
+<script src="debug.js"></script>
+</body>
+</html>

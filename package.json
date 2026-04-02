@@ -1,0 +1,22 @@
+{
+  "name": "clipper-hub",
+  "version": "2.0.1",
+  "description": "Streamer Clipper Hub — mark, clip, and export moments from Rumble streams",
+  "main": "main.js",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "scripts": {
+    "start": "node launch.js",
+    "build": "electron-builder --win",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "electron": "^40.8.0",
+    "electron-updater": "^6.3.0",
+    "express": "^4.22.1"
+  },
+  "devDependencies": {
+    "electron-builder": "^26.0.0",
+    "vitest": "^4.1.0"
+  }
+}
