@@ -3,14 +3,14 @@
 function buildTrimArgs(inputPath, outputPath, ssOffset, duration) {
   return [
     '-y',
-    '-ss', String(ssOffset),
     '-i', inputPath,
+    '-ss', String(ssOffset),
     '-t', String(duration),
     '-vf', 'setpts=PTS-STARTPTS',
     '-af', 'asetpts=PTS-STARTPTS',
-    '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
+    '-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-bf', '0',
     '-c:a', 'aac', '-b:a', '192k',
-    '-movflags', '+faststart',
+    '-movflags', '+faststart', '-use_editlist', '0',
     outputPath,
   ];
 }

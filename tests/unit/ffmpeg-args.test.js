@@ -70,15 +70,16 @@ describe('parseSegments', () => {
   });
 });
 
-// ─── Output-side seeking ───
-describe('buildTrimArgs — input-side seeking', () => {
-  it('places -ss before -i to avoid MP4 edit list dwell bug', () => {
+// ─── Start time fix (no edit list + no B-frames) ───
+describe('buildTrimArgs — start time fix', () => {
+  it('includes -bf 0 and -use_editlist 0 to prevent non-zero start_time', () => {
     const args = buildTrimArgs('/tmp/concat.ts', '/tmp/out.mp4', 5.5, 30);
-    const ssIndex = args.indexOf('-ss');
-    const iIndex = args.indexOf('-i');
-    expect(ssIndex).toBeGreaterThan(-1);
-    expect(iIndex).toBeGreaterThan(-1);
-    expect(ssIndex).toBeLessThan(iIndex);
+    const bfIndex = args.indexOf('-bf');
+    expect(bfIndex).toBeGreaterThan(-1);
+    expect(args[bfIndex + 1]).toBe('0');
+    const editIndex = args.indexOf('-use_editlist');
+    expect(editIndex).toBeGreaterThan(-1);
+    expect(args[editIndex + 1]).toBe('0');
   });
 });
 

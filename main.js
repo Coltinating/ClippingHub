@@ -1250,11 +1250,6 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, m3u8Text, startSec, dur
     await new Promise((resolve, reject) => {
       const ffArgs = ['-y'];
 
-      // Input-side seeking — must be before -i to avoid MP4 edit list dwell bug
-      // that causes non-zero start_time (black thumbnails on Twitter)
-      ffArgs.push('-ss', String(ssOffset));
-
-      // GPU acceleration (input side)
       if (opts.hwaccel) {
         ffArgs.push('-hwaccel', opts.hwaccel);
         if (opts.hwaccelOutputFormat) ffArgs.push('-hwaccel_output_format', opts.hwaccelOutputFormat);
@@ -1267,7 +1262,7 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, m3u8Text, startSec, dur
         ffArgs.push(...imgWmArgs.inputs);
       }
 
-      ffArgs.push('-t', String(durationSec));
+      ffArgs.push('-ss', String(ssOffset), '-t', String(durationSec));
 
       if (imgWmArgs) {
         if (wmFilter) {
@@ -1294,12 +1289,14 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, m3u8Text, startSec, dur
       } else if (videoCodec === 'h264_nvenc' || videoCodec === 'hevc_nvenc') {
         ffArgs.push('-preset', opts.nvencPreset || 'p4', '-cq', crf);
       }
+      ffArgs.push('-bf', '0');
 
       // Audio
       const audioCodec = opts.audioCodec || 'aac';
       const audioBitrate = opts.audioBitrate || '192k';
       ffArgs.push('-c:a', audioCodec, '-b:a', audioBitrate);
-      ffArgs.push('-movflags', '+faststart', trimmedPath);
+      ffArgs.push('-movflags', '+faststart', '-use_editlist', '0');
+      ffArgs.push(trimmedPath);
 
       ffmpegCommands.push({ step: '2. Trim & encode (seek, cut, transcode)', args: ['ffmpeg', ...ffArgs] });
       debugLog('FFMPEG', 'Trim command', { args: ffArgs.join(' ') });
