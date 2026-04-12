@@ -437,6 +437,26 @@ function triggerSave() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// AREA HEADER CLOSE BUTTON
+// ═══════════════════════════════════════════════════════════════
+
+function initAreaClose() {
+  var dockRoot = document.getElementById('dockRoot');
+  if (!dockRoot) return;
+
+  dockRoot.addEventListener('click', function (e) {
+    var btn = e.target.closest('.area-btn.close');
+    if (!btn) return;
+    var area = btn.closest('.split-area');
+    if (!area) return;
+    var panelType = area.dataset.panelType;
+    if (panelType && panelType !== 'empty' && window._panels) {
+      window._panels.closePanel(panelType);
+    }
+  });
+}
+
 // ── Init ───────────────────────────────────────────────────────
 
 function init() {
@@ -449,6 +469,7 @@ function init() {
   initDividerResize();
   initCornerDrag();
   initContextMenu();
+  initAreaClose();
 }
 
 if (document.readyState === 'loading') {

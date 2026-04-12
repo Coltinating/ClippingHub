@@ -233,16 +233,6 @@ html, body {
   position: relative; display: flex; flex-direction: column;
 }
 
-/* Splitters — resizable borders between panels */
-.splitter {
-  flex-shrink: 0; background: var(--border);
-  position: relative; z-index: 5;
-  transition: background 0.1s;
-}
-.splitter.h { width: var(--splitter-size); cursor: col-resize; }
-.splitter.v { height: var(--splitter-size); cursor: row-resize; }
-.splitter:hover, .splitter.dragging { background: var(--accent); }
-
 /* Keep old class for compat */
 .main-content {
   flex: 1; display: flex;
