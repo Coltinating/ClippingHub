@@ -3,57 +3,124 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' http://localhost:* https://cdn.jsdelivr.net https://fonts.googleapis.com https://fonts.gstatic.com; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; media-src * blob:; worker-src 'self' blob:; img-src 'self' data:; connect-src *; frame-src *;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' http://localhost:* https://cdn.jsdelivr.net https://fonts.googleapis.com https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; media-src * blob:; worker-src 'self' blob:; img-src 'self' data:; connect-src *; frame-src *;">
 <title>Clipping Hub</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
 <div class="app">
 
-  <!-- ── Top Bar ─────────────────────────────────────────── -->
-  <header class="top-bar">
-    <button class="back-btn" id="backBtn" title="Back to channel browser">
-      <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-      <span>Channel</span>
-    </button>
-    <div class="brand">
-      <span class="brand-icon">&#9881;</span>
-      <span class="brand-name">Clipper<span class="brand-accent">Hub</span></span>
-    </div>
-    <div class="url-row">
-      <input class="url-input" id="urlIn" type="text"
-        placeholder="Paste Rumble URL or direct .m3u8 link..."
-        autocomplete="off" spellcheck="false">
-      <button class="btn btn-primary" id="loadBtn">
-        <span class="btn-icon">&#9654;</span> Load Stream
-      </button>
-    </div>
-    <div class="top-actions">
-      <!-- <button class="btn btn-accent btn-sm" id="navBtn" title="Browse Streams">&#127760; Browse Streams</button> -->
-      <!-- <button class="btn btn-ghost btn-sm" id="importBtn" title="Import local file">&#128229; Import</button> -->
-      <button class="btn btn-ghost btn-sm" id="openFolderBtn" title="Open clips folder">&#128193; Clips</button>
-      <button class="btn btn-ghost btn-sm" id="settingsBtn" title="Change output folder">&#128194;</button>
-      <button class="btn btn-accent btn-sm config-btn" id="configBtn" title="Settings">
-        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1115.6 12 3.611 3.611 0 0112 15.6z"/></svg>
-        Settings
-      </button>
-    </div>
-  </header>
+  <!-- ── Menu Bar ──────────────────────────────────────────── -->
+  <div class="menubar">
+    <div class="logo">CLIPPING<span>HUB</span></div>
 
-  <!-- ── Status Bar ──────────────────────────────────────── -->
-  <div class="status-bar" id="statusBar">
-    <div class="status-left">
-      <div class="status-dot" id="statusDot"></div>
-      <span id="statusText">Paste a stream URL above and press Load Stream</span>
+    <div class="menu-item" data-menu="file">File
+      <div class="dropdown" id="menu-file">
+        <div class="dd-item" onclick="closeAllMenus()">New Project <span class="dd-shortcut">Ctrl+N</span></div>
+        <div class="dd-item" onclick="closeAllMenus()">Open Project <span class="dd-shortcut">Ctrl+O</span></div>
+        <div class="dd-sep"></div>
+        <div class="dd-item" onclick="closeAllMenus()">Save <span class="dd-shortcut">Ctrl+S</span></div>
+        <div class="dd-item" onclick="closeAllMenus()">Save As&hellip; <span class="dd-shortcut">Ctrl+Shift+S</span></div>
+        <div class="dd-sep"></div>
+        <div class="dd-item" onclick="closeAllMenus()">Exit</div>
+      </div>
     </div>
-    <div class="status-right">
+    <div class="menu-item" data-menu="edit">Edit
+      <div class="dropdown" id="menu-edit">
+        <div class="dd-item" onclick="closeAllMenus()">Undo <span class="dd-shortcut">Ctrl+Z</span></div>
+        <div class="dd-item" onclick="closeAllMenus()">Redo <span class="dd-shortcut">Ctrl+Y</span></div>
+        <div class="dd-sep"></div>
+        <div class="dd-item" onclick="closeAllMenus()">Cut <span class="dd-shortcut">Ctrl+X</span></div>
+        <div class="dd-item" onclick="closeAllMenus()">Copy <span class="dd-shortcut">Ctrl+C</span></div>
+        <div class="dd-item" onclick="closeAllMenus()">Paste <span class="dd-shortcut">Ctrl+V</span></div>
+      </div>
+    </div>
+    <div class="menu-item" data-menu="view">View
+      <div class="dropdown" id="menu-view">
+        <div class="dd-item" onclick="window._panels.togglePanel('media'); closeAllMenus()"><span class="dd-check" id="chk-media">&#10003;</span> Media Sources</div>
+        <div class="dd-item" onclick="window._panels.togglePanel('preview'); closeAllMenus()"><span class="dd-check" id="chk-preview">&#10003;</span> Preview</div>
+        <div class="dd-item" onclick="window._panels.togglePanel('timeline'); closeAllMenus()"><span class="dd-check" id="chk-timeline">&#10003;</span> Timeline</div>
+        <div class="dd-item" onclick="window._panels.togglePanel('clips'); closeAllMenus()"><span class="dd-check" id="chk-clips">&#10003;</span> Clips Queue</div>
+        <div class="dd-sep"></div>
+        <div class="dd-item" onclick="window._panels.resetLayout(); closeAllMenus()">Reset Layout <span class="dd-shortcut">Ctrl+Shift+R</span></div>
+        <div class="dd-item" onclick="window._panels.openSaveModal(); closeAllMenus()">Save Layout&hellip; <span class="dd-shortcut">Ctrl+Shift+L</span></div>
+        <div class="dd-sep"></div>
+        <div id="saved-layouts-menu"></div>
+      </div>
+    </div>
+    <div class="menu-item" data-menu="clip">Clip
+      <div class="dropdown" id="menu-clip">
+        <div class="dd-item" onclick="closeAllMenus()">Mark In <span class="dd-shortcut">I</span></div>
+        <div class="dd-item" onclick="closeAllMenus()">Mark Out <span class="dd-shortcut">O</span></div>
+        <div class="dd-sep"></div>
+        <div class="dd-item" onclick="closeAllMenus()">New Clip from In/Out <span class="dd-shortcut">Ctrl+K</span></div>
+      </div>
+    </div>
+    <div class="menu-item" data-menu="export">Export
+      <div class="dropdown" id="menu-export">
+        <div class="dd-item" onclick="closeAllMenus()">Export Selected <span class="dd-shortcut">Ctrl+E</span></div>
+        <div class="dd-item" onclick="closeAllMenus()">Export All <span class="dd-shortcut">Ctrl+Shift+E</span></div>
+        <div class="dd-sep"></div>
+        <div class="dd-item" onclick="closeAllMenus()">Export Settings&hellip;</div>
+      </div>
+    </div>
+    <div class="menu-item" data-menu="help">Help
+      <div class="dropdown" id="menu-help">
+        <div class="dd-item" onclick="closeAllMenus()">Keyboard Shortcuts</div>
+        <div class="dd-item" onclick="closeAllMenus()">About ClippingHub</div>
+      </div>
+    </div>
+
+    <div class="workspace-tabs">
+      <div class="ws-tab active" data-ws="default" onclick="window._panels.loadWorkspace('default')">Default</div>
+      <div class="ws-tab" data-ws="minimal" onclick="window._panels.loadWorkspace('minimal')">Minimal</div>
+      <div class="ws-tab" data-ws="editing" onclick="window._panels.loadWorkspace('editing')">Editing</div>
+    </div>
+
+    <div class="menubar-right">
+      <div class="status-dot" id="statusDot"></div>
+      <span class="status-text" id="statusText">Paste a stream URL above and press Load Stream</span>
+      <div style="width:1px; height:14px; background:var(--border); margin:0 6px;"></div>
       <span class="live-badge" id="liveBadge">&#9679; LIVE</span>
       <span class="stream-info" id="streamInfo"></span>
+      <div style="width:1px; height:14px; background:var(--border); margin:0 6px;"></div>
+      <span class="badge ffmpeg">ffmpeg ready</span>
     </div>
+  </div>
+
+  <!-- ── Toolbar ───────────────────────────────────────────── -->
+  <div class="toolbar">
+    <button class="tool-btn" id="backBtn" title="Back to Rumble">
+      <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+      &larr; Rumble
+    </button>
+    <div class="toolbar-sep"></div>
+
+    <div class="url-bar">
+      <span class="url-label">URL</span>
+      <input id="urlIn" type="text"
+        placeholder="Paste Rumble URL or direct .m3u8 link..."
+        autocomplete="off" spellcheck="false">
+    </div>
+
+    <button class="tool-btn primary" id="loadBtn">
+      <svg class="tool-icon" viewBox="0 0 14 14" fill="currentColor"><polygon points="3,2 11,7 3,12"/></svg>
+      Load Stream
+    </button>
+    <div class="toolbar-sep"></div>
+
+    <!-- <button class="tool-btn" id="navBtn" title="Browse Streams">&#127760; Browse</button> -->
+    <!-- <button class="tool-btn" id="importBtn" title="Import local file">&#128229; Import</button> -->
+    <button class="tool-btn" id="openFolderBtn" title="Open clips folder">&#128193; Clips</button>
+    <button class="tool-btn" id="settingsBtn" title="Change output folder">&#128194;</button>
+    <button class="tool-btn" id="configBtn" title="Settings">
+      <svg class="tool-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1115.6 12 3.611 3.611 0 0112 15.6z"/></svg>
+      Settings
+    </button>
+    <div class="toolbar-sep"></div>
+    <button class="tool-btn" id="debugToggleBtn" title="Open Debug Log window">Debug</button>
   </div>
 
   <!-- ── Extraction Progress ─────────────────────────────── -->
@@ -63,226 +130,383 @@
     <span class="extract-note">(may take ~30s for stream pages)</span>
   </div>
 
-  <!-- ── Main Content ────────────────────────────────────── -->
-  <div class="main-content">
+  <!-- ══ BROWSE PAGE — full-area Rumble browser (landing page) ══ -->
+  <div class="browse-page" id="browserWrap">
+    <webview id="channelBrowser" partition="persist:rumble"
+      useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+      allowpopups="false"></webview>
+  </div>
 
-    <!-- Left: Video Player / Channel Browser -->
-    <div class="player-section">
+  <!-- ══ PANEL STAGING — panels live here until mounted into tree areas ══ -->
+  <div id="panelStaging" style="display:none">
 
-      <!-- Embedded channel browser (shown on startup) -->
-      <div class="browser-wrap" id="browserWrap">
-        <webview id="channelBrowser" partition="persist:rumble"
-          useragent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
-          allowpopups="false"></webview>
-      </div>
-
-      <div class="player-wrap" id="playerWrap" style="display:none">
-        <!-- Placeholder -->
-        <div class="player-placeholder" id="playerPlaceholder">
-          <svg viewBox="0 0 64 64" fill="none" width="48" height="48">
-            <rect x="4" y="12" width="56" height="40" rx="4" stroke="currentColor" stroke-width="2"/>
-            <path d="M26 22l16 10-16 10V22z" fill="currentColor" opacity="0.4"/>
-          </svg>
-          <p>No stream loaded</p>
-          <small>Supports live streams, VODs, and direct .m3u8 links</small>
+    <!-- Media Sources panel content (was inside #pane-media .dock-pane) -->
+    <div class="panel media-panel" id="panel-media">
+      <div class="panel-header">
+        <span class="panel-title">Media Sources</span>
+        <div class="panel-actions">
+          <button class="panel-btn" title="Refresh">&#8635;</button>
+          <button class="panel-btn close" title="Close panel" onclick="window._panels.closePanel('media')">
+            <svg viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M2 2l6 6M8 2l-6 6"/></svg>
+          </button>
         </div>
-
-        <video id="vid" style="display:none"></video>
-        <div class="loading-spinner" id="loadingSpinner"></div>
-        <div class="buffer-badge" id="bufferBadge">Buffering...</div>
-
-        <!-- Player Controls Overlay -->
-        <div class="controls-overlay" id="controlsOverlay">
-          <!-- Progress bar -->
-          <div class="progress-area">
-            <div class="progress-track" id="progressTrack">
-              <!-- Markers will be rendered here -->
-              <div class="progress-fill" id="progressFill" style="width:0%"></div>
-              <div class="progress-buffer" id="progressBuffer" style="width:0%"></div>
-              <!-- Hover preview -->
-              <div class="hover-preview" id="hoverPreview">
-                <canvas class="hover-preview-canvas" id="hoverCanvas" width="160" height="90"></canvas>
-                <div class="hover-preview-time" id="hoverTime">0:00</div>
-              </div>
-            </div>
-            <div class="time-display" id="timeDisplay">0:00 / 0:00</div>
-            <button class="live-sync-btn" id="liveSyncBtn" title="Jump to live edge">LIVE</button>
-          </div>
-          <!-- Button row -->
-          <div class="controls-row">
-            <button class="ctrl-btn" id="skipBack" title="Back 10s">
-              <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M11 18V6l-8.5 6L11 18zm.5-6l8.5 6V6l-8.5 6z"/></svg>
-            </button>
-            <button class="ctrl-btn" id="playPauseBtn" title="Play/Pause">
-              <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M8 5v14l11-7z"/></svg>
-              <svg class="icon-pause" viewBox="0 0 24 24" fill="currentColor" width="18" height="18" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-            </button>
-            <button class="ctrl-btn" id="skipForward" title="Forward 10s">
-              <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>
-            </button>
-
-            <div class="volume-group">
-              <button class="ctrl-btn" id="muteBtn" title="Mute">
-                <svg class="icon-vol" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
-                <svg class="icon-mute" viewBox="0 0 24 24" fill="currentColor" width="16" height="16" style="display:none"><path d="M16.5 12A4.5 4.5 0 0014 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.796 8.796 0 0021 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06A8.99 8.99 0 0017.73 18L19 19.27 20.27 18 5.27 3 4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
-              </button>
-              <div class="volume-slider-wrap">
-                <input class="volume-slider" id="volumeSlider" type="range" min="0" max="1" step="0.02" value="1">
-              </div>
-            </div>
-
-            <div class="spacer"></div>
-
-            <!-- IN / OUT marker buttons -->
-            <button class="ctrl-btn marker-btn marker-in" id="markInBtn" title="Mark IN point (I)">
-              <span>IN</span>
-            </button>
-            <button class="ctrl-btn marker-btn marker-out" id="markOutBtn" title="Mark OUT point (O)" disabled>
-              <span>OUT</span>
-            </button>
-
-            <div class="spacer"></div>
-
-            <select class="ctrl-select quality-select" id="qualitySelect" title="Quality"><option value="-1">Auto</option></select>
-            <button class="ctrl-btn speed-btn" id="speedBtn" title="Playback speed">1.0&times;</button>
-            <div class="cc-wrap">
-              <button class="ctrl-btn cc-btn cc-disabled" id="transcriptToggle" title="Coming Soon" disabled>CC</button>
-              <button class="cc-chevron cc-disabled" id="ccDropdownChevron" title="Coming Soon" disabled>
-                <svg viewBox="0 0 24 24" fill="currentColor" width="8" height="8"><path d="M7 10l5 5 5-5z"/></svg>
-              </button>
-              <div class="cc-dropdown" id="ccDropdown" style="display:none">
-                <div class="cc-dropdown-option selected" id="ccOptCpu">
-                  <span class="cc-opt-check">&#10003;</span>
-                  <span class="cc-opt-label">CPU</span>
-                  <span class="cc-opt-desc">WASM · No setup needed</span>
-                </div>
-                <div class="cc-dropdown-option" id="ccOptGpu">
-                  <span class="cc-opt-check">&#10003;</span>
-                  <span class="cc-opt-label">GPU</span>
-                  <span class="cc-opt-desc">CUDA · whisper.cpp</span>
-                </div>
-                <div class="cc-dropdown-option" id="ccOptFaster">
-                  <span class="cc-opt-check">&#10003;</span>
-                  <span class="cc-opt-label">Faster <small>MEDIUM</small></span>
-                  <span class="cc-opt-desc">CUDA · faster-whisper</span>
-                </div>
-                <div class="cc-gpu-unavailable" id="ccGpuUnavailable" style="display:none">
-                  GPU: place whisper-cli.exe + model in resources/whisper/
-                </div>
-                <div class="cc-gpu-unavailable" id="ccFasterUnavailable" style="display:none">
-                  Faster: requires Python 3.10 + pip install faster-whisper
-                </div>
-              </div>
-            </div>
-            <button class="ctrl-btn" id="pipBtn" title="Picture-in-Picture">
-              <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M19 7h-8v6h8V7zm2-4H3C1.9 3 1 3.9 1 5v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14z"/></svg>
-            </button>
-            <button class="ctrl-btn" id="fullscreenBtn" title="Fullscreen (F)">
-              <svg class="icon-fs" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
-              <svg class="icon-fs-exit" viewBox="0 0 24 24" fill="currentColor" width="16" height="16" style="display:none"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
-            </button>
+      </div>
+      <div class="panel-body">
+        <div class="media-tabs">
+          <div class="media-tab active">Streams</div>
+          <div class="media-tab">Segments</div>
+          <div class="media-tab">Clips</div>
+        </div>
+        <div class="media-list">
+          <div class="media-empty">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" opacity="0.3"><path d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM8 15l3.5-4.5 2.5 3.01L17.5 9 21 15H8z"/></svg>
+            <p>No stream loaded</p>
+            <small>Load a stream to see media sources</small>
           </div>
         </div>
-      </div>
-
-      <!-- Live Transcript Panel -->
-      <div class="transcript-panel" id="transcriptPanel" style="display:none">
-        <div class="transcript-header">
-          <span class="transcript-title">Live Transcript</span>
-          <span class="transcript-status off" id="transcriptStatus">Off</span>
-          <div class="transcript-actions">
-            <button class="btn btn-ghost btn-xs" id="transcriptExportBtn" title="Export transcript">Export</button>
-            <button class="btn btn-ghost btn-xs" id="transcriptClearBtn" title="Clear transcript">Clear</button>
+        <div class="media-panel-footer">
+          <div class="footer-row">
+            <span class="footer-label">Buffer</span>
+            <span class="footer-value">&mdash;</span>
           </div>
         </div>
-        <div class="transcript-search-row">
-          <svg class="transcript-search-icon" viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-          <input class="transcript-search" id="transcriptSearch" type="text"
-            placeholder="Search transcript..." autocomplete="off" spellcheck="false">
-        </div>
-        <div class="transcript-body" id="transcriptBody">
-          <div class="transcript-empty">Transcript lines will appear here...</div>
-        </div>
-      </div>
-
-      <!-- Current marker state indicator -->
-      <div class="marker-state" id="markerState" style="display:none">
-        <span class="marker-state-label">Ready to mark</span>
-        <span class="marker-state-hint">Press <kbd>I</kbd> to set IN point during playback</span>
-      </div>
-
-      <!-- Batch Testing Panel (dev only, hidden by default) -->
-      <div class="batch-panel" id="batchPanel" style="display:none">
-        <span class="batch-badge">BATCH MODE</span>
-        <label class="batch-field">Clips <input type="number" id="batchCount" value="5" min="1" max="50" class="batch-input batch-input-num"></label>
-        <label class="batch-field">Name <input type="text" id="batchNameScheme" value="test-clip" class="batch-input batch-input-name" placeholder="test-clip" spellcheck="false"></label>
-        <button class="batch-suite-btn" id="batchSuiteBtn">Test Suite</button>
-        <span class="batch-hint">IN/OUT to batch &mdash; <kbd>B</kbd> to exit</span>
       </div>
     </div>
 
-    <!-- Right: Clip Hub -->
-    <div class="hub-section" id="hubSection">
-      <div class="hub-header">
-        <h2>Clip Hub</h2>
+    <!-- Preview panel content (was inside #pane-preview .dock-pane) -->
+    <div class="panel preview-panel" id="panel-preview">
+      <div class="panel-header">
+        <span class="panel-title">Preview</span>
+        <div class="panel-actions">
+          <button class="panel-btn" id="splitPreviewBtn" title="Split preview (dual player)">
+            <svg viewBox="0 0 14 14" fill="currentColor" width="12" height="12"><rect x="1" y="1" width="5" height="12" rx="1" opacity="0.7"/><rect x="8" y="1" width="5" height="12" rx="1" opacity="0.4"/></svg>
+          </button>
+          <button class="panel-btn" id="pipBtn" title="Picture-in-Picture">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M19 7h-8v6h8V7zm2-4H3C1.9 3 1 3.9 1 5v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14z"/></svg>
+          </button>
+          <button class="panel-btn close" title="Close panel" onclick="window._panels.closePanel('preview')">
+            <svg viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M2 2l6 6M8 2l-6 6"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="panel-body">
+        <div class="preview-area">
+
+          <div class="player-wrap" id="playerWrap" style="display:none">
+            <div class="player-placeholder" id="playerPlaceholder">
+              <svg viewBox="0 0 64 64" fill="none" width="48" height="48">
+                <rect x="4" y="12" width="56" height="40" rx="4" stroke="currentColor" stroke-width="2"/>
+                <path d="M26 22l16 10-16 10V22z" fill="currentColor" opacity="0.4"/>
+              </svg>
+              <p>No stream loaded</p>
+              <small>Supports live streams, VODs, and direct .m3u8 links</small>
+            </div>
+
+            <video id="vid" style="display:none"></video>
+            <div class="loading-spinner" id="loadingSpinner"></div>
+            <div class="buffer-badge" id="bufferBadge">Buffering...</div>
+
+            <!-- Player Controls Overlay -->
+            <div class="controls-overlay" id="controlsOverlay">
+              <div class="progress-area">
+                <div class="progress-track" id="progressTrack">
+                  <div class="progress-fill" id="progressFill" style="width:0%"></div>
+                  <div class="progress-buffer" id="progressBuffer" style="width:0%"></div>
+                  <div class="hover-preview" id="hoverPreview">
+                    <canvas class="hover-preview-canvas" id="hoverCanvas" width="160" height="90"></canvas>
+                    <div class="hover-preview-time" id="hoverTime">0:00</div>
+                  </div>
+                </div>
+                <div class="time-display" id="timeDisplay">0:00 / 0:00</div>
+                <button class="live-sync-btn" id="liveSyncBtn" title="Jump to live edge">LIVE</button>
+              </div>
+              <div class="controls-row">
+                <button class="ctrl-btn" id="skipBack" title="Back 10s">
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M11 18V6l-8.5 6L11 18zm.5-6l8.5 6V6l-8.5 6z"/></svg>
+                </button>
+                <button class="ctrl-btn" id="playPauseBtn" title="Play/Pause">
+                  <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M8 5v14l11-7z"/></svg>
+                  <svg class="icon-pause" viewBox="0 0 24 24" fill="currentColor" width="18" height="18" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                </button>
+                <button class="ctrl-btn" id="skipForward" title="Forward 10s">
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>
+                </button>
+
+                <div class="volume-group">
+                  <button class="ctrl-btn" id="muteBtn" title="Mute">
+                    <svg class="icon-vol" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+                    <svg class="icon-mute" viewBox="0 0 24 24" fill="currentColor" width="16" height="16" style="display:none"><path d="M16.5 12A4.5 4.5 0 0014 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.796 8.796 0 0021 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06A8.99 8.99 0 0017.73 18L19 19.27 20.27 18 5.27 3 4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+                  </button>
+                  <div class="volume-slider-wrap">
+                    <input class="volume-slider" id="volumeSlider" type="range" min="0" max="1" step="0.02" value="1">
+                  </div>
+                </div>
+
+                <div class="spacer"></div>
+
+                <button class="ctrl-btn marker-btn marker-in" id="markInBtn" title="Mark IN point (I)">
+                  <span>IN</span>
+                </button>
+                <button class="ctrl-btn marker-btn marker-out" id="markOutBtn" title="Mark OUT point (O)" disabled>
+                  <span>OUT</span>
+                </button>
+
+                <div class="spacer"></div>
+
+                <select class="ctrl-select quality-select" id="qualitySelect" title="Quality"><option value="-1">Auto</option></select>
+                <button class="ctrl-btn speed-btn" id="speedBtn" title="Playback speed">1.0&times;</button>
+                <div class="cc-wrap">
+                  <button class="ctrl-btn cc-btn cc-disabled" id="transcriptToggle" title="Coming Soon" disabled>CC</button>
+                  <button class="cc-chevron cc-disabled" id="ccDropdownChevron" title="Coming Soon" disabled>
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="8" height="8"><path d="M7 10l5 5 5-5z"/></svg>
+                  </button>
+                  <div class="cc-dropdown" id="ccDropdown" style="display:none">
+                    <div class="cc-dropdown-option selected" id="ccOptCpu">
+                      <span class="cc-opt-check">&#10003;</span>
+                      <span class="cc-opt-label">CPU</span>
+                      <span class="cc-opt-desc">WASM &middot; No setup needed</span>
+                    </div>
+                    <div class="cc-dropdown-option" id="ccOptGpu">
+                      <span class="cc-opt-check">&#10003;</span>
+                      <span class="cc-opt-label">GPU</span>
+                      <span class="cc-opt-desc">CUDA &middot; whisper.cpp</span>
+                    </div>
+                    <div class="cc-dropdown-option" id="ccOptFaster">
+                      <span class="cc-opt-check">&#10003;</span>
+                      <span class="cc-opt-label">Faster <small>MEDIUM</small></span>
+                      <span class="cc-opt-desc">CUDA &middot; faster-whisper</span>
+                    </div>
+                    <div class="cc-gpu-unavailable" id="ccGpuUnavailable" style="display:none">
+                      GPU: place whisper-cli.exe + model in resources/whisper/
+                    </div>
+                    <div class="cc-gpu-unavailable" id="ccFasterUnavailable" style="display:none">
+                      Faster: requires Python 3.10 + pip install faster-whisper
+                    </div>
+                  </div>
+                </div>
+                <button class="ctrl-btn" id="fullscreenBtn" title="Fullscreen (F)">
+                  <svg class="icon-fs" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                  <svg class="icon-fs-exit" viewBox="0 0 24 24" fill="currentColor" width="16" height="16" style="display:none"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Split splitter — draggable divider between Player A and B -->
+          <div class="split-splitter" id="splitSplitter" style="display:none"></div>
+
+          <!-- Secondary Player (Player B) — hidden until split activated -->
+          <div class="player2-wrap" id="player2Wrap" style="display:none">
+            <div class="p2-label">B</div>
+            <video id="b-vid"></video>
+            <div class="player2-overlay" id="player2Overlay">
+              <div class="p2-progress-track" id="b-progressTrack">
+                <div class="p2-progress-fill" id="b-progressFill" style="width:0%"></div>
+              </div>
+              <div class="p2-controls-row">
+                <button class="ctrl-btn" id="b-playPauseBtn" title="Play/Pause">
+                  <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M8 5v14l11-7z"/></svg>
+                  <svg class="icon-pause" viewBox="0 0 24 24" fill="currentColor" width="16" height="16" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                </button>
+                <div class="volume-group">
+                  <button class="ctrl-btn" id="b-muteBtn" title="Mute">
+                    <svg class="icon-vol" viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
+                    <svg class="icon-mute" viewBox="0 0 24 24" fill="currentColor" width="14" height="14" style="display:none"><path d="M4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06A8.99 8.99 0 0017.73 18L19 19.27 20.27 18 5.27 3z"/></svg>
+                  </button>
+                  <input class="volume-slider" id="b-volumeSlider" type="range" min="0" max="1" step="0.02" value="0.5" style="width:50px;">
+                </div>
+                <span class="p2-time-display" id="b-timeDisplay">0:00</span>
+                <div class="spacer"></div>
+                <input class="p2-url-input" id="b-urlIn" type="text" placeholder="m3u8 URL for Player B..." autocomplete="off" spellcheck="false">
+                <button class="ctrl-btn" id="b-loadBtn" title="Load URL">&#9654;</button>
+                <button class="ctrl-btn" id="b-closeBtn" title="Close Player B">&times;</button>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /.preview-area -->
+
+        <!-- Live Transcript Panel -->
+        <div class="transcript-panel" id="transcriptPanel" style="display:none">
+          <div class="transcript-header">
+            <span class="transcript-title">Live Transcript</span>
+            <span class="transcript-status off" id="transcriptStatus">Off</span>
+            <div class="transcript-actions">
+              <button class="btn btn-ghost btn-xs" id="transcriptExportBtn" title="Export transcript">Export</button>
+              <button class="btn btn-ghost btn-xs" id="transcriptClearBtn" title="Clear transcript">Clear</button>
+            </div>
+          </div>
+          <div class="transcript-search-row">
+            <svg class="transcript-search-icon" viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+            <input class="transcript-search" id="transcriptSearch" type="text"
+              placeholder="Search transcript..." autocomplete="off" spellcheck="false">
+          </div>
+          <div class="transcript-body" id="transcriptBody">
+            <div class="transcript-empty">Transcript lines will appear here...</div>
+          </div>
+        </div>
+
+        <!-- Current marker state indicator -->
+        <div class="marker-state" id="markerState" style="display:none">
+          <span class="marker-state-label">Ready to mark</span>
+          <span class="marker-state-hint">Press <kbd>I</kbd> to set IN point during playback</span>
+        </div>
+
+        <!-- Batch Testing Panel (dev only, hidden by default) -->
+        <div class="batch-panel" id="batchPanel" style="display:none">
+          <span class="batch-badge">BATCH MODE</span>
+          <label class="batch-field">Clips <input type="number" id="batchCount" value="5" min="1" max="50" class="batch-input batch-input-num"></label>
+          <label class="batch-field">Name <input type="text" id="batchNameScheme" value="test-clip" class="batch-input batch-input-name" placeholder="test-clip" spellcheck="false"></label>
+          <button class="batch-suite-btn" id="batchSuiteBtn">Test Suite</button>
+          <span class="batch-hint">IN/OUT to batch &mdash; <kbd>B</kbd> to exit</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Timeline panel content (was inside #pane-timeline .dock-pane) -->
+    <div class="panel" id="panel-timeline">
+      <div class="panel-header">
+        <span class="panel-title">Timeline</span>
+        <div class="panel-actions">
+          <button class="panel-btn close" title="Close panel" onclick="window._panels.closePanel('timeline')">
+            <svg viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M2 2l6 6M8 2l-6 6"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="timeline-section" style="height:auto; flex:1; border-top:none;">
+          <div class="timeline-header">
+            <span class="panel-title">Timeline</span>
+            <div class="timeline-controls">
+              <button class="tl-btn">&#8722;</button>
+              <button class="tl-btn">+</button>
+              <button class="tl-btn">Fit</button>
+            </div>
+          </div>
+          <div class="timeline-body">
+            <div class="timeline-track-labels">
+              <div class="track-ruler"></div>
+              <div class="track-label">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" style="opacity:0.6"><rect x="0" y="2" width="9" height="7" rx="1"/><rect x="9" y="4" width="3" height="3"/></svg>
+                Video
+              </div>
+              <div class="track-label">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" style="opacity:0.6"><path d="M6 1v10M4 3v6M2 4v4M8 3v6M10 4v4"/></svg>
+                Audio
+              </div>
+              <div class="track-label" style="color:var(--text-muted);">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" style="opacity:0.4"><polygon points="6,1 7.5,4.5 11,5 8.5,7.5 9,11 6,9 3,11 3.5,7.5 1,5 4.5,4.5"/></svg>
+                Markers
+              </div>
+            </div>
+            <div class="timeline-tracks">
+              <div class="ruler"></div>
+              <div class="track-row"></div>
+              <div class="track-row"></div>
+              <div class="track-row"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Clips Queue panel content (was inside #pane-clips .dock-pane) -->
+    <div class="panel right-panel" id="hubSection">
+      <div class="panel-header hub-header">
+        <span class="panel-title"><h2 style="font-size:inherit;font-weight:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit;display:inline;">Clips Queue</h2></span>
         <span class="clip-count" id="clipCount">0 clips</span>
-        <button class="btn btn-ghost btn-xs hub-detach-btn" id="detachHubBtn" title="Pop out hub">&#128470;</button>
-      </div>
-
-      <!-- Pending Clips -->
-      <div class="hub-group">
-        <div class="hub-group-title">
-          <span>&#9998; Pending Clips</span>
+        <div class="panel-actions">
+          <button class="panel-btn" id="detachHubBtn" title="Pop out hub">&#128470;</button>
+          <button class="panel-btn close" title="Close panel" onclick="window._panels.closePanel('clips')">
+            <svg viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M2 2l6 6M8 2l-6 6"/></svg>
+          </button>
         </div>
-        <div class="clip-list" id="pendingClipList">
-          <div class="empty-state" id="pendingEmpty">
-            <p>No clips yet</p>
-            <small>Mark IN/OUT points while watching to create clips</small>
+      </div>
+      <div class="panel-body">
+        <!-- Pending Clips -->
+        <div class="hub-group">
+          <div class="hub-group-title">
+            <span>&#9998; Pending Clips</span>
+          </div>
+          <div class="clip-list" id="pendingClipList">
+            <div class="empty-state" id="pendingEmpty">
+              <p>No clips yet</p>
+              <small>Mark IN/OUT points while watching to create clips</small>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="hub-resize-handle" data-resize="0"></div>
+        <div class="hub-resize-handle" data-resize="0"></div>
 
-      <!-- Downloading -->
-      <div class="hub-group">
-        <div class="hub-group-title">
-          <span>&#9660; Downloading</span>
-        </div>
-        <div class="clip-list" id="downloadingClipList">
-          <div class="empty-state" id="downloadingEmpty">
-            <small>Clips being processed will appear here</small>
+        <!-- Downloading -->
+        <div class="hub-group">
+          <div class="hub-group-title">
+            <span>&#9660; Downloading</span>
+          </div>
+          <div class="clip-list" id="downloadingClipList">
+            <div class="empty-state" id="downloadingEmpty">
+              <small>Clips being processed will appear here</small>
+            </div>
           </div>
         </div>
-      </div>
-      <div class="hub-resize-handle" data-resize="1"></div>
+        <div class="hub-resize-handle" data-resize="1"></div>
 
-      <!-- Completed Clips -->
-      <div class="hub-group">
-        <div class="hub-group-title">
-          <span>&#10003; Completed</span>
-          <button class="btn btn-ghost btn-xs clear-btn" id="clearCompleted" title="Clear all completed">Clear</button>
-          <button class="btn btn-ghost btn-xs" id="openCompletedFolder" title="Open folder">&#128193;</button>
-        </div>
-        <div class="clip-list" id="completedClipList">
-          <div class="empty-state" id="completedEmpty">
-            <small>Downloaded clips appear here — drag to post!</small>
+        <!-- Completed Clips -->
+        <div class="hub-group">
+          <div class="hub-group-title">
+            <span>&#10003; Completed</span>
+            <button class="btn btn-ghost btn-xs clear-btn" id="clearCompleted" title="Clear all completed">Clear</button>
+            <button class="btn btn-ghost btn-xs" id="openCompletedFolder" title="Open folder">&#128193;</button>
+          </div>
+          <div class="clip-list" id="completedClipList">
+            <div class="empty-state" id="completedEmpty">
+              <small>Downloaded clips appear here &mdash; drag to post!</small>
+            </div>
           </div>
         </div>
-      </div>
 
-      <!-- Output dir -->
-      <div class="hub-footer">
-        <span class="hub-footer-label">Output:</span>
-        <span class="hub-footer-path" id="outputPath" title="Click to change">Loading...</span>
+        <!-- Output dir -->
+        <div class="hub-footer">
+          <span class="hub-footer-label">Output:</span>
+          <span class="hub-footer-path" id="outputPath" title="Click to change">Loading...</span>
+        </div>
       </div>
     </div>
 
-  </div><!-- /main-content -->
+  </div>
+
+  <!-- ══ DOCK ROOT — tree renderer populates this ══ -->
+  <div class="workspace dock-root" id="dockRoot" style="display:none"></div>
+
+  <!-- ══ SPLIT CONTEXT MENU ══ -->
+  <div class="split-context-menu" id="splitContextMenu">
+    <div class="ctx-item" data-action="split-h">Split Horizontal</div>
+    <div class="ctx-item" data-action="split-v">Split Vertical</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="join-left">Join Left</div>
+    <div class="ctx-item" data-action="join-right">Join Right</div>
+    <div class="ctx-item" data-action="join-up">Join Up</div>
+    <div class="ctx-item" data-action="join-down">Join Down</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" data-action="swap">Swap Areas</div>
+  </div>
 
 </div><!-- /app -->
 
-<!-- Debug toggle — always visible, independent of hub state -->
-<button id="debugToggleBtn" title="Open Debug Log window">DEBUG</button>
+<!-- SAVE LAYOUT MODAL -->
+<div class="modal-overlay" id="saveModal">
+  <div class="modal">
+    <h3>Save Layout</h3>
+    <input type="text" id="layoutNameInput" placeholder="Layout name&hellip;">
+    <div class="modal-btns">
+      <button class="modal-btn" onclick="window._panels.closeSaveModal()">Cancel</button>
+      <button class="modal-btn primary" onclick="window._panels.saveLayout()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
 
 <link rel="stylesheet" href="batch/batch-testing.css">
 <script src="lib/local-playlist.js"></script>
@@ -297,5 +521,10 @@
 <script src="player/player.js"></script>
 <script src="renderer.js"></script>
 <script src="batch/batch-testing.js"></script>
+<script src="split-tree.js"></script>
+<script src="split-layout.js"></script>
+<script src="split-interact.js"></script>
+<script src="panels.js"></script>
+<script src="player2.js"></script>
 </body>
 </html>
