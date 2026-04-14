@@ -1,31 +1,96 @@
 (function () {
 'use strict';
 
-var ST = null; // reference to window._splitTree, set on init
+var ST = null;
+var PANEL_INFO = (window._panelRegistry && window._panelRegistry.PANEL_DEFINITIONS) || {};
+var viewerInstances = {};
 
-// ── Panel Registry ─────────────────────────────────────────────
-// Maps panelType to { elId, title, icon }
+function normalizePanelType(panelType) {
+  if (window._panelRegistry && window._panelRegistry.normalizePanelType) {
+    return window._panelRegistry.normalizePanelType(panelType);
+  }
+  if (panelType === 'preview') return 'clipper';
+  return panelType;
+}
 
-var PANEL_INFO = {
-  media:    { elId: 'panel-media',    title: 'Media Sources', icon: '<svg viewBox="0 0 12 12" fill="currentColor"><path d="M2 1h8a1 1 0 011 1v8a1 1 0 01-1 1H2a1 1 0 01-1-1V2a1 1 0 011-1zm0 2v6h8V3H2z"/></svg>' },
-  preview:  { elId: 'panel-preview',  title: 'Preview',       icon: '<svg viewBox="0 0 12 12" fill="currentColor"><polygon points="3,1 10,6 3,11"/></svg>' },
-  timeline: { elId: 'panel-timeline', title: 'Timeline',      icon: '<svg viewBox="0 0 12 12" fill="currentColor"><rect x="0" y="3" width="12" height="2"/><rect x="0" y="7" width="12" height="2"/><rect x="4" y="0" width="1" height="12"/></svg>' },
-  clips:    { elId: 'hubSection',     title: 'Clips Queue',   icon: '<svg viewBox="0 0 12 12" fill="currentColor"><rect x="1" y="1" width="10" height="3" rx="0.5"/><rect x="1" y="5" width="10" height="3" rx="0.5"/><rect x="1" y="9" width="7" height="2" rx="0.5"/></svg>' }
-};
+function getPanelTitle(panelType) {
+  var info = window._panelRegistry && window._panelRegistry.getPanelInfo
+    ? window._panelRegistry.getPanelInfo(panelType)
+    : null;
+  return info && info.title ? info.title : panelType;
+}
 
-// Retrieve a panel element by panel type
-function getPanelElement(panelType) {
-  var info = PANEL_INFO[panelType];
-  if (!info) return null;
+function getSharedPanelElement(panelType) {
+  var info = window._panelRegistry && window._panelRegistry.getPanelInfo
+    ? window._panelRegistry.getPanelInfo(panelType)
+    : PANEL_INFO[panelType];
+  if (!info || !info.elId) return null;
   return document.getElementById(info.elId) || null;
 }
 
-// ── Area Header Creation ───────────────────────────────────────
+function createPanelSelect(currentType) {
+  var select = document.createElement('select');
+  select.className = 'area-panel-select';
+  select.innerHTML = '<option value="empty">Empty</option>';
 
-function createAreaHeader(panelType) {
-  var info = PANEL_INFO[panelType];
+  var groups = window._panelRegistry ? window._panelRegistry.getPanelOptionGroups() : [];
+  for (var i = 0; i < groups.length; i++) {
+    var group = groups[i];
+    var optGroup = document.createElement('optgroup');
+    optGroup.label = group.label;
+    for (var j = 0; j < group.options.length; j++) {
+      var opt = document.createElement('option');
+      opt.value = group.options[j].type;
+      opt.textContent = group.options[j].label;
+      optGroup.appendChild(opt);
+    }
+    select.appendChild(optGroup);
+  }
+  select.value = normalizePanelType(currentType || 'empty');
+  return select;
+}
+
+function buildEmptyAreaPicker() {
+  var picker = document.createElement('div');
+  picker.className = 'empty-panel-picker';
+
+  var label = document.createElement('label');
+  label.className = 'empty-panel-picker-label';
+  label.textContent = 'Panel';
+  picker.appendChild(label);
+
+  var select = document.createElement('select');
+  select.className = 'empty-panel-select';
+  select.innerHTML = '<option value="">Select panel...</option>';
+
+  var groups = window._panelRegistry ? window._panelRegistry.getPanelOptionGroups() : [];
+  for (var i = 0; i < groups.length; i++) {
+    var group = groups[i];
+    var optGroup = document.createElement('optgroup');
+    optGroup.label = group.label;
+    for (var j = 0; j < group.options.length; j++) {
+      var def = group.options[j];
+      var option = document.createElement('option');
+      option.value = def.type;
+      option.textContent = def.label;
+      optGroup.appendChild(option);
+    }
+    select.appendChild(optGroup);
+  }
+
+  picker.appendChild(select);
+  return picker;
+}
+
+function createAreaHeader(leaf) {
+  var panelType = normalizePanelType(leaf.panelType);
+  var info = window._panelRegistry && window._panelRegistry.getPanelInfo
+    ? window._panelRegistry.getPanelInfo(panelType)
+    : PANEL_INFO[panelType];
+
   var header = document.createElement('div');
   header.className = 'area-header';
+  header.dataset.leafId = leaf.id;
 
   var icon = document.createElement('span');
   icon.className = 'area-icon';
@@ -34,11 +99,23 @@ function createAreaHeader(panelType) {
 
   var title = document.createElement('span');
   title.className = 'area-title';
-  title.textContent = info ? info.title : 'Empty';
+  title.textContent = panelType === 'empty' ? 'Empty' : (info ? info.title : 'Panel');
   header.appendChild(title);
+
+  if (panelType !== 'empty') {
+    header.appendChild(createPanelSelect(panelType));
+  }
 
   var actions = document.createElement('div');
   actions.className = 'area-actions';
+
+  if (panelType !== 'empty') {
+    var undockBtn = document.createElement('button');
+    undockBtn.className = 'area-btn undock';
+    undockBtn.title = 'Undock panel';
+    undockBtn.innerHTML = '<svg viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.1" fill="none"><rect x="2" y="3" width="8" height="6" rx="0.8"/><path d="M4 1.5h4"/></svg>';
+    actions.appendChild(undockBtn);
+  }
 
   var closeBtn = document.createElement('button');
   closeBtn.className = 'area-btn close';
@@ -50,8 +127,6 @@ function createAreaHeader(panelType) {
   return header;
 }
 
-// ── Corner Handles ─────────────────────────────────────────────
-
 function addCornerHandles(areaEl) {
   var corners = ['tl', 'tr', 'bl', 'br'];
   for (var i = 0; i < corners.length; i++) {
@@ -62,57 +137,248 @@ function addCornerHandles(areaEl) {
   }
 }
 
-// ── Recursive DOM Builder ──────────────────────────────────────
+function getProxyPort() {
+  var state = window.Player && window.Player.state;
+  return state && state.proxyPort ? state.proxyPort : null;
+}
+
+function toProxyUrl(url, proxyPort) {
+  if (!proxyPort || !url) return '';
+  var prefix = 'http://localhost:' + proxyPort + '/proxy?url=';
+  if (url.indexOf(prefix) === 0) return url;
+  return prefix + encodeURIComponent(url);
+}
+
+function destroyViewerInstance(key) {
+  var inst = viewerInstances[key];
+  if (!inst) return;
+  if (window._panelLifecycle) window._panelLifecycle.notifyDestroy(key);
+  if (inst.hls) {
+    inst.hls.destroy();
+    inst.hls = null;
+  }
+  if (inst.video) {
+    inst.video.pause();
+    inst.video.removeAttribute('src');
+    inst.video.load();
+  }
+  delete viewerInstances[key];
+}
+
+function setViewerStatus(inst, text) {
+  if (!inst || !inst.statusEl) return;
+  inst.statusEl.textContent = text || '';
+}
+
+function syncViewerMute(inst) {
+  if (!inst || !inst.video || !inst.muteBtn) return;
+  inst.muteBtn.textContent = inst.video.muted ? 'Unmute' : 'Mute';
+}
+
+function loadViewerStream(inst, url) {
+  if (!inst) return;
+  var clean = String(url || '').trim();
+  if (!clean) return;
+  var proxyPort = getProxyPort();
+  if (!proxyPort) {
+    setViewerStatus(inst, 'Load clipper stream first');
+    return;
+  }
+  if (inst.hls) {
+    inst.hls.destroy();
+    inst.hls = null;
+  }
+  inst.currentUrl = clean;
+  if (inst.urlInput) inst.urlInput.value = clean;
+
+  var video = inst.video;
+  var proxied = toProxyUrl(clean, proxyPort);
+  setViewerStatus(inst, 'Loading...');
+
+  if (window.Hls && window.Hls.isSupported()) {
+    var hls = new Hls({
+      enableWorker: true,
+      maxBufferLength: 30,
+      maxMaxBufferLength: 60,
+      maxBufferSize: 40 * 1000 * 1000,
+      liveSyncDurationCount: 3
+    });
+    inst.hls = hls;
+    hls.loadSource(proxied);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED, function () {
+      setViewerStatus(inst, '');
+      video.play().catch(function () {});
+    });
+    hls.on(Hls.Events.ERROR, function (_, data) {
+      if (!data || !data.fatal) return;
+      if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+        hls.recoverMediaError();
+      } else {
+        setViewerStatus(inst, 'Viewer stream failed');
+      }
+    });
+    return;
+  }
+
+  video.src = proxied;
+  video.play().then(function () {
+    setViewerStatus(inst, '');
+  }).catch(function () {
+    setViewerStatus(inst, 'Cannot autoplay');
+  });
+}
+
+function createViewerPanel(instanceKey) {
+  var panel = document.createElement('div');
+  panel.className = 'panel viewer-panel';
+  panel.dataset.viewerKey = instanceKey;
+
+  var body = document.createElement('div');
+  body.className = 'panel-body viewer-body';
+
+  var viewport = document.createElement('div');
+  viewport.className = 'viewer-video-wrap';
+  var video = document.createElement('video');
+  video.className = 'viewer-video';
+  video.controls = true;
+  video.playsInline = true;
+  video.muted = true;
+  viewport.appendChild(video);
+
+  var status = document.createElement('div');
+  status.className = 'viewer-status';
+  status.textContent = 'No stream loaded';
+  viewport.appendChild(status);
+
+  var controls = document.createElement('div');
+  controls.className = 'viewer-controls';
+
+  var urlInput = document.createElement('input');
+  urlInput.className = 'viewer-url';
+  urlInput.type = 'text';
+  urlInput.placeholder = 'Paste stream URL...';
+  controls.appendChild(urlInput);
+
+  var loadBtn = document.createElement('button');
+  loadBtn.className = 'btn btn-primary btn-xs';
+  loadBtn.textContent = 'Load';
+  controls.appendChild(loadBtn);
+
+  var followBtn = document.createElement('button');
+  followBtn.className = 'btn btn-ghost btn-xs';
+  followBtn.textContent = 'Follow Clipper';
+  controls.appendChild(followBtn);
+
+  var muteBtn = document.createElement('button');
+  muteBtn.className = 'btn btn-ghost btn-xs';
+  muteBtn.textContent = 'Unmute';
+  controls.appendChild(muteBtn);
+
+  body.appendChild(viewport);
+  body.appendChild(controls);
+  panel.appendChild(body);
+
+  var inst = {
+    key: instanceKey,
+    el: panel,
+    video: video,
+    statusEl: status,
+    urlInput: urlInput,
+    loadBtn: loadBtn,
+    followBtn: followBtn,
+    muteBtn: muteBtn,
+    currentUrl: '',
+    hls: null
+  };
+
+  loadBtn.addEventListener('click', function () {
+    loadViewerStream(inst, urlInput.value);
+  });
+  urlInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') loadViewerStream(inst, urlInput.value);
+  });
+  followBtn.addEventListener('click', function () {
+    var state = window.Player && window.Player.state;
+    if (!state || !state.currentM3U8) {
+      setViewerStatus(inst, 'Clipper has no active stream');
+      return;
+    }
+    loadViewerStream(inst, state.currentM3U8);
+  });
+  muteBtn.addEventListener('click', function () {
+    video.muted = !video.muted;
+    syncViewerMute(inst);
+  });
+  video.addEventListener('volumechange', function () {
+    syncViewerMute(inst);
+  });
+
+  viewerInstances[instanceKey] = inst;
+  return inst.el;
+}
+
+function getViewerPanel(instanceKey) {
+  if (viewerInstances[instanceKey]) return viewerInstances[instanceKey].el;
+  return createViewerPanel(instanceKey);
+}
+
+function getLeafPanelElement(leaf) {
+  var panelType = normalizePanelType(leaf.panelType);
+  if (panelType === 'viewer') {
+    return getViewerPanel('leaf:' + leaf.id);
+  }
+  return getSharedPanelElement(panelType);
+}
 
 function buildNode(node, parentRatio, isSecondChild) {
-  if (node.type === 'leaf') {
-    return buildLeaf(node, parentRatio, isSecondChild);
-  } else {
-    return buildBranch(node, parentRatio, isSecondChild);
-  }
+  if (node.type === 'leaf') return buildLeaf(node, parentRatio, isSecondChild);
+  return buildBranch(node, parentRatio, isSecondChild);
 }
 
 function buildLeaf(leaf, parentRatio, isSecondChild) {
+  var panelType = normalizePanelType(leaf.panelType);
   var el = document.createElement('div');
   el.className = 'split-area';
   el.dataset.nodeId = leaf.id;
-  el.dataset.panelType = leaf.panelType;
+  el.dataset.panelType = panelType;
 
-  // Flex sizing: use the ratio weight from the parent branch
   if (parentRatio !== undefined) {
     var weight = isSecondChild ? (1 - parentRatio) : parentRatio;
     el.style.flex = weight + ' ' + weight + ' 0%';
   } else {
-    // Root is a single leaf — fill everything
     el.style.flex = '1';
   }
 
-  // Area header
-  el.appendChild(createAreaHeader(leaf.panelType));
+  el.appendChild(createAreaHeader(leaf));
 
-  // Area content
   var content = document.createElement('div');
   content.className = 'area-content';
 
-  if (leaf.panelType !== 'empty') {
-    var panelEl = getPanelElement(leaf.panelType);
+  if (panelType !== 'empty') {
+    var panelEl = getLeafPanelElement(leaf);
     if (panelEl) {
-      // Move the panel element from staging into this area
       panelEl.style.display = '';
       content.appendChild(panelEl);
+      if (window._panelLifecycle) window._panelLifecycle.notifyMount(panelType, panelEl, leaf.id, null);
     }
   } else {
     var empty = document.createElement('div');
     empty.className = 'area-empty';
-    empty.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" opacity="0.3"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg><p>Empty area</p>';
+    empty.appendChild(buildEmptyAreaPicker());
+
+    var emptyIcon = document.createElement('div');
+    emptyIcon.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" opacity="0.3"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>';
+    empty.appendChild(emptyIcon.firstChild);
+
+    var emptyText = document.createElement('p');
+    emptyText.textContent = 'Empty area';
+    empty.appendChild(emptyText);
     content.appendChild(empty);
   }
 
   el.appendChild(content);
-
-  // Corner handles for split/join
   addCornerHandles(el);
-
   return el;
 }
 
@@ -121,122 +387,174 @@ function buildBranch(branch, parentRatio, isSecondChild) {
   el.className = 'split-container ' + (branch.direction === 'horizontal' ? 'split-h' : 'split-v');
   el.dataset.nodeId = branch.id;
 
-  // Flex sizing based on parent's ratio
   if (parentRatio !== undefined) {
     var weight = isSecondChild ? (1 - parentRatio) : parentRatio;
     el.style.flex = weight + ' ' + weight + ' 0%';
   } else {
-    // Root branch fills everything
     el.style.flex = '1';
   }
 
-  // First child
   el.appendChild(buildNode(branch.children[0], branch.ratio, false));
-
-  // Divider
   var divider = document.createElement('div');
   divider.className = 'split-divider ' + (branch.direction === 'horizontal' ? 'split-divider-h' : 'split-divider-v');
   divider.dataset.branchId = branch.id;
   el.appendChild(divider);
-
-  // Second child
   el.appendChild(buildNode(branch.children[1], branch.ratio, true));
-
   return el;
-}
-
-// ── Full Render ────────────────────────────────────────────────
-
-function render() {
-  if (!ST) return;
-  var dockRoot = document.getElementById('dockRoot');
-  if (!dockRoot) return;
-
-  // Stash all panel elements back to staging first (preserve DOM state)
-  stashAllPanels();
-
-  // Clear dockRoot
-  dockRoot.innerHTML = '';
-
-  // Build from tree
-  var root = ST.getRoot();
-  if (!root) return;
-
-  var dom = buildNode(root, undefined, false);
-  if (dom) {
-    dockRoot.appendChild(dom);
-  }
 }
 
 function stashAllPanels() {
   var staging = document.getElementById('panelStaging');
   if (!staging) return;
 
-  // Move all known panel elements back to staging
-  for (var type in PANEL_INFO) {
-    if (!PANEL_INFO.hasOwnProperty(type)) continue;
-    var el = getPanelElement(type);
+  var types = window._panelRegistry && window._panelRegistry.getPanelTypes
+    ? window._panelRegistry.getPanelTypes()
+    : Object.keys(PANEL_INFO);
+
+  for (var i = 0; i < types.length; i++) {
+    var panelType = normalizePanelType(types[i]);
+    if (panelType === 'viewer') continue;
+    var el = getSharedPanelElement(panelType);
     if (el && el.parentElement !== staging) {
+      if (window._panelLifecycle) window._panelLifecycle.notifyUnmount(panelType, el);
       staging.appendChild(el);
     }
   }
 }
 
-// ── Ratio Update (no rebuild, just flex changes) ───────────────
+function cleanupViewerInstances(activeKeys) {
+  var keys = Object.keys(viewerInstances);
+  for (var i = 0; i < keys.length; i++) {
+    if (activeKeys.indexOf(keys[i]) !== -1) continue;
+    destroyViewerInstance(keys[i]);
+  }
+}
+
+function getOrCreateFloatingRoot() {
+  var root = document.getElementById('floatingPanelRoot');
+  if (root) return root;
+  root = document.createElement('div');
+  root.id = 'floatingPanelRoot';
+  root.className = 'floating-panel-root';
+  document.body.appendChild(root);
+  return root;
+}
+
+function renderFloatingPanels(activeViewerKeys) {
+  var root = getOrCreateFloatingRoot();
+  root.innerHTML = '';
+
+  var panelsApi = window._panels;
+  var floating = panelsApi && panelsApi.getFloatingPanels ? panelsApi.getFloatingPanels() : [];
+  for (var i = 0; i < floating.length; i++) {
+    var item = floating[i];
+    var panelType = normalizePanelType(item.panelType);
+
+    var shell = document.createElement('div');
+    shell.className = 'floating-panel';
+    shell.dataset.floatId = item.id;
+    shell.style.left = (item.x || 40) + 'px';
+    shell.style.top = (item.y || 40) + 'px';
+    shell.style.width = (item.width || 420) + 'px';
+    shell.style.height = (item.height || 300) + 'px';
+
+    var header = document.createElement('div');
+    header.className = 'floating-header';
+    header.innerHTML = '<span class="floating-title">' + getPanelTitle(panelType) + '</span>';
+    var actions = document.createElement('div');
+    actions.className = 'floating-actions';
+    actions.innerHTML =
+      '<button class="area-btn floating-dock" title="Dock" data-float-action="dock"><svg viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.1" fill="none"><rect x="2" y="3" width="8" height="6" rx="0.8"/><path d="M4 1.5h4"/></svg></button>' +
+      '<button class="area-btn floating-close" title="Close" data-float-action="close"><svg viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M2 2l6 6M8 2l-6 6"/></svg></button>';
+    header.appendChild(actions);
+    shell.appendChild(header);
+
+    var body = document.createElement('div');
+    body.className = 'floating-body';
+    var panelEl = null;
+    if (panelType === 'viewer') {
+      var key = 'float:' + item.id;
+      activeViewerKeys.push(key);
+      panelEl = getViewerPanel(key);
+    } else {
+      panelEl = getSharedPanelElement(panelType);
+    }
+    if (panelEl) {
+      panelEl.style.display = '';
+      body.appendChild(panelEl);
+      if (window._panelLifecycle) window._panelLifecycle.notifyMount(panelType, panelEl, null, item.id);
+    }
+    shell.appendChild(body);
+    root.appendChild(shell);
+  }
+}
+
+function render() {
+  if (!ST) return;
+  var dockRoot = document.getElementById('dockRoot');
+  if (!dockRoot) return;
+
+  stashAllPanels();
+  dockRoot.innerHTML = '';
+
+  var root = ST.getRoot();
+  if (root) {
+    var dom = buildNode(root, undefined, false);
+    if (dom) dockRoot.appendChild(dom);
+  }
+
+  var activeViewerKeys = [];
+  var leaves = ST.getAllLeaves();
+  for (var i = 0; i < leaves.length; i++) {
+    if (normalizePanelType(leaves[i].panelType) === 'viewer') {
+      activeViewerKeys.push('leaf:' + leaves[i].id);
+    }
+  }
+  renderFloatingPanels(activeViewerKeys);
+  cleanupViewerInstances(activeViewerKeys);
+
+  if (window._panelBus) window._panelBus.emit('layout:changed', {});
+}
 
 function updateRatios() {
   if (!ST) return;
   var root = ST.getRoot();
   if (!root || root.type !== 'branch') return;
-
-  _updateBranchRatios(root);
+  updateBranchRatios(root);
 }
 
-function _updateBranchRatios(branch) {
+function updateBranchRatios(branch) {
   var container = document.querySelector('[data-node-id="' + branch.id + '"]');
   if (!container) return;
 
-  _applyRatiosToChildren(container, branch);
-
-  // Recurse into child branches
+  applyRatiosToChildren(container, branch);
   for (var i = 0; i < 2; i++) {
-    if (branch.children[i].type === 'branch') {
-      _updateBranchRatios(branch.children[i]);
-    }
+    if (branch.children[i].type === 'branch') updateBranchRatios(branch.children[i]);
   }
 }
 
-function _applyRatiosToChildren(containerEl, branch) {
+function applyRatiosToChildren(containerEl, branch) {
   var children = containerEl.children;
   var firstChild = null;
   var secondChild = null;
   var idx = 0;
-
   for (var i = 0; i < children.length; i++) {
-    if (!children[i].classList.contains('split-divider')) {
-      if (idx === 0) { firstChild = children[i]; idx++; }
-      else if (idx === 1) { secondChild = children[i]; idx++; }
-    }
+    if (children[i].classList.contains('split-divider')) continue;
+    if (idx === 0) { firstChild = children[i]; idx++; continue; }
+    if (idx === 1) { secondChild = children[i]; idx++; }
   }
-
-  if (firstChild) {
-    firstChild.style.flex = branch.ratio + ' ' + branch.ratio + ' 0%';
-  }
+  if (firstChild) firstChild.style.flex = branch.ratio + ' ' + branch.ratio + ' 0%';
   if (secondChild) {
     var r2 = 1 - branch.ratio;
     secondChild.style.flex = r2 + ' ' + r2 + ' 0%';
   }
 }
 
-// ── Get Area Body (for external mounting) ──────────────────────
-
 function getAreaBody(leafId) {
   var el = document.querySelector('.split-area[data-node-id="' + leafId + '"]');
-  if (el) return el.querySelector('.area-content');
-  return null;
+  if (!el) return null;
+  return el.querySelector('.area-content');
 }
-
-// ── Init ───────────────────────────────────────────────────────
 
 function init() {
   ST = window._splitTree;
@@ -247,21 +565,29 @@ function init() {
   render();
 }
 
-// Run init when DOM is ready
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
 } else {
   init();
 }
 
-// ── Expose API ─────────────────────────────────────────────────
+// ── Viewer lifecycle ────────────────────────────────────────────────
+if (window._panelRegistry && window._panelRegistry.registerLifecycle) {
+  window._panelRegistry.registerLifecycle('viewer', {
+    destroy: function (ctx) {
+      if (ctx && ctx.instanceKey) destroyViewerInstance(ctx.instanceKey);
+    },
+    saveState: function () { return null; },
+    restoreState: function () {}
+  });
+}
 
 window._splitLayout = {
   render: render,
   updateRatios: updateRatios,
   getAreaBody: getAreaBody,
   stashAllPanels: stashAllPanels,
-  getPanelElement: getPanelElement,
+  getPanelElement: getSharedPanelElement,
   PANEL_INFO: PANEL_INFO
 };
 

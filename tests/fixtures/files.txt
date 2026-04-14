@@ -1,0 +1,3 @@
+file 'C:/Users/PC/Desktop/Desktop/ch/tests/fixtures/seg_0001.ts'
+file 'C:/Users/PC/Desktop/Desktop/ch/tests/fixtures/seg_0002.ts'
+file 'C:/Users/PC/Desktop/Desktop/ch/tests/fixtures/seg_0003.ts'

@@ -39,10 +39,19 @@
     </div>
     <div class="menu-item" data-menu="view">View
       <div class="dropdown" id="menu-view">
+        <div class="dd-item disabled">Players</div>
+        <div class="dd-item" onclick="window._panels.togglePanel('clipper'); closeAllMenus()"><span class="dd-check" id="chk-clipper">&#10003;</span> Clipper</div>
+        <div class="dd-item" onclick="window._panels.openPanel('viewer'); closeAllMenus()"><span class="dd-check" id="chk-viewer"></span> Viewer</div>
+        <div class="dd-sep"></div>
+        <div class="dd-item disabled">Core</div>
         <div class="dd-item" onclick="window._panels.togglePanel('media'); closeAllMenus()"><span class="dd-check" id="chk-media">&#10003;</span> Media Sources</div>
-        <div class="dd-item" onclick="window._panels.togglePanel('preview'); closeAllMenus()"><span class="dd-check" id="chk-preview">&#10003;</span> Preview</div>
         <div class="dd-item" onclick="window._panels.togglePanel('timeline'); closeAllMenus()"><span class="dd-check" id="chk-timeline">&#10003;</span> Timeline</div>
         <div class="dd-item" onclick="window._panels.togglePanel('clips'); closeAllMenus()"><span class="dd-check" id="chk-clips">&#10003;</span> Clips Queue</div>
+        <div class="dd-sep"></div>
+        <div class="dd-item disabled">Collab</div>
+        <div class="dd-item" onclick="window._panels.togglePanel('collabSession'); closeAllMenus()"><span class="dd-check" id="chk-collab-session"></span> Collab Session</div>
+        <div class="dd-item" onclick="window._panels.togglePanel('collabChat'); closeAllMenus()"><span class="dd-check" id="chk-collab-chat"></span> Collab Chat</div>
+        <div class="dd-item" onclick="window._panels.togglePanel('collabActivity'); closeAllMenus()"><span class="dd-check" id="chk-collab-activity"></span> Clip Activity</div>
         <div class="dd-sep"></div>
         <div class="dd-item" onclick="window._panels.resetLayout(); closeAllMenus()">Reset Layout <span class="dd-shortcut">Ctrl+Shift+R</span></div>
         <div class="dd-item" onclick="window._panels.openSaveModal(); closeAllMenus()">Save Layout&hellip; <span class="dd-shortcut">Ctrl+Shift+L</span></div>
@@ -176,15 +185,15 @@
     <!-- Preview panel content (was inside #pane-preview .dock-pane) -->
     <div class="panel preview-panel" id="panel-preview">
       <div class="panel-header">
-        <span class="panel-title">Preview</span>
+        <span class="panel-title">Clipper</span>
         <div class="panel-actions">
-          <button class="panel-btn" id="splitPreviewBtn" title="Split preview (dual player)">
+          <button class="panel-btn" id="splitPreviewBtn" title="Split clipper (dual player)">
             <svg viewBox="0 0 14 14" fill="currentColor" width="12" height="12"><rect x="1" y="1" width="5" height="12" rx="1" opacity="0.7"/><rect x="8" y="1" width="5" height="12" rx="1" opacity="0.4"/></svg>
           </button>
           <button class="panel-btn" id="pipBtn" title="Picture-in-Picture">
             <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M19 7h-8v6h8V7zm2-4H3C1.9 3 1 3.9 1 5v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14z"/></svg>
           </button>
-          <button class="panel-btn close" title="Close panel" onclick="window._panels.closePanel('preview')">
+          <button class="panel-btn close" title="Close panel" onclick="window._panels.closePanel('clipper')">
             <svg viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M2 2l6 6M8 2l-6 6"/></svg>
           </button>
         </div>
@@ -220,6 +229,7 @@
                 </div>
                 <div class="time-display" id="timeDisplay">0:00 / 0:00</div>
                 <button class="live-sync-btn" id="liveSyncBtn" title="Jump to live edge">LIVE</button>
+                <span class="collab-range-indicator" id="collabRangeIndicator" style="display:none;"></span>
               </div>
               <div class="controls-row">
                 <button class="ctrl-btn" id="skipBack" title="Back 10s">
@@ -378,6 +388,7 @@
         <div class="timeline-section" style="height:auto; flex:1; border-top:none;">
           <div class="timeline-header">
             <span class="panel-title">Timeline</span>
+            <span class="timeline-collab-indicator" id="timelineCollabIndicator" style="display:none;"></span>
             <div class="timeline-controls">
               <button class="tl-btn">&#8722;</button>
               <button class="tl-btn">+</button>
@@ -411,11 +422,76 @@
       </div>
     </div>
 
+    <!-- Collaboration Session panel -->
+    <div class="panel" id="panel-collab-session">
+      <div class="panel-header">
+        <span class="panel-title">Collab Session</span>
+        <div class="panel-actions">
+          <button class="panel-btn close" title="Close panel" onclick="window._panels.closePanel('collabSession')">
+            <svg viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M2 2l6 6M8 2l-6 6"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="panel-body collab-panel-body">
+        <div class="collab-form-grid">
+          <label class="collab-field">Profile Name<input id="collabProfileNameInput" type="text" placeholder="Editor Name"></label>
+          <label class="collab-field">Lobby Name<input id="collabLobbyNameInput" type="text" placeholder="Night Shift Clips"></label>
+          <label class="collab-field">Password<input id="collabLobbyPasswordInput" type="password" placeholder="password"></label>
+          <label class="collab-field">Join Code<input id="collabLobbyCodeInput" type="text" placeholder="AB12CD"></label>
+        </div>
+        <div class="collab-btn-row">
+          <button class="btn btn-primary btn-xs" id="collabCreateBtn">Create</button>
+          <button class="btn btn-ghost btn-xs" id="collabJoinBtn">Join</button>
+          <button class="btn btn-ghost btn-xs" id="collabLeaveBtn">Leave</button>
+          <button class="btn btn-accent btn-xs" id="collabSimulateBtn">Simulate</button>
+        </div>
+        <div class="collab-status" id="collabSessionStatus">No active lobby</div>
+        <div class="collab-subtitle">Editors</div>
+        <div class="collab-list" id="collabMembersList"></div>
+      </div>
+    </div>
+
+    <!-- Collaboration Chat panel -->
+    <div class="panel" id="panel-collab-chat">
+      <div class="panel-header">
+        <span class="panel-title">Collab Chat</span>
+        <div class="panel-actions">
+          <button class="panel-btn close" title="Close panel" onclick="window._panels.closePanel('collabChat')">
+            <svg viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M2 2l6 6M8 2l-6 6"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="panel-body collab-panel-body">
+        <div class="collab-chat-list" id="collabChatList"></div>
+        <div class="collab-chat-row">
+          <input id="collabChatInput" type="text" placeholder="Send to lobby chat...">
+          <button class="btn btn-primary btn-xs" id="collabChatSend">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Collaboration Clip Activity panel -->
+    <div class="panel" id="panel-collab-activity">
+      <div class="panel-header">
+        <span class="panel-title">Clip Activity</span>
+        <div class="panel-actions">
+          <button class="panel-btn close" title="Close panel" onclick="window._panels.closePanel('collabActivity')">
+            <svg viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M2 2l6 6M8 2l-6 6"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="panel-body collab-panel-body">
+        <div class="collab-subtitle">Clip Points</div>
+        <div class="collab-list" id="collabActivityList"></div>
+      </div>
+    </div>
+
     <!-- Clips Queue panel content (was inside #pane-clips .dock-pane) -->
     <div class="panel right-panel" id="hubSection">
       <div class="panel-header hub-header">
         <span class="panel-title"><h2 style="font-size:inherit;font-weight:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit;display:inline;">Clips Queue</h2></span>
         <span class="clip-count" id="clipCount">0 clips</span>
+        <div class="collab-member-chips" id="collabMemberChips"></div>
         <div class="panel-actions">
           <button class="panel-btn" id="detachHubBtn" title="Pop out hub">&#128470;</button>
           <button class="panel-btn close" title="Close panel" onclick="window._panels.closePanel('clips')">
@@ -519,6 +595,11 @@
 <script src="player/keybinds.js"></script>
 <script src="player/transcription.js"></script>
 <script src="player/player.js"></script>
+<script src="panel-registry.js"></script>
+<script src="panel-lifecycle.js"></script>
+<script src="panel-bus.js"></script>
+<script src="panel-factory.js"></script>
+<script src="collab-ui.js"></script>
 <script src="renderer.js"></script>
 <script src="batch/batch-testing.js"></script>
 <script src="split-tree.js"></script>

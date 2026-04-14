@@ -14,7 +14,7 @@ describe('split-tree data model', () => {
     it('contains all panel types', () => {
       tree.deserialize(tree.DEFAULT_TREE);
       var types = tree.getAllLeaves().map(l => l.panelType).sort();
-      expect(types).toEqual(['clips', 'media', 'preview', 'timeline']);
+      expect(types).toEqual(['clipper', 'clips', 'media', 'timeline']);
     });
   });
 
@@ -42,12 +42,12 @@ describe('split-tree data model', () => {
   describe('joinAreas', () => {
     it('removes sibling and promotes kept leaf', () => {
       tree.deserialize(tree.DEFAULT_TREE);
-      var preview = tree.getLeafByPanelType('preview');
+      var preview = tree.getLeafByPanelType('clipper');
       var timeline = tree.getLeafByPanelType('timeline');
       tree.joinAreas(preview.id, timeline.id);
       expect(tree.getAllLeaves()).toHaveLength(3);
       expect(tree.getLeafByPanelType('timeline')).toBeNull();
-      expect(tree.getLeafByPanelType('preview')).not.toBeNull();
+      expect(tree.getLeafByPanelType('clipper')).not.toBeNull();
     });
   });
 
@@ -70,7 +70,7 @@ describe('split-tree data model', () => {
       var media = tree.getLeafByPanelType('media');
       var adj = tree.findAdjacentLeaf(media.id, 'right');
       expect(adj).not.toBeNull();
-      expect(adj.panelType).toBe('preview');
+      expect(adj.panelType).toBe('clipper');
     });
 
     it('returns null at left edge', () => {
@@ -82,7 +82,7 @@ describe('split-tree data model', () => {
 
     it('finds down neighbor of preview', () => {
       tree.deserialize(tree.DEFAULT_TREE);
-      var preview = tree.getLeafByPanelType('preview');
+      var preview = tree.getLeafByPanelType('clipper');
       var adj = tree.findAdjacentLeaf(preview.id, 'down');
       expect(adj).not.toBeNull();
       expect(adj.panelType).toBe('timeline');
@@ -96,7 +96,7 @@ describe('split-tree data model', () => {
       tree.deserialize(serialized);
       expect(tree.getAllLeaves()).toHaveLength(4);
       var types = tree.getAllLeaves().map(l => l.panelType).sort();
-      expect(types).toEqual(['clips', 'media', 'preview', 'timeline']);
+      expect(types).toEqual(['clipper', 'clips', 'media', 'timeline']);
     });
   });
 

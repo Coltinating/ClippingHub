@@ -9,7 +9,7 @@ function _nextId(prefix) {
 }
 
 function createLeaf(panelType) {
-  return { type: 'leaf', id: _nextId('a'), panelType: panelType || 'empty' };
+  return { type: 'leaf', id: _nextId('a'), panelType: normalizePanelType(panelType || 'empty') };
 }
 
 function createBranch(direction, ratio, childA, childB) {
@@ -56,11 +56,22 @@ function getAllLeaves(node) {
 }
 
 function getLeafByPanelType(root, panelType) {
+  panelType = normalizePanelType(panelType);
   var leaves = getAllLeaves(root);
   for (var i = 0; i < leaves.length; i++) {
-    if (leaves[i].panelType === panelType) return leaves[i];
+    if (normalizePanelType(leaves[i].panelType) === panelType) return leaves[i];
   }
   return null;
+}
+
+function getLeavesByPanelType(root, panelType) {
+  panelType = normalizePanelType(panelType);
+  var leaves = getAllLeaves(root);
+  var out = [];
+  for (var i = 0; i < leaves.length; i++) {
+    if (normalizePanelType(leaves[i].panelType) === panelType) out.push(leaves[i]);
+  }
+  return out;
 }
 
 // ── Split/join/swap mutation functions ──────────────────────────────
@@ -175,10 +186,26 @@ function serialize(root) {
   return JSON.parse(JSON.stringify(root));
 }
 
+function normalizePanelType(panelType) {
+  if (panelType === 'preview') return 'clipper';
+  return panelType || 'empty';
+}
+
+function normalizeTreePanelTypes(node) {
+  if (!node) return;
+  if (node.type === 'leaf') {
+    node.panelType = normalizePanelType(node.panelType);
+    return;
+  }
+  normalizeTreePanelTypes(node.children[0]);
+  normalizeTreePanelTypes(node.children[1]);
+}
+
 function deserialize(json) {
   function walk(node) {
     if (node.type === 'leaf') {
       node.id = _nextId('a');
+      node.panelType = normalizePanelType(node.panelType);
     } else {
       node.id = _nextId('b');
       walk(node.children[0]);
@@ -197,7 +224,7 @@ var DEFAULT_TREE = {
       children: [
         { type: 'branch', id: 'b_cv', direction: 'vertical', ratio: 0.75,
           children: [
-            { type: 'leaf', id: 'a_preview', panelType: 'preview' },
+            { type: 'leaf', id: 'a_clipper', panelType: 'clipper' },
             { type: 'leaf', id: 'a_timeline', panelType: 'timeline' }
           ]
         },
@@ -220,6 +247,7 @@ var api = {
   findAdjacentLeaf: function (leafId, dir) { return findAdjacentLeaf(root, leafId, dir); },
   getAllLeaves: function () { return getAllLeaves(root); },
   getLeafByPanelType: function (pt) { return getLeafByPanelType(root, pt); },
+  getLeavesByPanelType: function (pt) { return getLeavesByPanelType(root, pt); },
   splitArea: function (leafId, dir, ratio) {
     var result = splitArea(root, leafId, dir, ratio);
     if (result) root = result.newRoot;
@@ -229,7 +257,12 @@ var api = {
   swapAreas: function (a, b) { swapAreas(root, a, b); },
   setRatio: function (branchId, r) { setRatio(root, branchId, r); },
   serialize: function () { return serialize(root); },
-  deserialize: function (json) { root = deserialize(json); return root; },
+  deserialize: function (json) {
+    root = deserialize(json);
+    normalizeTreePanelTypes(root);
+    return root;
+  },
+  normalizePanelType: normalizePanelType,
   DEFAULT_TREE: DEFAULT_TREE
 };
 

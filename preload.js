@@ -82,4 +82,12 @@ contextBridge.exposeInMainWorld('clipper', {
   openBatchProgress: () => ipcRenderer.invoke('open-batch-progress'),
   sendBatchProgress: (data) => ipcRenderer.send('batch-progress-update', data),
   closeBatchProgress: () => ipcRenderer.invoke('close-batch-progress'),
+
+  // Collaboration lobby (cross-process via main + shared files)
+  collabCreateLobby: (payload) => ipcRenderer.invoke('collab-create-lobby', payload),
+  collabJoinLobby: (payload) => ipcRenderer.invoke('collab-join-lobby', payload),
+  collabLeaveLobby: (payload) => ipcRenderer.invoke('collab-leave-lobby', payload),
+  collabGetLobby: (payload) => ipcRenderer.invoke('collab-get-lobby', payload),
+  collabAddChat: (payload) => ipcRenderer.invoke('collab-add-chat', payload),
+  collabUpsertRange: (payload) => ipcRenderer.invoke('collab-upsert-range', payload),
 });

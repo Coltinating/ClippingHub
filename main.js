@@ -194,9 +194,137 @@ const CONFIG_DIR = path.join(APPDATA, 'ClippingHub');
 const USER_CONFIG_PATH = path.join(CONFIG_DIR, 'user_config.json');
 const WATERMARK_CONFIG_PATH = path.join(CONFIG_DIR, 'watermark_config.json');
 const CHANNEL_CONFIG_PATH = path.join(CONFIG_DIR, 'channel_config.json');
+const COLLAB_DIR = path.join(CONFIG_DIR, 'collab_lobbies');
 
 function ensureConfigDir() {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
+}
+
+function ensureCollabDir() {
+  ensureConfigDir();
+  fs.mkdirSync(COLLAB_DIR, { recursive: true });
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function makeCollabId(prefix) {
+  return (prefix || 'id') + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function sanitizeCode(raw) {
+  return String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+}
+
+function normalizeDisplayName(raw) {
+  const clean = String(raw || '').trim().replace(/\s+/g, ' ');
+  return clean.slice(0, 32);
+}
+
+function hasDuplicateMemberName(lobby, name, excludeId) {
+  const want = normalizeDisplayName(name).toLowerCase();
+  if (!want) return false;
+  for (let i = 0; i < lobby.members.length; i++) {
+    const m = lobby.members[i];
+    if (excludeId && m.id === excludeId) continue;
+    const have = normalizeDisplayName(m.name).toLowerCase();
+    if (have && have === want) return true;
+  }
+  return false;
+}
+
+function buildLobbyPath(code) {
+  const safeCode = sanitizeCode(code);
+  if (!safeCode) throw new Error('Invalid lobby code');
+  return path.join(COLLAB_DIR, 'lobby_' + safeCode + '.json');
+}
+
+function loadLobbyByCode(code) {
+  try {
+    const safeCode = sanitizeCode(code);
+    if (!safeCode) return null;
+    const filePath = buildLobbyPath(safeCode);
+    if (!fs.existsSync(filePath)) return null;
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    if (!Array.isArray(parsed.members)) parsed.members = [];
+    if (!Array.isArray(parsed.chat)) parsed.chat = [];
+    if (!Array.isArray(parsed.clipRanges)) parsed.clipRanges = [];
+    parsed.code = safeCode;
+    return parsed;
+  } catch (err) {
+    debugLog('COLLAB', 'Failed to load lobby', { code, error: err.message });
+    return null;
+  }
+}
+
+function saveLobby(lobby) {
+  ensureCollabDir();
+  const safeCode = sanitizeCode(lobby && lobby.code);
+  if (!safeCode) throw new Error('Invalid lobby code');
+  const filePath = buildLobbyPath(safeCode);
+  lobby.code = safeCode;
+  lobby.updatedAt = nowIso();
+  fs.writeFileSync(filePath, JSON.stringify(lobby, null, 2));
+  return lobby;
+}
+
+function generateLobbyCode() {
+  ensureCollabDir();
+  for (let i = 0; i < 100; i++) {
+    const code = Math.random().toString(36).slice(2, 8).toUpperCase();
+    if (!fs.existsSync(buildLobbyPath(code))) return code;
+  }
+  return Math.random().toString(36).slice(2, 10).toUpperCase();
+}
+
+function upsertLobbyMember(lobby, member, preferredRole) {
+  const memberId = String(member && member.id || '').trim();
+  if (!memberId) return null;
+  const nextName = normalizeDisplayName(member && member.name) || 'Editor';
+  if (hasDuplicateMemberName(lobby, nextName, memberId)) {
+    throw new Error('Display name already in use');
+  }
+  const now = nowIso();
+  let existing = null;
+  for (let i = 0; i < lobby.members.length; i++) {
+    if (lobby.members[i].id === memberId) {
+      existing = lobby.members[i];
+      break;
+    }
+  }
+  if (existing) {
+    existing.name = nextName || existing.name || 'Editor';
+    existing.lastSeenAt = now;
+    if (!existing.joinedAt) existing.joinedAt = now;
+    if (preferredRole && !existing.role) existing.role = preferredRole;
+    return existing;
+  }
+  const created = {
+    id: memberId,
+    name: nextName,
+    role: preferredRole || 'editor',
+    joinedAt: now,
+    lastSeenAt: now
+  };
+  lobby.members.push(created);
+  return created;
+}
+
+function pickNextHost(lobby) {
+  if (!lobby.members.length) {
+    lobby.hostId = null;
+    return;
+  }
+  let oldest = lobby.members[0];
+  for (let i = 1; i < lobby.members.length; i++) {
+    const cur = lobby.members[i];
+    if ((cur.joinedAt || '') < (oldest.joinedAt || '')) oldest = cur;
+  }
+  lobby.hostId = oldest.id;
+  for (let j = 0; j < lobby.members.length; j++) {
+    lobby.members[j].role = lobby.members[j].id === oldest.id ? 'host' : 'editor';
+  }
 }
 
 // ── Session partition ────────────────────────────────────────────
@@ -966,6 +1094,192 @@ ipcMain.handle('delete-channel-config', () => {
   try { fs.unlinkSync(CHANNEL_CONFIG_PATH); } catch {}
   try { fs.writeFileSync(path.join(__dirname, 'channel.json'), JSON.stringify({ channel_id: '' }, null, 2)); } catch {}
   return { success: true };
+});
+
+// â”€â”€ IPC: collaboration lobby (shared across app processes) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ipcMain.handle('collab-create-lobby', (_, payload) => {
+  try {
+    const user = payload?.user || {};
+    const userId = String(user.id || '').trim();
+    const userName = normalizeDisplayName(user.name);
+    if (!userId) return { success: false, error: 'Missing user id' };
+    if (!userName) return { success: false, error: 'Missing display name' };
+
+    const reqCode = sanitizeCode(payload?.code);
+    const code = reqCode || generateLobbyCode();
+    const existing = loadLobbyByCode(code);
+    if (existing) return { success: false, error: 'Lobby code already exists' };
+
+    const lobby = {
+      code,
+      id: makeCollabId('lobby'),
+      name: String(payload?.name || 'Collab Lobby').trim() || 'Collab Lobby',
+      password: String(payload?.password || ''),
+      hostId: userId,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      members: [],
+      chat: [],
+      clipRanges: []
+    };
+    upsertLobbyMember(lobby, { id: userId, name: userName }, 'host');
+    saveLobby(lobby);
+    debugLog('COLLAB', 'Lobby created', { code, name: lobby.name, hostId: userId });
+    return { success: true, lobby };
+  } catch (err) {
+    debugLog('COLLAB', 'Create lobby failed', { error: err.message });
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('collab-join-lobby', (_, payload) => {
+  try {
+    const code = sanitizeCode(payload?.code);
+    const password = String(payload?.password || '');
+    const user = payload?.user || {};
+    const userId = String(user.id || '').trim();
+    const userName = normalizeDisplayName(user.name);
+    if (!code) return { success: false, error: 'Missing code' };
+    if (!userId) return { success: false, error: 'Missing user id' };
+    if (!userName) return { success: false, error: 'Missing display name' };
+
+    const lobby = loadLobbyByCode(code);
+    if (!lobby) return { success: false, error: 'Lobby not found' };
+    if ((lobby.password || '') !== password) return { success: false, error: 'Wrong password' };
+
+    const role = lobby.hostId ? 'editor' : 'host';
+    const member = upsertLobbyMember(lobby, { id: userId, name: userName }, role);
+    if (!lobby.hostId && member) lobby.hostId = member.id;
+    pickNextHost(lobby);
+    saveLobby(lobby);
+    return { success: true, lobby };
+  } catch (err) {
+    debugLog('COLLAB', 'Join lobby failed', { error: err.message });
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('collab-leave-lobby', (_, payload) => {
+  try {
+    const code = sanitizeCode(payload?.code);
+    const userId = String(payload?.userId || '').trim();
+    if (!code || !userId) return { success: false, error: 'Missing code or user id' };
+    const lobby = loadLobbyByCode(code);
+    if (!lobby) return { success: false, error: 'Lobby not found' };
+
+    lobby.members = lobby.members.filter(m => m.id !== userId);
+    if (lobby.hostId === userId) pickNextHost(lobby);
+    else if (!lobby.hostId) pickNextHost(lobby);
+
+    saveLobby(lobby);
+    return { success: true, lobby };
+  } catch (err) {
+    debugLog('COLLAB', 'Leave lobby failed', { error: err.message });
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('collab-get-lobby', (_, payload) => {
+  try {
+    const code = sanitizeCode(payload?.code);
+    if (!code) return { success: false, error: 'Missing code' };
+    const lobby = loadLobbyByCode(code);
+    if (!lobby) return { success: false, error: 'Lobby not found' };
+
+    const user = payload?.user || null;
+    if (user && user.id) {
+      const member = upsertLobbyMember(lobby, { id: user.id, name: normalizeDisplayName(user.name) || 'Editor' }, null);
+      if (member) saveLobby(lobby);
+    }
+    return { success: true, lobby };
+  } catch (err) {
+    debugLog('COLLAB', 'Get lobby failed', { error: err.message });
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('collab-add-chat', (_, payload) => {
+  try {
+    const code = sanitizeCode(payload?.code);
+    const text = String(payload?.text || '').trim();
+    const user = payload?.user || {};
+    if (!code || !text) return { success: false, error: 'Missing code or text' };
+    const lobby = loadLobbyByCode(code);
+    if (!lobby) return { success: false, error: 'Lobby not found' };
+
+    const userId = String(user.id || '').trim();
+    const userName = normalizeDisplayName(user.name) || 'Editor';
+    if (!userId) return { success: false, error: 'Missing user id' };
+    upsertLobbyMember(lobby, { id: userId, name: userName }, null);
+
+    lobby.chat.push({
+      id: makeCollabId('msg'),
+      userId,
+      userName,
+      text,
+      createdAt: nowIso()
+    });
+    if (lobby.chat.length > 1000) {
+      lobby.chat = lobby.chat.slice(lobby.chat.length - 1000);
+    }
+    saveLobby(lobby);
+    return { success: true, lobby };
+  } catch (err) {
+    debugLog('COLLAB', 'Add chat failed', { error: err.message });
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('collab-upsert-range', (_, payload) => {
+  try {
+    const code = sanitizeCode(payload?.code);
+    const range = payload?.range || null;
+    const user = payload?.user || {};
+    if (!code || !range) return { success: false, error: 'Missing code or range' };
+    const lobby = loadLobbyByCode(code);
+    if (!lobby) return { success: false, error: 'Lobby not found' };
+
+    const userId = String((range.userId || user.id || '')).trim();
+    const userName = normalizeDisplayName(range.userName || user.name) || 'Editor';
+    if (!userId) return { success: false, error: 'Missing user id' };
+    upsertLobbyMember(lobby, { id: userId, name: userName }, null);
+
+    const inTime = Number(range.inTime);
+    const outTime = Number(range.outTime);
+    if (!Number.isFinite(inTime) || !Number.isFinite(outTime)) {
+      return { success: false, error: 'Invalid range times' };
+    }
+    const nextRange = {
+      id: String(range.id || makeCollabId('range')),
+      userId,
+      userName,
+      inTime: Math.min(inTime, outTime),
+      outTime: Math.max(inTime, outTime),
+      status: String(range.status || 'done'),
+      streamKey: String(range.streamKey || 'default'),
+      createdAt: range.createdAt || nowIso(),
+      updatedAt: nowIso()
+    };
+
+    let idx = -1;
+    for (let i = 0; i < lobby.clipRanges.length; i++) {
+      if (lobby.clipRanges[i].id === nextRange.id) { idx = i; break; }
+    }
+    if (idx >= 0) {
+      nextRange.createdAt = lobby.clipRanges[idx].createdAt || nextRange.createdAt;
+      lobby.clipRanges[idx] = nextRange;
+    } else {
+      lobby.clipRanges.push(nextRange);
+    }
+    if (lobby.clipRanges.length > 2000) {
+      lobby.clipRanges = lobby.clipRanges.slice(lobby.clipRanges.length - 2000);
+    }
+    saveLobby(lobby);
+    return { success: true, lobby, range: nextRange };
+  } catch (err) {
+    debugLog('COLLAB', 'Upsert range failed', { error: err.message });
+    return { success: false, error: err.message };
+  }
 });
 
 // ── IPC: choose outro file ──────────────────────────────────────

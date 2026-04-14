@@ -134,6 +134,7 @@ function showPlayerView() {
   if (!inBrowseMode) return;
   inBrowseMode = false;
   browserWrap.style.display = 'none';
+  $('dockRoot').style.display = '';
   $('playerWrap').style.display = '';
   $('markerState').style.display = '';
   backBtn.classList.add('on');
@@ -145,6 +146,7 @@ function showBrowserView() {
   }
   inBrowseMode = true;
   browserWrap.style.display = '';
+  $('dockRoot').style.display = 'none';
   $('playerWrap').style.display = 'none';
   $('markerState').style.display = 'none';
   backBtn.classList.remove('on');
@@ -164,6 +166,9 @@ window.Player.init($);
 // Listen for player events
 window.Player.on('showplayer', () => showPlayerView());
 window.Player.on('timeupdate', () => renderProgressMarkers());
+if (window.CollabUI && window.CollabUI.subscribe) {
+  window.CollabUI.subscribe(() => renderProgressMarkers());
+}
 
 (async () => {
   PS.proxyPort = await window.clipper.getProxyPort();
@@ -319,6 +324,9 @@ importBtn && (importBtn.onclick = () => {
 
 /* ─── Player controls are now handled by src/player/ modules ─ */
 const progTrack = $('progressTrack');
+const collabRangeIndicator = $('collabRangeIndicator');
+const timelineCollabIndicator = $('timelineCollabIndicator');
+const playerWrapEl = $('playerWrap');
 
 /* ─── Customizable Keybinds ─────────────────────────────────── */
 const matchKeybind = window.Player.keybinds.matchKeybind;
@@ -439,6 +447,17 @@ function handleMarkOut() {
     isLive: PS.isLive,
     seekableStart: markerState._seekableStart || 0,
   };
+  if (window.CollabUI && window.CollabUI.upsertClipRange) {
+    const collabState = window.CollabUI.getState ? window.CollabUI.getState() : null;
+    const collabName = collabState && collabState.me ? collabState.me.name : 'You';
+    const collabRange = window.CollabUI.upsertClipRange({
+      userName: collabName,
+      inTime: clipObj.inTime,
+      outTime: clipObj.outTime,
+      status: 'queued'
+    });
+    if (collabRange) clipObj.collabRangeId = collabRange.id;
+  }
   dbg('MARK', 'OUT set — clip created', { name: clipObj.name, inTime: clipObj.inTime, outTime: clipObj.outTime, duration: outTime - pendingInTime, seekableStart: clipObj.seekableStart, isLive: PS.isLive, m3u8: PS.currentM3U8?.slice(0, 80) });
 
   if (batchModeActive) {
@@ -479,7 +498,10 @@ function renderProgressMarkers() {
   } else if (isFinite(vid.duration) && vid.duration > 0) {
     rangeLen = vid.duration;
   }
-  if (rangeLen <= 0) return;
+  if (rangeLen <= 0) {
+    updateCollabIndicators(vid.currentTime);
+    return;
+  }
 
   const toPct = t => ((t - rangeStart) / rangeLen * 100);
 
@@ -503,6 +525,67 @@ function renderProgressMarkers() {
     m.style.left = toPct(pendingInTime) + '%';
     progTrack.appendChild(m);
   }
+
+  if (window.CollabUI && window.CollabUI.getClipRanges) {
+    const ranges = window.CollabUI.getClipRanges();
+    ranges.forEach(range => {
+      const color = (window.CollabUI.getUserColor && window.CollabUI.getUserColor(range.userId, range.userName)) || '#7fb7ff';
+      const inPct = toPct(range.inTime);
+      const outPct = toPct(range.outTime);
+      const clampedIn = Math.max(0, Math.min(100, inPct));
+      const clampedOut = Math.max(0, Math.min(100, outPct));
+      if (clampedOut <= 0 || clampedIn >= 100 || clampedOut <= clampedIn) return;
+
+      const ghostRange = Object.assign(document.createElement('div'), { className: 'progress-marker-range ghost' });
+      ghostRange.style.cssText = `left:${clampedIn}%;width:${clampedOut - clampedIn}%`;
+      ghostRange.style.background = hexToRgba(color, 0.2);
+      ghostRange.style.borderTopColor = hexToRgba(color, 0.65);
+      ghostRange.style.borderBottomColor = hexToRgba(color, 0.65);
+      progTrack.appendChild(ghostRange);
+
+      [['in', clampedIn], ['out', clampedOut]].forEach(([cls, pct]) => {
+        const marker = Object.assign(document.createElement('div'), { className: `progress-marker ${cls} ghost` });
+        marker.style.left = pct + '%';
+        marker.style.background = color;
+        progTrack.appendChild(marker);
+      });
+    });
+  }
+
+  updateCollabIndicators(vid.currentTime);
+}
+
+function updateCollabIndicators(currentTime) {
+  if (!window.CollabUI || !window.CollabUI.getIndicatorAtTime) {
+    if (collabRangeIndicator) collabRangeIndicator.style.display = 'none';
+    if (timelineCollabIndicator) timelineCollabIndicator.style.display = 'none';
+    if (playerWrapEl) playerWrapEl.classList.remove('collab-active-glow');
+    return;
+  }
+
+  const active = window.CollabUI.getIndicatorAtTime(currentTime);
+  if (!active) {
+    if (collabRangeIndicator) collabRangeIndicator.style.display = 'none';
+    if (timelineCollabIndicator) timelineCollabIndicator.style.display = 'none';
+    if (playerWrapEl) playerWrapEl.classList.remove('collab-active-glow');
+    return;
+  }
+
+  if (collabRangeIndicator) collabRangeIndicator.style.display = 'none';
+  if (timelineCollabIndicator) {
+    timelineCollabIndicator.textContent = active.text;
+    timelineCollabIndicator.style.display = 'inline-flex';
+  }
+  if (playerWrapEl) playerWrapEl.classList.add('collab-active-glow');
+}
+
+function hexToRgba(hex, alpha) {
+  const clean = String(hex || '').replace('#', '');
+  if (clean.length !== 6) return `rgba(255,255,255,${alpha})`;
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
 }
 
 /* ─── Clip Hub — Pending (with watermark/outro buttons) ────── */
@@ -979,6 +1062,17 @@ function openOutroModal(idx) {
 function downloadClip(idx) {
   const clip = pendingClips.splice(idx, 1)[0];
   if (!clip) return;
+  if (window.CollabUI && window.CollabUI.upsertClipRange && clip.collabRangeId) {
+    const collabState = window.CollabUI.getState ? window.CollabUI.getState() : null;
+    const collabName = collabState && collabState.me ? collabState.me.name : 'You';
+    window.CollabUI.upsertClipRange({
+      id: clip.collabRangeId,
+      userName: collabName,
+      inTime: clip.inTime,
+      outTime: clip.outTime,
+      status: 'downloading'
+    });
+  }
   renderPendingClips();
 
   if (!clip.m3u8Url) { alert('No stream URL for this clip.'); return; }
@@ -1054,16 +1148,49 @@ async function processDownloadQueue() {
         filePath: result.filePath, displayPath: result.displayPath, fileName: result.fileName, fileSize: result.fileSize,
         // Preserve timing for Re-Stage
         inTime: clip.inTime, outTime: clip.outTime, m3u8Url: clip.m3u8Url, m3u8Text: clip.m3u8Text || null,
-        isLive: clip.isLive, seekableStart: clip.seekableStart,
+        isLive: clip.isLive, seekableStart: clip.seekableStart, collabRangeId: clip.collabRangeId,
       });
+      if (window.CollabUI && window.CollabUI.upsertClipRange && clip.collabRangeId) {
+        const collabState = window.CollabUI.getState ? window.CollabUI.getState() : null;
+        const collabName = collabState && collabState.me ? collabState.me.name : 'You';
+        window.CollabUI.upsertClipRange({
+          id: clip.collabRangeId,
+          userName: collabName,
+          inTime: clip.inTime,
+          outTime: clip.outTime,
+          status: 'done'
+        });
+      }
       renderCompletedClips();
     } else if (result && result.cancelled) {
       downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
       renderDownloadingClips();
+      if (window.CollabUI && window.CollabUI.upsertClipRange && clip.collabRangeId) {
+        const collabState = window.CollabUI.getState ? window.CollabUI.getState() : null;
+        const collabName = collabState && collabState.me ? collabState.me.name : 'You';
+        window.CollabUI.upsertClipRange({
+          id: clip.collabRangeId,
+          userName: collabName,
+          inTime: clip.inTime,
+          outTime: clip.outTime,
+          status: 'queued'
+        });
+      }
       dbg('CLIP', 'Download cancelled by user', { name: clip.name });
     } else {
       downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
       renderDownloadingClips();
+      if (window.CollabUI && window.CollabUI.upsertClipRange && clip.collabRangeId) {
+        const collabState = window.CollabUI.getState ? window.CollabUI.getState() : null;
+        const collabName = collabState && collabState.me ? collabState.me.name : 'You';
+        window.CollabUI.upsertClipRange({
+          id: clip.collabRangeId,
+          userName: collabName,
+          inTime: clip.inTime,
+          outTime: clip.outTime,
+          status: 'queued'
+        });
+      }
       dbg('ERROR', 'Download failed', { name: clip.name, error: result?.error });
       alert('Download failed: ' + (result?.error || 'Unknown error'));
     }
@@ -1072,6 +1199,17 @@ async function processDownloadQueue() {
     downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
     activeDownloadId = null;
     renderDownloadingClips();
+    if (window.CollabUI && window.CollabUI.upsertClipRange && clip.collabRangeId) {
+      const collabState = window.CollabUI.getState ? window.CollabUI.getState() : null;
+      const collabName = collabState && collabState.me ? collabState.me.name : 'You';
+      window.CollabUI.upsertClipRange({
+        id: clip.collabRangeId,
+        userName: collabName,
+        inTime: clip.inTime,
+        outTime: clip.outTime,
+        status: 'queued'
+      });
+    }
     alert('Download error: ' + err.message);
   }
 
@@ -1228,8 +1366,19 @@ function showRestageConfirmation(idx, clip) {
       id: uid(), name: clip.name, caption: clip.caption || '',
       inTime: clip.inTime, outTime: clip.outTime,
       m3u8Url: clip.m3u8Url, m3u8Text: clip.m3u8Text || null, isLive: clip.isLive,
-      seekableStart: clip.seekableStart || 0,
+      seekableStart: clip.seekableStart || 0, collabRangeId: clip.collabRangeId || null,
     });
+    if (window.CollabUI && window.CollabUI.upsertClipRange && clip.collabRangeId) {
+      const collabState = window.CollabUI.getState ? window.CollabUI.getState() : null;
+      const collabName = collabState && collabState.me ? collabState.me.name : 'You';
+      window.CollabUI.upsertClipRange({
+        id: clip.collabRangeId,
+        userName: collabName,
+        inTime: clip.inTime,
+        outTime: clip.outTime,
+        status: 'queued'
+      });
+    }
     completedClips.splice(idx, 1);
     renderPendingClips();
     renderCompletedClips();
@@ -1355,7 +1504,18 @@ window.clipper.onHubAction(async (action) => {
       const clip = completedClips[action.idx];
       if (clip && clip.m3u8Url) {
         await window.clipper.deleteClipFile(clip.filePath);
-        pendingClips.push({ id: uid(), name: clip.name, caption: clip.caption || '', inTime: clip.inTime, outTime: clip.outTime, m3u8Url: clip.m3u8Url, m3u8Text: clip.m3u8Text || null, isLive: clip.isLive, seekableStart: clip.seekableStart || 0 });
+        pendingClips.push({ id: uid(), name: clip.name, caption: clip.caption || '', inTime: clip.inTime, outTime: clip.outTime, m3u8Url: clip.m3u8Url, m3u8Text: clip.m3u8Text || null, isLive: clip.isLive, seekableStart: clip.seekableStart || 0, collabRangeId: clip.collabRangeId || null });
+        if (window.CollabUI && window.CollabUI.upsertClipRange && clip.collabRangeId) {
+          const collabState = window.CollabUI.getState ? window.CollabUI.getState() : null;
+          const collabName = collabState && collabState.me ? collabState.me.name : 'You';
+          window.CollabUI.upsertClipRange({
+            id: clip.collabRangeId,
+            userName: collabName,
+            inTime: clip.inTime,
+            outTime: clip.outTime,
+            status: 'queued'
+          });
+        }
         completedClips.splice(action.idx, 1);
         renderPendingClips(); renderCompletedClips();
       }

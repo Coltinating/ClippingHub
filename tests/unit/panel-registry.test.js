@@ -1,0 +1,38 @@
+import { describe, it, expect } from 'vitest';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const registry = require('../../src/panel-registry.js');
+
+describe('panel-registry', () => {
+  it('contains core panel types', () => {
+    const all = registry.getPanelTypes();
+    expect(all).toContain('media');
+    expect(all).toContain('clipper');
+    expect(all).toContain('viewer');
+    expect(all).toContain('timeline');
+    expect(all).toContain('clips');
+  });
+
+  it('contains collaboration panel types', () => {
+    const all = registry.getPanelTypes();
+    expect(all).toContain('collabSession');
+    expect(all).toContain('collabChat');
+    expect(all).toContain('collabActivity');
+  });
+
+  it('returns grouped dropdown options with players then core then collaboration', () => {
+    const groups = registry.getPanelOptionGroups();
+    expect(groups.map(g => g.key)).toEqual(['players', 'core', 'collab']);
+    expect(groups[0].options.some(o => o.type === 'clipper')).toBe(true);
+    expect(groups[0].options.some(o => o.type === 'viewer')).toBe(true);
+    expect(groups[1].options.some(o => o.type === 'timeline')).toBe(true);
+    expect(groups[2].options.some(o => o.type === 'collabChat')).toBe(true);
+  });
+
+  it('knows valid and invalid panel types', () => {
+    expect(registry.isPanelType('clipper')).toBe(true);
+    expect(registry.isPanelType('preview')).toBe(true); // legacy alias
+    expect(registry.isPanelType('badType')).toBe(false);
+  });
+});
