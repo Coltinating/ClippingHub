@@ -637,7 +637,42 @@ document.querySelectorAll('.media-tab').forEach(function (tab) {
   });
 });
 
+// ── Phase 4: Wire remaining panel lifecycle hooks (incremental) ────
+// Render functions for these panels live inside renderer.js (off-limits),
+// so hooks set up the bus subscription pattern for future decoupling.
+(function () {
+  var reg = window._panelRegistry;
+  if (!reg || !reg.registerLifecycle) return;
+
+  // Timeline: subscribe to player:timeupdate via bus on mount, clean up on unmount
+  var _tlUnsub = null;
+  reg.registerLifecycle('timeline', {
+    mount: function () {
+      if (!_tlUnsub && window._panelBus) {
+        _tlUnsub = window._panelBus.on('player:timeupdate', function () {
+          // Marker rendering handled by renderer.js internally;
+          // bus subscription decouples future timeline features from Player.
+        });
+      }
+    },
+    unmount: function () {
+      if (_tlUnsub) { _tlUnsub(); _tlUnsub = null; }
+    }
+  });
+
+  // Clips Queue: mount hook placeholder for when renderPendingClips() is exposed
+  reg.registerLifecycle('clips', {
+    mount: function () { /* clip list renders via renderer.js internally */ }
+  });
+
+  // Media Sources: mount hook placeholder for when buffer stats refresh is exposed
+  reg.registerLifecycle('media', {
+    mount: function () { /* media stats update via Player stream events */ }
+  });
+})();
+
 buildSavedLayoutsMenu();
+rebuildViewMenu();
 updateViewChecks();
 autoRestoreLayout();
 

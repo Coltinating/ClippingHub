@@ -35,4 +35,43 @@ describe('panel-registry', () => {
     expect(registry.isPanelType('preview')).toBe(true); // legacy alias
     expect(registry.isPanelType('badType')).toBe(false);
   });
+
+  describe('registerLifecycle', () => {
+    it('attaches lifecycle hooks to a panel definition', () => {
+      const hooks = {
+        mount: () => {},
+        unmount: () => {},
+        saveState: () => ({ draft: 'hello' }),
+        restoreState: () => {}
+      };
+      registry.registerLifecycle('timeline', hooks);
+      const info = registry.getPanelInfo('timeline');
+      expect(info.lifecycle).toBe(hooks);
+      expect(typeof info.lifecycle.mount).toBe('function');
+      expect(typeof info.lifecycle.saveState).toBe('function');
+    });
+
+    it('normalizes alias types before registering', () => {
+      const hooks = { mount: () => {} };
+      registry.registerLifecycle('preview', hooks);
+      // 'preview' normalizes to 'clipper'
+      const info = registry.getPanelInfo('clipper');
+      expect(info.lifecycle).toBe(hooks);
+    });
+
+    it('ignores unknown panel types gracefully', () => {
+      // Should not throw
+      registry.registerLifecycle('nonExistentPanel', { mount: () => {} });
+      expect(registry.getPanelInfo('nonExistentPanel')).toBe(null);
+    });
+
+    it('overwrites previous lifecycle hooks', () => {
+      const first = { mount: () => 'first' };
+      const second = { mount: () => 'second' };
+      registry.registerLifecycle('media', first);
+      expect(registry.getPanelInfo('media').lifecycle).toBe(first);
+      registry.registerLifecycle('media', second);
+      expect(registry.getPanelInfo('media').lifecycle).toBe(second);
+    });
+  });
 });
