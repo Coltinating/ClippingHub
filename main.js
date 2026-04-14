@@ -1918,6 +1918,105 @@ function setupAutoUpdater() {
   autoUpdater.checkForUpdates().catch(() => {});
 }
 
+// ── Layout config files ────────────────────────────────────────────
+const layoutsDir = path.join(__dirname, 'layouts');
+
+ipcMain.handle('layouts:get-builtins', async () => {
+  const fs = require('fs');
+  let files;
+  try { files = fs.readdirSync(layoutsDir).filter(f => f.endsWith('.json')); }
+  catch (e) { return []; }
+  const layouts = [];
+  for (const file of files) {
+    try {
+      const raw = fs.readFileSync(path.join(layoutsDir, file), 'utf-8');
+      const layout = JSON.parse(raw);
+      layout._filename = file.replace('.json', '');
+      layouts.push(layout);
+    } catch (e) { /* skip corrupt files */ }
+  }
+  return layouts;
+});
+
+// ── Floating panel windows ──────────────────────────────────────────
+const floatWindows = new Map(); // floatId → BrowserWindow
+
+ipcMain.handle('float:create', (event, { floatId, panelType, x, y, width, height, title }) => {
+  const parent = BrowserWindow.fromWebContents(event.sender);
+  const win = new BrowserWindow({
+    width: width || 460,
+    height: height || 320,
+    x: x != null ? Math.round(x) : undefined,
+    y: y != null ? Math.round(y) : undefined,
+    frame: false,
+    parent: null,
+    resizable: true,
+    minimizable: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'src', 'float-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  win.loadFile(path.join(__dirname, 'src', 'float.html'), {
+    query: { floatId, panelType, title: title || panelType }
+  });
+
+  win.once('ready-to-show', () => win.show());
+
+  win.on('closed', () => {
+    floatWindows.delete(floatId);
+    if (parent && !parent.isDestroyed()) {
+      parent.webContents.send('float:closed', floatId);
+    }
+  });
+
+  win.on('moved', () => {
+    if (parent && !parent.isDestroyed()) {
+      const bounds = win.getBounds();
+      parent.webContents.send('float:moved', { floatId, x: bounds.x, y: bounds.y });
+    }
+  });
+
+  win.on('resized', () => {
+    if (parent && !parent.isDestroyed()) {
+      const bounds = win.getBounds();
+      parent.webContents.send('float:resized', { floatId, width: bounds.width, height: bounds.height });
+    }
+  });
+
+  floatWindows.set(floatId, win);
+  return { floatId };
+});
+
+ipcMain.handle('float:close', (event, floatId) => {
+  const win = floatWindows.get(floatId);
+  if (win && !win.isDestroyed()) win.close();
+});
+
+ipcMain.handle('float:dock', (event, floatId) => {
+  const win = floatWindows.get(floatId);
+  if (win && !win.isDestroyed()) win.close();
+});
+
+ipcMain.on('float:send-state', (event, { floatId, state }) => {
+  const win = floatWindows.get(floatId);
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('float:state-update', state);
+  }
+});
+
+ipcMain.on('float:message', (event, { floatId, channel, data }) => {
+  const mainWin = BrowserWindow.getAllWindows().find(w =>
+    w.webContents !== event.sender && !w.isDestroyed()
+  );
+  if (mainWin) {
+    mainWin.webContents.send('float:message', { floatId, channel, data });
+  }
+});
+
 app.on('window-all-closed', () => {
   app.quit();
 });

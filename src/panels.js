@@ -110,12 +110,10 @@ function closeLeafById(leafId, opts) {
 
   var sibling = ST.findSibling(leaf.id);
   if (sibling) {
-    if (sibling.type === 'leaf') {
-      ST.joinAreas(sibling.id, leaf.id);
-    } else {
-      leaf.panelType = 'empty';
-    }
+    // Always join — sibling can be leaf OR branch
+    ST.joinAreas(sibling.id, leaf.id);
   } else {
+    // No sibling = root leaf — set empty
     leaf.panelType = 'empty';
   }
 
@@ -300,14 +298,31 @@ function undockLeaf(leafId) {
   }
 
   var floatId = 'float_' + (++floatCounter).toString(36);
+  var reg = window._panelRegistry && window._panelRegistry.getPanelInfo(panelType);
+  var title = reg ? reg.title : panelType;
+
+  // Get approximate screen position from the area element
+  var areaEl = document.querySelector('.split-area[data-node-id="' + leafId + '"]');
+  var x, y, w, h;
+  if (areaEl) {
+    var rect = areaEl.getBoundingClientRect();
+    x = Math.round(window.screenX + rect.left);
+    y = Math.round(window.screenY + rect.top);
+    w = Math.round(rect.width);
+    h = Math.round(rect.height);
+  }
+
   floatingPanels.push({
     id: floatId,
     panelType: panelType,
-    x: 80 + ((floatCounter * 24) % 220),
-    y: 80 + ((floatCounter * 20) % 140),
-    width: 460,
-    height: 320
+    x: x || 200, y: y || 200,
+    width: w || 460, height: h || 320
   });
+
+  // Create real BrowserWindow via IPC
+  if (window.clipper && window.clipper.floatCreate) {
+    window.clipper.floatCreate({ floatId: floatId, panelType: panelType, x: x, y: y, width: w, height: h, title: title });
+  }
 
   closeLeafById(leaf.id, { silent: true, noSave: true });
   SL.render();
@@ -317,17 +332,22 @@ function undockLeaf(leafId) {
 }
 
 function redockFloating(floatId) {
-  var ST = window._splitTree;
   var SL = window._splitLayout;
-  if (!ST || !SL) return false;
+  if (!SL) return false;
   var idx = -1;
   for (var i = 0; i < floatingPanels.length; i++) {
     if (floatingPanels[i].id === floatId) { idx = i; break; }
   }
-  if (idx < 0) return false;
-  var item = floatingPanels[idx];
-  if (!placePanelType(item.panelType)) return false;
+  if (idx === -1) return false;
+  var panelType = normalizePanelType(floatingPanels[idx].panelType);
   floatingPanels.splice(idx, 1);
+
+  // Close the BrowserWindow
+  if (window.clipper && window.clipper.floatClose) {
+    window.clipper.floatClose(floatId);
+  }
+
+  placePanelType(panelType);
   SL.render();
   updateViewChecks();
   autoSaveLayout();
@@ -342,6 +362,12 @@ function closeFloating(floatId) {
   }
   if (idx < 0) return false;
   floatingPanels.splice(idx, 1);
+
+  // Close the BrowserWindow
+  if (window.clipper && window.clipper.floatClose) {
+    window.clipper.floatClose(floatId);
+  }
+
   if (SL) SL.render();
   updateViewChecks();
   autoSaveLayout();
@@ -522,6 +548,7 @@ function saveLayout() {
   setSavedLayouts(layouts);
   closeSaveModal();
   buildSavedLayoutsMenu();
+  rebuildWorkspaceTabs(name);
   toast('Layout <span class="accent">' + name + '</span> saved');
 }
 
@@ -560,50 +587,83 @@ function buildSavedLayoutsMenu() {
   }).join('');
 }
 
-var workspacePresets = {
-  default: {
-    version: 1,
-    tree: window._splitTree ? window._splitTree.DEFAULT_TREE : null
-  },
-  minimal: {
-    version: 1,
-    tree: {
-      type: 'branch', id: 'b_min', direction: 'vertical', ratio: 0.78,
-      children: [
-        { type: 'leaf', id: 'a_clipper', panelType: 'clipper' },
-        { type: 'leaf', id: 'a_tl', panelType: 'timeline' }
-      ]
-    }
-  },
-  editing: {
-    version: 1,
-    tree: {
-      type: 'branch', id: 'b_root', direction: 'horizontal', ratio: 0.14,
-      children: [
-        { type: 'leaf', id: 'a_media', panelType: 'media' },
-        { type: 'branch', id: 'b_cr', direction: 'horizontal', ratio: 0.72,
-          children: [
-            { type: 'branch', id: 'b_cv', direction: 'vertical', ratio: 0.65,
-              children: [
-                { type: 'leaf', id: 'a_clipper', panelType: 'clipper' },
-                { type: 'leaf', id: 'a_timeline', panelType: 'timeline' }
-              ]
-            },
-            { type: 'leaf', id: 'a_clips', panelType: 'clips' }
-          ]
-        }
-      ]
-    }
+var builtinLayouts = {};
+var userLayouts = {};
+
+function loadBuiltinLayouts() {
+  if (!window.clipper || !window.clipper.getBuiltinLayouts) {
+    // Fallback: use DEFAULT_TREE for 'default' only
+    var ST = window._splitTree;
+    if (ST) builtinLayouts['default'] = { name: 'Default', version: 1, tree: ST.DEFAULT_TREE };
+    return Promise.resolve();
   }
-};
+  return window.clipper.getBuiltinLayouts().then(function (layouts) {
+    for (var i = 0; i < layouts.length; i++) {
+      var key = layouts[i]._filename || layouts[i].name.toLowerCase();
+      builtinLayouts[key] = layouts[i];
+    }
+  }).catch(function () {});
+}
 
 function loadWorkspace(name) {
-  document.querySelectorAll('.ws-tab').forEach(function (t) { t.classList.remove('active'); });
-  var tab = document.querySelector('.ws-tab[data-ws="' + name + '"]');
-  if (tab) tab.classList.add('active');
-  if (workspacePresets[name]) {
-    applyLayout(workspacePresets[name]);
-    toast('Workspace <span class="accent">' + name + '</span> loaded');
+  var layout = builtinLayouts[name] || userLayouts[name];
+  if (!layout) return;
+  applyLayout(layout);
+  rebuildWorkspaceTabs(name);
+  autoSaveLayout();
+  toast('Layout <span class="accent">' + (layout.name || name) + '</span> loaded');
+}
+
+function rebuildWorkspaceTabs(activeName) {
+  var container = document.querySelector('.workspace-tabs');
+  if (!container) return;
+  container.innerHTML = '';
+
+  var builtinKeys = Object.keys(builtinLayouts);
+  for (var i = 0; i < builtinKeys.length; i++) {
+    var bk = builtinKeys[i];
+    var bLayout = builtinLayouts[bk];
+    var bTab = document.createElement('div');
+    bTab.className = 'ws-tab' + (bk === activeName ? ' active' : '');
+    bTab.dataset.ws = bk;
+    bTab.textContent = bLayout.name || bk;
+    (function (key) {
+      bTab.addEventListener('click', function () { loadWorkspace(key); });
+    })(bk);
+    container.appendChild(bTab);
+  }
+
+  userLayouts = getSavedLayouts();
+  var userKeys = Object.keys(userLayouts);
+  if (userKeys.length > 0 && builtinKeys.length > 0) {
+    var sep = document.createElement('div');
+    sep.className = 'ws-tab-sep';
+    container.appendChild(sep);
+  }
+
+  for (var j = 0; j < userKeys.length; j++) {
+    var uk = userKeys[j];
+    var uTab = document.createElement('div');
+    uTab.className = 'ws-tab ws-tab-user' + (uk === activeName ? ' active' : '');
+    uTab.dataset.ws = uk;
+    uTab.textContent = uk;
+    var closeBtn = document.createElement('span');
+    closeBtn.className = 'ws-tab-close';
+    closeBtn.innerHTML = '&times;';
+    closeBtn.title = 'Delete layout';
+    (function (key) {
+      uTab.addEventListener('click', function (e) {
+        if (e.target.classList.contains('ws-tab-close')) return;
+        loadWorkspace(key);
+      });
+      closeBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        deleteSavedLayout(key);
+        rebuildWorkspaceTabs(null);
+      });
+    })(uk);
+    uTab.appendChild(closeBtn);
+    container.appendChild(uTab);
   }
 }
 
@@ -671,10 +731,41 @@ document.querySelectorAll('.media-tab').forEach(function (tab) {
   });
 })();
 
+// ── Float window event listeners (BrowserWindow IPC) ───────────────
+if (window.clipper && window.clipper.onFloatClosed) {
+  window.clipper.onFloatClosed(function (floatId) {
+    var idx = -1;
+    for (var i = 0; i < floatingPanels.length; i++) {
+      if (floatingPanels[i].id === floatId) { idx = i; break; }
+    }
+    if (idx !== -1) {
+      floatingPanels.splice(idx, 1);
+      updateViewChecks();
+      autoSaveLayout();
+    }
+  });
+}
+
+if (window.clipper && window.clipper.onFloatMoved) {
+  window.clipper.onFloatMoved(function (data) {
+    updateFloatingRect(data.floatId, { x: data.x, y: data.y });
+  });
+}
+
+if (window.clipper && window.clipper.onFloatResized) {
+  window.clipper.onFloatResized(function (data) {
+    updateFloatingRect(data.floatId, { width: data.width, height: data.height });
+  });
+}
+
 buildSavedLayoutsMenu();
 rebuildViewMenu();
 updateViewChecks();
-autoRestoreLayout();
+
+loadBuiltinLayouts().then(function () {
+  rebuildWorkspaceTabs('default');
+  autoRestoreLayout();
+});
 
 window._panels = {
   closePanel: closePanel,
@@ -695,6 +786,7 @@ window._panels = {
   loadSavedLayout: loadSavedLayout,
   deleteSavedLayout: deleteSavedLayout,
   loadWorkspace: loadWorkspace,
+  rebuildWorkspaceTabs: rebuildWorkspaceTabs,
   autoSaveLayout: autoSaveLayout,
   rebuildViewMenu: rebuildViewMenu,
   toast: toast

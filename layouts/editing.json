@@ -1,0 +1,21 @@
+{
+  "name": "Editing",
+  "version": 1,
+  "tree": {
+    "type": "branch", "direction": "horizontal", "ratio": 0.14,
+    "children": [
+      { "type": "leaf", "panelType": "media" },
+      { "type": "branch", "direction": "horizontal", "ratio": 0.72,
+        "children": [
+          { "type": "branch", "direction": "vertical", "ratio": 0.65,
+            "children": [
+              { "type": "leaf", "panelType": "clipper" },
+              { "type": "leaf", "panelType": "timeline" }
+            ]
+          },
+          { "type": "leaf", "panelType": "clips" }
+        ]
+      }
+    ]
+  }
+}

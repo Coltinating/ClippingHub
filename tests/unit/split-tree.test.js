@@ -49,6 +49,21 @@ describe('split-tree data model', () => {
       expect(tree.getLeafByPanelType('timeline')).toBeNull();
       expect(tree.getLeafByPanelType('clipper')).not.toBeNull();
     });
+
+    it('promotes branch sibling when leaf is removed', () => {
+      tree.deserialize(tree.DEFAULT_TREE);
+      var mediaLeaf = tree.getLeafByPanelType('media');
+      var rightBranch = tree.findSibling(mediaLeaf.id);
+      expect(rightBranch.type).toBe('branch');
+
+      tree.joinAreas(rightBranch.id, mediaLeaf.id);
+      var newRoot = tree.getRoot();
+      expect(newRoot.type).toBe('branch');
+      expect(newRoot.direction).toBe('horizontal');
+      var leaves = tree.getAllLeaves();
+      var types = leaves.map(function (l) { return l.panelType; }).sort();
+      expect(types).toEqual(['clipper', 'clips', 'timeline']);
+    });
   });
 
   describe('swapAreas', () => {

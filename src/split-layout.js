@@ -137,185 +137,25 @@ function addCornerHandles(areaEl) {
   }
 }
 
-function getProxyPort() {
-  var state = window.Player && window.Player.state;
-  return state && state.proxyPort ? state.proxyPort : null;
-}
-
-function toProxyUrl(url, proxyPort) {
-  if (!proxyPort || !url) return '';
-  var prefix = 'http://localhost:' + proxyPort + '/proxy?url=';
-  if (url.indexOf(prefix) === 0) return url;
-  return prefix + encodeURIComponent(url);
-}
-
 function destroyViewerInstance(key) {
-  var inst = viewerInstances[key];
-  if (!inst) return;
   if (window._panelLifecycle) window._panelLifecycle.notifyDestroy(key);
-  if (inst.hls) {
-    inst.hls.destroy();
-    inst.hls = null;
-  }
-  if (inst.video) {
-    inst.video.pause();
-    inst.video.removeAttribute('src');
-    inst.video.load();
+  if (window._viewerPlayer) {
+    window._viewerPlayer.destroy(key);
   }
   delete viewerInstances[key];
 }
 
-function setViewerStatus(inst, text) {
-  if (!inst || !inst.statusEl) return;
-  inst.statusEl.textContent = text || '';
-}
-
-function syncViewerMute(inst) {
-  if (!inst || !inst.video || !inst.muteBtn) return;
-  inst.muteBtn.textContent = inst.video.muted ? 'Unmute' : 'Mute';
-}
-
-function loadViewerStream(inst, url) {
-  if (!inst) return;
-  var clean = String(url || '').trim();
-  if (!clean) return;
-  var proxyPort = getProxyPort();
-  if (!proxyPort) {
-    setViewerStatus(inst, 'Load clipper stream first');
-    return;
-  }
-  if (inst.hls) {
-    inst.hls.destroy();
-    inst.hls = null;
-  }
-  inst.currentUrl = clean;
-  if (inst.urlInput) inst.urlInput.value = clean;
-
-  var video = inst.video;
-  var proxied = toProxyUrl(clean, proxyPort);
-  setViewerStatus(inst, 'Loading...');
-
-  if (window.Hls && window.Hls.isSupported()) {
-    var hls = new Hls({
-      enableWorker: true,
-      maxBufferLength: 30,
-      maxMaxBufferLength: 60,
-      maxBufferSize: 40 * 1000 * 1000,
-      liveSyncDurationCount: 3
-    });
-    inst.hls = hls;
-    hls.loadSource(proxied);
-    hls.attachMedia(video);
-    hls.on(Hls.Events.MANIFEST_PARSED, function () {
-      setViewerStatus(inst, '');
-      video.play().catch(function () {});
-    });
-    hls.on(Hls.Events.ERROR, function (_, data) {
-      if (!data || !data.fatal) return;
-      if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-        hls.recoverMediaError();
-      } else {
-        setViewerStatus(inst, 'Viewer stream failed');
-      }
-    });
-    return;
-  }
-
-  video.src = proxied;
-  video.play().then(function () {
-    setViewerStatus(inst, '');
-  }).catch(function () {
-    setViewerStatus(inst, 'Cannot autoplay');
-  });
-}
-
 function createViewerPanel(instanceKey) {
-  var panel = document.createElement('div');
-  panel.className = 'panel viewer-panel';
-  panel.dataset.viewerKey = instanceKey;
-
-  var body = document.createElement('div');
-  body.className = 'panel-body viewer-body';
-
-  var viewport = document.createElement('div');
-  viewport.className = 'viewer-video-wrap';
-  var video = document.createElement('video');
-  video.className = 'viewer-video';
-  video.controls = true;
-  video.playsInline = true;
-  video.muted = true;
-  viewport.appendChild(video);
-
-  var status = document.createElement('div');
-  status.className = 'viewer-status';
-  status.textContent = 'No stream loaded';
-  viewport.appendChild(status);
-
-  var controls = document.createElement('div');
-  controls.className = 'viewer-controls';
-
-  var urlInput = document.createElement('input');
-  urlInput.className = 'viewer-url';
-  urlInput.type = 'text';
-  urlInput.placeholder = 'Paste stream URL...';
-  controls.appendChild(urlInput);
-
-  var loadBtn = document.createElement('button');
-  loadBtn.className = 'btn btn-primary btn-xs';
-  loadBtn.textContent = 'Load';
-  controls.appendChild(loadBtn);
-
-  var followBtn = document.createElement('button');
-  followBtn.className = 'btn btn-ghost btn-xs';
-  followBtn.textContent = 'Follow Clipper';
-  controls.appendChild(followBtn);
-
-  var muteBtn = document.createElement('button');
-  muteBtn.className = 'btn btn-ghost btn-xs';
-  muteBtn.textContent = 'Unmute';
-  controls.appendChild(muteBtn);
-
-  body.appendChild(viewport);
-  body.appendChild(controls);
-  panel.appendChild(body);
-
-  var inst = {
-    key: instanceKey,
-    el: panel,
-    video: video,
-    statusEl: status,
-    urlInput: urlInput,
-    loadBtn: loadBtn,
-    followBtn: followBtn,
-    muteBtn: muteBtn,
-    currentUrl: '',
-    hls: null
-  };
-
-  loadBtn.addEventListener('click', function () {
-    loadViewerStream(inst, urlInput.value);
-  });
-  urlInput.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') loadViewerStream(inst, urlInput.value);
-  });
-  followBtn.addEventListener('click', function () {
-    var state = window.Player && window.Player.state;
-    if (!state || !state.currentM3U8) {
-      setViewerStatus(inst, 'Clipper has no active stream');
-      return;
-    }
-    loadViewerStream(inst, state.currentM3U8);
-  });
-  muteBtn.addEventListener('click', function () {
-    video.muted = !video.muted;
-    syncViewerMute(inst);
-  });
-  video.addEventListener('volumechange', function () {
-    syncViewerMute(inst);
-  });
-
-  viewerInstances[instanceKey] = inst;
-  return inst.el;
+  if (window._viewerPlayer) {
+    var inst = window._viewerPlayer.create(instanceKey);
+    viewerInstances[instanceKey] = inst;
+    window._viewerPlayer.autoFollow(inst);
+    return inst.el;
+  }
+  var el = document.createElement('div');
+  el.className = 'panel viewer-panel';
+  el.textContent = 'Viewer module not loaded';
+  return el;
 }
 
 function getViewerPanel(instanceKey) {
@@ -430,64 +270,9 @@ function cleanupViewerInstances(activeKeys) {
   }
 }
 
-function getOrCreateFloatingRoot() {
-  var root = document.getElementById('floatingPanelRoot');
-  if (root) return root;
-  root = document.createElement('div');
-  root.id = 'floatingPanelRoot';
-  root.className = 'floating-panel-root';
-  document.body.appendChild(root);
-  return root;
-}
-
-function renderFloatingPanels(activeViewerKeys) {
-  var root = getOrCreateFloatingRoot();
-  root.innerHTML = '';
-
-  var panelsApi = window._panels;
-  var floating = panelsApi && panelsApi.getFloatingPanels ? panelsApi.getFloatingPanels() : [];
-  for (var i = 0; i < floating.length; i++) {
-    var item = floating[i];
-    var panelType = normalizePanelType(item.panelType);
-
-    var shell = document.createElement('div');
-    shell.className = 'floating-panel';
-    shell.dataset.floatId = item.id;
-    shell.style.left = (item.x || 40) + 'px';
-    shell.style.top = (item.y || 40) + 'px';
-    shell.style.width = (item.width || 420) + 'px';
-    shell.style.height = (item.height || 300) + 'px';
-
-    var header = document.createElement('div');
-    header.className = 'floating-header';
-    header.innerHTML = '<span class="floating-title">' + getPanelTitle(panelType) + '</span>';
-    var actions = document.createElement('div');
-    actions.className = 'floating-actions';
-    actions.innerHTML =
-      '<button class="area-btn floating-dock" title="Dock" data-float-action="dock"><svg viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.1" fill="none"><rect x="2" y="3" width="8" height="6" rx="0.8"/><path d="M4 1.5h4"/></svg></button>' +
-      '<button class="area-btn floating-close" title="Close" data-float-action="close"><svg viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M2 2l6 6M8 2l-6 6"/></svg></button>';
-    header.appendChild(actions);
-    shell.appendChild(header);
-
-    var body = document.createElement('div');
-    body.className = 'floating-body';
-    var panelEl = null;
-    if (panelType === 'viewer') {
-      var key = 'float:' + item.id;
-      activeViewerKeys.push(key);
-      panelEl = getViewerPanel(key);
-    } else {
-      panelEl = getSharedPanelElement(panelType);
-    }
-    if (panelEl) {
-      panelEl.style.display = '';
-      body.appendChild(panelEl);
-      if (window._panelLifecycle) window._panelLifecycle.notifyMount(panelType, panelEl, null, item.id);
-    }
-    shell.appendChild(body);
-    root.appendChild(shell);
-  }
-}
+// Floating panels are now real Electron BrowserWindows (managed via IPC in panels.js).
+// renderFloatingPanels is kept as a no-op so callers don't break.
+function renderFloatingPanels() {}
 
 function render() {
   if (!ST) return;
@@ -574,11 +359,15 @@ if (document.readyState === 'loading') {
 // ── Viewer lifecycle ────────────────────────────────────────────────
 if (window._panelRegistry && window._panelRegistry.registerLifecycle) {
   window._panelRegistry.registerLifecycle('viewer', {
+    mount: function (ctx) {
+      if (window._viewerPlayer && ctx.leafId) {
+        var inst = window._viewerPlayer.get('leaf:' + ctx.leafId);
+        if (inst) window._viewerPlayer.autoFollow(inst);
+      }
+    },
     destroy: function (ctx) {
       if (ctx && ctx.instanceKey) destroyViewerInstance(ctx.instanceKey);
-    },
-    saveState: function () { return null; },
-    restoreState: function () {}
+    }
   });
 }
 

@@ -90,4 +90,17 @@ contextBridge.exposeInMainWorld('clipper', {
   collabGetLobby: (payload) => ipcRenderer.invoke('collab-get-lobby', payload),
   collabAddChat: (payload) => ipcRenderer.invoke('collab-add-chat', payload),
   collabUpsertRange: (payload) => ipcRenderer.invoke('collab-upsert-range', payload),
+
+  // Floating panel windows
+  floatCreate: (opts) => ipcRenderer.invoke('float:create', opts),
+  floatClose: (floatId) => ipcRenderer.invoke('float:close', floatId),
+  floatDock: (floatId) => ipcRenderer.invoke('float:dock', floatId),
+  floatSendState: (floatId, state) => ipcRenderer.send('float:send-state', { floatId, state }),
+  onFloatClosed: (cb) => ipcRenderer.on('float:closed', (_, floatId) => cb(floatId)),
+  onFloatMoved: (cb) => ipcRenderer.on('float:moved', (_, data) => cb(data)),
+  onFloatResized: (cb) => ipcRenderer.on('float:resized', (_, data) => cb(data)),
+  onFloatMessage: (cb) => ipcRenderer.on('float:message', (_, data) => cb(data)),
+
+  // Layout config files
+  getBuiltinLayouts: () => ipcRenderer.invoke('layouts:get-builtins'),
 });

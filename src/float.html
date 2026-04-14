@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src *; media-src *;">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: var(--bg-primary); }
+    .float-titlebar {
+      height: 28px; display: flex; align-items: center; justify-content: space-between;
+      padding: 0 8px; background: var(--bg-header); -webkit-app-region: drag;
+      border-bottom: 1px solid var(--border); user-select: none; font-size: 11px;
+      color: var(--text-secondary); font-weight: 500;
+    }
+    .float-titlebar-actions { display: flex; gap: 4px; -webkit-app-region: no-drag; }
+    .float-titlebar-actions button {
+      background: none; border: none; color: var(--text-muted); cursor: pointer;
+      padding: 2px 6px; border-radius: 3px; font-size: 11px;
+    }
+    .float-titlebar-actions button:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .float-content { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    #floatBody { display: flex; flex-direction: column; height: calc(100vh - 28px); }
+  </style>
+</head>
+<body>
+  <div class="float-titlebar">
+    <span id="floatTitle">Panel</span>
+    <div class="float-titlebar-actions">
+      <button id="floatDockBtn" title="Dock back">Dock</button>
+      <button id="floatCloseBtn" title="Close">&#10005;</button>
+    </div>
+  </div>
+  <div id="floatBody" class="float-content">
+    <!-- Panel content rendered by float-renderer.js -->
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="float-renderer.js"></script>
+</body>
+</html>

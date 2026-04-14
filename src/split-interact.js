@@ -453,61 +453,8 @@ function startAreaHeaderDrag(startEvent, sourceLeafId, header) {
   document.addEventListener('mouseup', onUp);
 }
 
-function initFloatingPanelControls() {
-  document.addEventListener('click', function (e) {
-    var actionBtn = e.target.closest('[data-float-action]');
-    if (!actionBtn) return;
-    var shell = actionBtn.closest('.floating-panel');
-    if (!shell) return;
-    var floatId = shell.dataset.floatId;
-    var action = actionBtn.dataset.floatAction;
-    if (!floatId || !window._panels) return;
-    if (action === 'dock' && window._panels.redockFloating) {
-      window._panels.redockFloating(floatId);
-    } else if (action === 'close' && window._panels.closeFloating) {
-      window._panels.closeFloating(floatId);
-    }
-  });
-
-  document.addEventListener('mousedown', function (e) {
-    if (e.button !== 0) return;
-    if (e.target.closest('[data-float-action]')) return;
-    var header = e.target.closest('.floating-header');
-    if (!header) return;
-    var shell = header.closest('.floating-panel');
-    if (!shell) return;
-    e.preventDefault();
-
-    var rect = shell.getBoundingClientRect();
-    var startX = e.clientX;
-    var startY = e.clientY;
-    var baseLeft = rect.left;
-    var baseTop = rect.top;
-    var floatId = shell.dataset.floatId;
-
-    var onMove = function (ev) {
-      var dx = ev.clientX - startX;
-      var dy = ev.clientY - startY;
-      shell.style.left = (baseLeft + dx) + 'px';
-      shell.style.top = (baseTop + dy) + 'px';
-    };
-
-    var onUp = function () {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      if (window._panels && window._panels.updateFloatingRect) {
-        window._panels.updateFloatingRect(floatId, {
-          x: parseFloat(shell.style.left),
-          y: parseFloat(shell.style.top)
-        });
-        triggerSave();
-      }
-    };
-
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  });
-}
+// Floating panels are now real Electron BrowserWindows — no DOM drag/click handlers needed.
+function initFloatingPanelControls() {}
 
 function init() {
   ST = window._splitTree;
