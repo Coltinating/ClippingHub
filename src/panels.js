@@ -321,7 +321,23 @@ function undockLeaf(leafId) {
 
   // Create real BrowserWindow via IPC
   if (window.clipper && window.clipper.floatCreate) {
-    window.clipper.floatCreate({ floatId: floatId, panelType: panelType, x: x, y: y, width: w, height: h, title: title });
+    window.clipper.floatCreate({ floatId: floatId, panelType: panelType, x: x, y: y, width: w, height: h, title: title })
+      .then(function () {
+        // Send initial state to the float window so it can render content
+        var PS = window.Player && window.Player.state;
+        var state = {
+          panelType: panelType,
+          proxyPort: PS && PS.proxyPort ? PS.proxyPort : null,
+          streamUrl: PS && PS.currentM3U8 ? PS.currentM3U8 : null,
+          isLive: PS && PS.isLive ? true : false
+        };
+        if (window.clipper && window.clipper.floatSendState) {
+          // Small delay to let float window finish loading
+          setTimeout(function () {
+            window.clipper.floatSendState(floatId, state);
+          }, 500);
+        }
+      });
   }
 
   closeLeafById(leaf.id, { silent: true, noSave: true });
@@ -756,6 +772,149 @@ if (window.clipper && window.clipper.onFloatResized) {
   window.clipper.onFloatResized(function (data) {
     updateFloatingRect(data.floatId, { width: data.width, height: data.height });
   });
+}
+
+// Handle messages from float windows
+if (window.clipper && window.clipper.onFloatMessage) {
+  window.clipper.onFloatMessage(function (data) {
+    if (data.channel === 'set-playback' && data.data && data.data.time != null) {
+      if (window.Player && window.Player.els && window.Player.els.vid) {
+        window.Player.els.vid.currentTime = data.data.time;
+        toast('Clipper set to ' + Math.floor(data.data.time) + 's');
+      }
+    }
+
+    // Dock-drag: float window grip was grabbed, window is now hidden,
+    // main window takes over with a ghost + drop zones.
+    if (data.channel === 'dock-drag-request') {
+      startFloatDockDrag(data.floatId, data.data);
+    }
+  });
+}
+
+function startFloatDockDrag(floatId, info) {
+  var SL = window._splitLayout;
+  var ST = window._splitTree;
+  if (!SL || !ST) return;
+
+  // Find the floating panel entry
+  var floatEntry = null;
+  for (var i = 0; i < floatingPanels.length; i++) {
+    if (floatingPanels[i].id === floatId) { floatEntry = floatingPanels[i]; break; }
+  }
+  if (!floatEntry) return;
+
+  var pType = normalizePanelType(floatEntry.panelType);
+  var reg = window._panelRegistry && window._panelRegistry.getPanelInfo(pType);
+  var title = reg ? reg.title : pType;
+
+  // Create drag ghost in main window
+  var ghost = document.createElement('div');
+  ghost.className = 'area-drag-ghost';
+  ghost.textContent = title;
+  document.body.appendChild(ghost);
+
+  var targetLeafId = null;
+  var dropPos = null;
+
+  function getDropPosition(area, cx, cy) {
+    var r = area.getBoundingClientRect();
+    var xPad = Math.max(32, r.width * 0.24);
+    var yPad = Math.max(26, r.height * 0.24);
+    if (cx < r.left + xPad) return 'left';
+    if (cx > r.right - xPad) return 'right';
+    if (cy < r.top + yPad) return 'up';
+    if (cy > r.bottom - yPad) return 'down';
+    return 'center';
+  }
+
+  function clearPreview() {
+    var prev = document.querySelector('.area-drop-preview');
+    if (prev) prev.remove();
+  }
+
+  function showPreview(area, pos) {
+    clearPreview();
+    var pv = document.createElement('div');
+    pv.className = 'area-drop-preview area-drop-' + pos;
+    area.appendChild(pv);
+  }
+
+  var onMove = function (ev) {
+    ghost.style.left = (ev.clientX + 16) + 'px';
+    ghost.style.top = (ev.clientY + 12) + 'px';
+
+    var hit = document.elementFromPoint(ev.clientX, ev.clientY);
+    var area = hit ? hit.closest('.split-area') : null;
+    if (!area) {
+      targetLeafId = null;
+      dropPos = null;
+      clearPreview();
+      return;
+    }
+    targetLeafId = area.dataset.nodeId;
+    dropPos = getDropPosition(area, ev.clientX, ev.clientY);
+    showPreview(area, dropPos);
+  };
+
+  var onUp = function () {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    ghost.remove();
+    clearPreview();
+
+    if (targetLeafId && dropPos) {
+      // Dock the panel into the tree at the target position
+      var targetLeaf = ST.findNode(targetLeafId);
+      if (targetLeaf && targetLeaf.type === 'leaf') {
+        if (dropPos === 'center') {
+          // Swap: put float panel type into target leaf, target becomes whatever it was
+          var oldType = normalizePanelType(targetLeaf.panelType);
+          targetLeaf.panelType = pType;
+          // If old type isn't empty, it's displaced — open it elsewhere or drop it
+          if (oldType && oldType !== 'empty' && oldType !== pType) {
+            placePanelType(oldType);
+          }
+        } else {
+          // Split target area and place float panel in new leaf
+          var dir = (dropPos === 'left' || dropPos === 'right') ? 'horizontal' : 'vertical';
+          var result = ST.splitArea(targetLeafId, dir, 0.5);
+          if (result) {
+            var newLeaf = ST.findNode(result.newLeafId);
+            if (newLeaf) {
+              if (dropPos === 'right' || dropPos === 'down') {
+                newLeaf.panelType = pType;
+              } else {
+                newLeaf.panelType = normalizePanelType(targetLeaf.panelType);
+                targetLeaf.panelType = pType;
+              }
+            }
+          }
+        }
+
+        // Remove from floating panels and close the BrowserWindow
+        for (var j = 0; j < floatingPanels.length; j++) {
+          if (floatingPanels[j].id === floatId) { floatingPanels.splice(j, 1); break; }
+        }
+        if (window.clipper && window.clipper.floatClose) {
+          window.clipper.floatClose(floatId);
+        }
+
+        SL.render();
+        updateViewChecks();
+        autoSaveLayout();
+        return;
+      }
+    }
+
+    // Drop missed — re-show the float window
+    if (window.clipper && window.clipper.floatShow) {
+      window.clipper.floatShow(floatId);
+    }
+  };
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
 }
 
 buildSavedLayoutsMenu();

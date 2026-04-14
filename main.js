@@ -2009,12 +2009,23 @@ ipcMain.on('float:send-state', (event, { floatId, state }) => {
 });
 
 ipcMain.on('float:message', (event, { floatId, channel, data }) => {
+  // On dock-drag-request, hide the float window so main window receives mouse events
+  if (channel === 'dock-drag-request') {
+    const win = floatWindows.get(floatId);
+    if (win && !win.isDestroyed()) win.hide();
+  }
+
   const mainWin = BrowserWindow.getAllWindows().find(w =>
     w.webContents !== event.sender && !w.isDestroyed()
   );
   if (mainWin) {
     mainWin.webContents.send('float:message', { floatId, channel, data });
   }
+});
+
+ipcMain.handle('float:show', (event, floatId) => {
+  const win = floatWindows.get(floatId);
+  if (win && !win.isDestroyed()) win.show();
 });
 
 app.on('window-all-closed', () => {

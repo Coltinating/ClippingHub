@@ -95,6 +95,7 @@ contextBridge.exposeInMainWorld('clipper', {
   floatCreate: (opts) => ipcRenderer.invoke('float:create', opts),
   floatClose: (floatId) => ipcRenderer.invoke('float:close', floatId),
   floatDock: (floatId) => ipcRenderer.invoke('float:dock', floatId),
+  floatShow: (floatId) => ipcRenderer.invoke('float:show', floatId),
   floatSendState: (floatId, state) => ipcRenderer.send('float:send-state', { floatId, state }),
   onFloatClosed: (cb) => ipcRenderer.on('float:closed', (_, floatId) => cb(floatId)),
   onFloatMoved: (cb) => ipcRenderer.on('float:moved', (_, data) => cb(data)),
