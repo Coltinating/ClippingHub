@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Post Captioning - Clipper Hub</title>
+<style>
+* { box-sizing: border-box; }
+html, body {
+  height: 100%;
+  margin: 0;
+  background: #03050a;
+  color: #e7e9ea;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+}
+
+:root {
+  --panel: #080d14;
+  --panel-2: #050911;
+  --line: #1a2230;
+  --line-2: #222c3a;
+  --muted: #7d8796;
+  --muted-2: #9da8b8;
+  --accent: #1d9bf0;
+}
+
+.pc-shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+}
+
+.pc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, #121722 0%, #10141c 100%);
+}
+
+.pc-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.pc-subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pc-close {
+  appearance: none;
+  border: 1px solid var(--line-2);
+  background: #161c27;
+  color: #dce2eb;
+  border-radius: 8px;
+  width: 34px;
+  height: 30px;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pc-close:hover { background: #1d2532; }
+
+.pc-panels {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.pc-caption-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  gap: 0;
+  height: 100%;
+  min-height: 0;
+}
+
+.pc-editor-pane {
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  padding: 16px;
+  min-width: 0;
+}
+
+.pc-label {
+  color: #98acd0;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.pc-editor-input {
+  width: 100%;
+  margin-top: 10px;
+  min-height: 220px;
+  max-height: calc(100vh - 300px);
+  resize: vertical;
+  border: 1px solid #2a78ca;
+  border-radius: 10px;
+  background: #0b0f16;
+  color: #f3f5f7;
+  padding: 14px;
+  line-height: 1.5;
+  font-size: 16px;
+  font-family: "Consolas", "SFMono-Regular", Menlo, monospace;
+}
+
+.pc-editor-input::placeholder { color: #8a93a3; }
+.pc-editor-input:focus { outline: none; box-shadow: 0 0 0 2px rgba(29, 155, 240, 0.2); }
+
+.pc-counter {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #9ba4b3;
+  font-family: "Consolas", monospace;
+}
+
+.pc-counter.over { color: #ff7a7a; }
+
+.pc-note {
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #798496;
+}
+
+.pc-preview-pane {
+  background: var(--panel-2);
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+}
+
+.pc-clips-pane {
+  height: 100%;
+  overflow: auto;
+  background: var(--panel-2);
+  border-right: 1px solid var(--line);
+}
+
+.x-timeline {
+  width: 719px;
+  max-width: 100%;
+  margin: 0 auto;
+  border-left: 1px solid #212833;
+  border-right: 1px solid #212833;
+  min-height: 100%;
+}
+
+.x-post {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #1e2530;
+}
+
+.x-post.selected {
+  background: rgba(29, 155, 240, 0.08);
+}
+
+.x-avatar {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 25%, #3ea8f2 0%, #2565a8 75%);
+}
+
+.x-avatar.template {
+  background: radial-gradient(circle at 30% 25%, #5c697f 0%, #303846 75%);
+}
+
+.x-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.x-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.x-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #f4f8fb;
+}
+
+.x-handle {
+  font-size: 14px;
+  color: #8492a7;
+}
+
+.x-attribution {
+  font-size: 12px;
+  color: var(--muted);
+  margin-left: 8px;
+}
+
+.x-text {
+  margin-top: 4px;
+  font-size: 15px;
+  line-height: 1.33;
+  color: #f0f3f5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.x-text.placeholder {
+  color: #8a95a5;
+}
+
+.x-show-more {
+  margin-top: 5px;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 14px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.x-video-card {
+  margin-top: 10px;
+  border-radius: 14px;
+  border: 1px solid #2c3544;
+  background: linear-gradient(130deg, #1e2b3d, #131821);
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  position: relative;
+  background-size: cover;
+  background-position: center;
+}
+
+.x-video-card.no-thumb::before {
+  content: "No thumbnail yet";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8a95a6;
+  font-size: 13px;
+}
+
+.x-video-play {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.76);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+}
+
+.x-video-duration {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  background: rgba(0, 0, 0, 0.74);
+  color: #fff;
+  border-radius: 8px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.x-video-stage {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(19, 30, 48, 0.86);
+  border: 1px solid #2a3547;
+  color: #d7e2f0;
+}
+
+.x-video-stage.pending {
+  background: rgba(196, 132, 30, 0.2);
+  border-color: rgba(255, 193, 87, 0.45);
+  color: #ffd27e;
+}
+
+.x-video-stage.downloading {
+  background: rgba(24, 96, 179, 0.22);
+  border-color: rgba(68, 154, 248, 0.5);
+  color: #9fd0ff;
+}
+
+.x-video-stage.downloaded {
+  background: rgba(28, 116, 66, 0.22);
+  border-color: rgba(97, 199, 135, 0.45);
+  color: #99efb9;
+}
+
+.x-summary {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #9aa7ba;
+}
+
+.x-summary.empty { color: #6f7d92; font-style: italic; }
+
+.x-post-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+.x-action-btn {
+  appearance: none;
+  border: 1px solid #2b3342;
+  background: #151c27;
+  color: #d6dfeb;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.x-action-btn:hover { background: #1c2634; }
+
+.x-engagement {
+  margin-top: 10px;
+  display: flex;
+  gap: 20px;
+  color: #7f8ba0;
+  font-size: 13px;
+}
+
+.clips-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  border-bottom: 1px solid var(--line);
+  background: rgba(15, 18, 24, 0.95);
+  backdrop-filter: blur(8px);
+  padding: 10px 16px;
+  color: #95a1b5;
+  font-size: 12px;
+}
+
+.clips-empty {
+  color: #8a95a8;
+  font-size: 14px;
+  padding: 22px 18px;
+}
+
+.clips-select {
+  margin-top: 10px;
+  color: var(--accent);
+  font-size: 13px;
+}
+
+@media (max-width: 1280px) {
+  .pc-panels {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(240px, 34%) 1fr;
+  }
+  .pc-clips-pane { border-right: none; border-bottom: 1px solid var(--line); }
+  .pc-caption-layout {
+    grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  }
+}
+</style>
+</head>
+<body>
+<div class="pc-shell">
+  <div class="pc-header">
+    <div>
+      <div class="pc-title">Post Captioning</div>
+      <div class="pc-subtitle" id="subtitle">Timeline preview synced with pending, downloading, and downloaded clips.</div>
+    </div>
+    <button class="pc-close" id="closeBtn" type="button" aria-label="Close">X</button>
+  </div>
+
+  <div class="pc-panels">
+    <aside class="pc-clips-pane">
+      <div class="clips-head" id="clipsCount">0 clips in timeline</div>
+      <div class="x-timeline" id="clipsTimeline"></div>
+    </aside>
+    <section class="pc-caption-layout">
+      <div class="pc-editor-pane">
+        <div class="pc-label">X Post Caption</div>
+        <textarea id="captionInput" class="pc-editor-input" spellcheck="false" placeholder="Write your post caption here..."></textarea>
+        <div class="pc-counter" id="counter"><span id="countValue">0</span> / 280 preview chars</div>
+        <div class="pc-note">Timeline preview matches X feed behavior: caption grows naturally, then collapses behind "Show more" after 280 characters.</div>
+      </div>
+      <div class="pc-preview-pane">
+        <div class="x-timeline">
+          <article class="x-post">
+            <div class="x-avatar template"></div>
+            <div class="x-main">
+              <div class="x-header">
+                <span class="x-name">Template Account</span>
+                <span class="x-handle">@templatefeed - 2m</span>
+              </div>
+              <div class="x-text">Earlier post in the timeline for context.</div>
+            </div>
+          </article>
+
+          <article class="x-post selected">
+            <div class="x-avatar"></div>
+            <div class="x-main">
+              <div class="x-header">
+                <span class="x-name" id="focusName">Your Clip</span>
+                <span class="x-handle">@clipstudiopost - now</span>
+                <span class="x-attribution" id="focusAttribution"></span>
+              </div>
+              <div class="x-summary empty" id="focusSummary">No pending subtitle/caption</div>
+              <div class="x-text placeholder" id="focusText">Enter Post Caption...</div>
+              <button class="x-show-more" id="focusShowMore" type="button" style="display:none;">Show more</button>
+              <div class="x-video-card no-thumb" id="focusThumb">
+                <span class="x-video-stage pending" id="focusStage">PENDING</span>
+                <span class="x-video-play">&#9658;</span>
+                <span class="x-video-duration" id="focusDuration">0:00</span>
+              </div>
+              <div class="x-post-actions" id="focusActions" style="display:none;">
+                <button class="x-action-btn" id="focusOpenFolder" type="button">Open Folder</button>
+                <button class="x-action-btn" id="focusCopyCaption" type="button">Copy Caption</button>
+              </div>
+              <div class="x-engagement"><span>2 Replies</span><span>2 Reposts</span><span>78 Likes</span><span>910 Views</span></div>
+            </div>
+          </article>
+
+          <article class="x-post">
+            <div class="x-avatar template"></div>
+            <div class="x-main">
+              <div class="x-header">
+                <span class="x-name">Template Account</span>
+                <span class="x-handle">@templatefeed - 4m</span>
+              </div>
+              <div class="x-text">Another post below to preview final spacing in the feed.</div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  function formatClipAttribution(clip) {
+    if (!clip) return '';
+    const clipperName = String(clip.clipperName || '').trim();
+    if (!clipperName) return '';
+    const helperName = String(clip.helperName || '').trim();
+    if (!helperName || helperName.toLowerCase() === clipperName.toLowerCase()) {
+      return 'by ' + clipperName;
+    }
+    return 'by ' + clipperName + ' (' + helperName + ')';
+  }
+
+  const X_LIMIT = 280;
+  const thumbCache = new Map();
+  const thumbInflight = new Map();
+  const clipExpanded = new Set();
+  let focusExpanded = false;
+  let sendTimer = null;
+  let localEditClipId = null;
+  let localEditAt = 0;
+
+  let state = {
+    selectedClipId: null,
+    timelineClips: [],
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const captionInput = $('captionInput');
+  const focusText = $('focusText');
+  const focusShowMore = $('focusShowMore');
+  const focusThumb = $('focusThumb');
+  const focusDuration = $('focusDuration');
+  const focusName = $('focusName');
+  const focusAttribution = $('focusAttribution');
+  const focusSummary = $('focusSummary');
+  const focusStage = $('focusStage');
+  const focusActions = $('focusActions');
+  const focusOpenFolder = $('focusOpenFolder');
+  const focusCopyCaption = $('focusCopyCaption');
+  const counter = $('counter');
+  const countValue = $('countValue');
+  const subtitle = $('subtitle');
+  const clipsTimeline = $('clipsTimeline');
+  const clipsCount = $('clipsCount');
+
+  function getStageMeta(clip) {
+    const stage = String((clip && clip.stage) || '').toLowerCase();
+    if (stage === 'pending') return { key: 'pending', label: 'PENDING' };
+    if (stage === 'downloading') return { key: 'downloading', label: 'DOWNLOADING' };
+    return { key: 'downloaded', label: 'DOWNLOADED' };
+  }
+
+  function isDownloaded(clip) {
+    return getStageMeta(clip).key === 'downloaded' && !!(clip && clip.filePath);
+  }
+
+  function fmtDur(totalSec) {
+    const s = Math.max(0, Math.floor(Number(totalSec) || 0));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+    return m + ':' + String(sec).padStart(2, '0');
+  }
+
+  function escH(str) {
+    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function escAttr(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function getClipById(id) {
+    if (!id) return null;
+    return state.timelineClips.find(c => c.id === id) || null;
+  }
+
+  function getSelectedClip() {
+    let selected = getClipById(state.selectedClipId);
+    if (selected) return selected;
+    if (state.timelineClips.length > 0) {
+      state.selectedClipId = state.timelineClips[0].id;
+      return state.timelineClips[0];
+    }
+    state.selectedClipId = null;
+    return null;
+  }
+
+  function getThumbUrl(clip) {
+    if (!clip) return '';
+    if (clip.postThumbnailDataUrl) return clip.postThumbnailDataUrl;
+    return thumbCache.get(clip.id) || '';
+  }
+
+  function sendAction(action, debounceMs) {
+    if (!window.postCaptionBridge) return;
+    if (!debounceMs) {
+      window.postCaptionBridge.sendAction(action);
+      return;
+    }
+    clearTimeout(sendTimer);
+    sendTimer = setTimeout(() => {
+      window.postCaptionBridge.sendAction(action);
+    }, debounceMs);
+  }
+
+  function ensureThumb(clip) {
+    if (!clip || !clip.id || !clip.filePath) return;
+    if (clip.postThumbnailDataUrl) {
+      thumbCache.set(clip.id, clip.postThumbnailDataUrl);
+      return;
+    }
+    if (thumbCache.has(clip.id) || thumbInflight.has(clip.id)) return;
+    sendAction({ type: 'requestThumb', id: clip.id });
+    const pending = window.postCaptionBridge.extractClipFirstFrame(clip.filePath).then((res) => {
+      if (res && res.success && res.dataUrl) {
+        thumbCache.set(clip.id, res.dataUrl);
+        render();
+      }
+    }).finally(() => {
+      thumbInflight.delete(clip.id);
+    });
+    thumbInflight.set(clip.id, pending);
+  }
+
+  function computePreview(text, expanded) {
+    const raw = text || '';
+    if (!raw.length) {
+      return {
+        text: 'Enter Post Caption...',
+        placeholder: true,
+        showMore: false,
+      };
+    }
+    if (raw.length <= X_LIMIT) {
+      return {
+        text: raw,
+        placeholder: false,
+        showMore: false,
+      };
+    }
+    if (expanded) {
+      return {
+        text: raw,
+        placeholder: false,
+        showMore: true,
+      };
+    }
+    return {
+      text: raw.slice(0, X_LIMIT).trimEnd() + '...',
+      placeholder: false,
+      showMore: true,
+    };
+  }
+
+  function renderFocus() {
+    const clip = getSelectedClip();
+    subtitle.textContent = clip
+      ? ('Editing caption for ' + (clip.name || '') + ' ' + formatClipAttribution(clip)).trim()
+      : 'Timeline preview synced with pending, downloading, and downloaded clips.';
+
+    if (!clip) {
+      focusName.textContent = 'Your Clip';
+      focusAttribution.textContent = '';
+      focusSummary.textContent = 'No pending subtitle/caption';
+      focusSummary.classList.add('empty');
+      focusDuration.textContent = '0:00';
+      focusText.textContent = 'Enter Post Caption...';
+      focusText.classList.add('placeholder');
+      focusShowMore.style.display = 'none';
+      focusStage.textContent = 'PENDING';
+      focusStage.className = 'x-video-stage pending';
+      focusThumb.classList.add('no-thumb');
+      focusThumb.style.backgroundImage = '';
+      focusActions.style.display = 'none';
+      counter.classList.remove('over');
+      countValue.textContent = '0';
+      if (captionInput.value !== '') captionInput.value = '';
+      captionInput.disabled = true;
+      return;
+    }
+
+    captionInput.disabled = false;
+    focusName.textContent = clip.name || 'Your Clip';
+    focusAttribution.textContent = formatClipAttribution(clip);
+    const stageMeta = getStageMeta(clip);
+    focusStage.textContent = stageMeta.label;
+    focusStage.className = 'x-video-stage ' + stageMeta.key;
+    const summaryText = (clip.caption || '').trim();
+    focusSummary.textContent = summaryText || 'No pending subtitle/caption';
+    focusSummary.classList.toggle('empty', !summaryText);
+    focusDuration.textContent = fmtDur(Math.max(0, Number(clip.outTime || 0) - Number(clip.inTime || 0)));
+
+    const currentValue = captionInput.value;
+    const desiredValue = clip.postCaption || '';
+    const stillLocallyEditing = (
+      document.activeElement === captionInput &&
+      localEditClipId === clip.id &&
+      Date.now() - localEditAt < 1200
+    );
+    if (!stillLocallyEditing && currentValue !== desiredValue) {
+      captionInput.value = desiredValue;
+    }
+
+    const rawText = (document.activeElement === captionInput && localEditClipId === clip.id)
+      ? captionInput.value
+      : (clip.postCaption || '');
+
+    const preview = computePreview(rawText, focusExpanded);
+    countValue.textContent = String(rawText.length);
+    counter.classList.toggle('over', rawText.length > X_LIMIT);
+    focusText.textContent = preview.text;
+    focusText.classList.toggle('placeholder', preview.placeholder);
+    focusShowMore.style.display = preview.showMore ? 'inline-flex' : 'none';
+    focusShowMore.textContent = focusExpanded ? 'Show less' : 'Show more';
+
+    ensureThumb(clip);
+    const thumb = getThumbUrl(clip);
+    if (thumb) {
+      focusThumb.classList.remove('no-thumb');
+      focusThumb.style.backgroundImage = 'url(' + JSON.stringify(thumb) + ')';
+    } else {
+      focusThumb.classList.add('no-thumb');
+      focusThumb.style.backgroundImage = '';
+    }
+
+    focusActions.style.display = isDownloaded(clip) ? 'flex' : 'none';
+  }
+
+  function renderClipsTab() {
+    clipsCount.textContent = state.timelineClips.length + (state.timelineClips.length === 1 ? ' clip in timeline' : ' clips in timeline');
+
+    if (state.timelineClips.length === 0) {
+      clipsTimeline.innerHTML = '<div class="clips-empty">No clips yet. Pending and downloading clips will appear here with status tags.</div>';
+      return;
+    }
+
+    const items = state.timelineClips.map((clip) => {
+      ensureThumb(clip);
+      const isSelected = clip.id === state.selectedClipId;
+      const expanded = clipExpanded.has(clip.id);
+      const stageMeta = getStageMeta(clip);
+      const downloaded = isDownloaded(clip);
+      const summaryText = (clip.caption || '').trim();
+      const textPreview = computePreview(clip.postCaption || '', expanded);
+      const thumb = getThumbUrl(clip);
+      const thumbStyle = thumb ? ` style="background-image:url('${escAttr(thumb)}');"` : '';
+      const duration = fmtDur(Math.max(0, Number(clip.outTime || 0) - Number(clip.inTime || 0)));
+      return `
+        <article class="x-post${isSelected ? ' selected' : ''}" data-clip-id="${escAttr(clip.id)}">
+          <div class="x-avatar"></div>
+          <div class="x-main">
+            <div class="x-header">
+              <span class="x-name">${escH(clip.name || 'Your Clip')}</span>
+              <span class="x-handle">@clipstudiopost · now</span>
+            </div>
+            ${(() => { const a = formatClipAttribution(clip); return a ? `<div class="x-attribution">${escH(a)}</div>` : ''; })()}
+            <div class="x-summary${summaryText ? '' : ' empty'}">${escH(summaryText || 'No pending subtitle/caption')}</div>
+            <div class="x-text${textPreview.placeholder ? ' placeholder' : ''}">${escH(textPreview.text)}</div>
+            ${textPreview.showMore ? `<button class="x-show-more clip-show-more" data-clip-id="${escAttr(clip.id)}" type="button">${expanded ? 'Show less' : 'Show more'}</button>` : ''}
+            <div class="x-video-card${thumb ? '' : ' no-thumb'}"${thumbStyle}>
+              <span class="x-video-stage ${stageMeta.key}">${stageMeta.label}</span>
+              <span class="x-video-play">&#9658;</span>
+              <span class="x-video-duration">${escH(duration)}</span>
+            </div>
+            ${downloaded ? `<div class="x-post-actions">
+              <button class="x-action-btn" type="button" data-action="open-folder" data-clip-id="${escAttr(clip.id)}">Open Folder</button>
+              <button class="x-action-btn" type="button" data-action="copy-caption" data-clip-id="${escAttr(clip.id)}">Copy Caption</button>
+            </div>` : ''}
+            <div class="clips-select">${isSelected ? 'Selected for editing' : 'Click to edit this caption'}</div>
+          </div>
+        </article>
+      `;
+    }).join('');
+
+    clipsTimeline.innerHTML = items;
+  }
+
+  function render() {
+    renderFocus();
+    renderClipsTab();
+  }
+
+  captionInput.addEventListener('input', () => {
+    const clip = getSelectedClip();
+    if (!clip) return;
+    const value = captionInput.value;
+    localEditClipId = clip.id;
+    localEditAt = Date.now();
+    clip.postCaption = value;
+    focusExpanded = false;
+    renderFocus();
+    renderClipsTab();
+    sendAction({ type: 'editPostCaptionById', id: clip.id, value }, 100);
+  });
+
+  focusShowMore.addEventListener('click', () => {
+    focusExpanded = !focusExpanded;
+    renderFocus();
+  });
+
+  focusOpenFolder.addEventListener('click', () => {
+    const clip = getSelectedClip();
+    if (!isDownloaded(clip)) return;
+    sendAction({ type: 'showById', id: clip.id });
+  });
+
+  focusCopyCaption.addEventListener('click', () => {
+    const clip = getSelectedClip();
+    if (!isDownloaded(clip)) return;
+    sendAction({ type: 'copyCaptionById', id: clip.id });
+  });
+
+  clipsTimeline.addEventListener('click', (event) => {
+    const actionBtn = event.target.closest('[data-action][data-clip-id]');
+    if (actionBtn) {
+      const id = actionBtn.dataset.clipId;
+      if (actionBtn.dataset.action === 'open-folder') {
+        sendAction({ type: 'showById', id });
+      } else if (actionBtn.dataset.action === 'copy-caption') {
+        sendAction({ type: 'copyCaptionById', id });
+      }
+      return;
+    }
+
+    const moreBtn = event.target.closest('.clip-show-more');
+    if (moreBtn) {
+      const id = moreBtn.dataset.clipId;
+      if (clipExpanded.has(id)) clipExpanded.delete(id);
+      else clipExpanded.add(id);
+      renderClipsTab();
+      return;
+    }
+
+    const post = event.target.closest('[data-clip-id]');
+    if (!post) return;
+    const id = post.dataset.clipId;
+    const clip = getClipById(id);
+    if (!clip) return;
+    state.selectedClipId = id;
+    focusExpanded = false;
+    localEditClipId = null;
+    sendAction({ type: 'selectClip', id });
+    render();
+  });
+
+  $('closeBtn').addEventListener('click', () => {
+    if (window.postCaptionBridge) window.postCaptionBridge.closeWindow();
+  });
+
+  window.postCaptionBridge.onStateUpdate((incoming) => {
+    if (!incoming || !Array.isArray(incoming.timelineClips)) return;
+    state = incoming;
+    if (!state.selectedClipId && state.timelineClips[0]) {
+      state.selectedClipId = state.timelineClips[0].id;
+    }
+    const selected = getSelectedClip();
+    if (selected) ensureThumb(selected);
+    render();
+  });
+
+  let lastOpenRequestId = null;
+  if (window.postCaptionBridge.onOpenContext) {
+    window.postCaptionBridge.onOpenContext((ctx) => {
+      if (!ctx) return;
+      if (ctx.requestId && lastOpenRequestId === ctx.requestId) return;
+      lastOpenRequestId = ctx.requestId || null;
+      render();
+    });
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>
+

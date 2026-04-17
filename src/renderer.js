@@ -1564,6 +1564,11 @@ function toPostCaptionRecord(clip) {
     postThumbnailDataUrl: clip.postThumbnailDataUrl || '',
     inTime: clip.inTime,
     outTime: clip.outTime,
+    clipperId: clip.clipperId || clip.collabClipperId || '',
+    clipperName: clip.clipperName || clip.collabClipperName || '',
+    helperId: clip.helperId || clip.collabHelperId || null,
+    helperName: clip.helperName || clip.collabHelperName || '',
+    postCaptionUpdatedAt: Number(clip.postCaptionUpdatedAt) || 0,
   };
 }
 
