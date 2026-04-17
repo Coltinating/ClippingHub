@@ -1398,6 +1398,44 @@ ipcMain.handle('collab-add-chat', (_, payload) => {
   }
 });
 
+ipcMain.handle('collab-set-member-role', (_, payload) => {
+  try {
+    const code = sanitizeCode(payload?.code);
+    const actorId = String(payload?.actorId || '').trim();
+    const targetId = String(payload?.targetId || '').trim();
+    const newRole = String(payload?.role || '').toLowerCase();
+    const assistUserId = String(payload?.assistUserId || '').trim();
+
+    if (!code || !actorId || !targetId) {
+      return { success: false, error: 'Missing code / actorId / targetId' };
+    }
+    if (!['viewer', 'clipper', 'helper'].includes(newRole)) {
+      return { success: false, error: 'Invalid role' };
+    }
+
+    const lobby = loadLobbyByCode(code);
+    if (!lobby) return { success: false, error: 'Lobby not found' };
+
+    const actor = lobby.members.find(m => m.id === actorId);
+    const target = lobby.members.find(m => m.id === targetId);
+    if (!actor || !target) return { success: false, error: 'Actor or target not found in lobby' };
+    if (actor.role !== 'clipper') return { success: false, error: 'Only clippers may assign roles' };
+
+    target.role = newRole;
+    if (newRole === 'helper') {
+      target.assistUserId = assistUserId || actorId;
+    } else {
+      target.assistUserId = '';
+    }
+
+    saveLobby(lobby);
+    return { success: true, lobby };
+  } catch (err) {
+    debugLog('COLLAB', 'Set member role failed', { error: err.message });
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('collab-upsert-range', (_, payload) => {
   try {
     const code = sanitizeCode(payload?.code);
