@@ -51,7 +51,10 @@
       clipperId: range.clipperId || range.userId || '',
       clipperName: clipperName,
       helperId: range.helperId || null,
-      helperName: range.helperName || ''
+      helperName: range.helperName || '',
+      sentBy: range.sentBy || '',
+      sentByName: range.sentByName || '',
+      sentAt: Number(range.sentAt) || 0
     };
   }
 

@@ -40,4 +40,10 @@ describe('projectRangeToTimelineClip', () => {
   it('skips ranges without an id', () => {
     expect(projectRangeToTimelineClip({ inTime: 1, outTime: 2 })).toBeNull();
   });
+
+  it('passes through sentBy / sentByName', () => {
+    const out = projectRangeToTimelineClip({ id: 'r', sentBy: 'h1', sentByName: 'Owl' });
+    expect(out.sentBy).toBe('h1');
+    expect(out.sentByName).toBe('Owl');
+  });
 });

@@ -394,7 +394,10 @@ function upsertClipRange(range) {
     fileName: range.fileName || (existing && existing.fileName) || '',
     filePath: range.filePath || (existing && existing.filePath) || '',
     displayPath: range.displayPath || (existing && existing.displayPath) || '',
-    postThumbnailDataUrl: range.postThumbnailDataUrl || (existing && existing.postThumbnailDataUrl) || ''
+    postThumbnailDataUrl: range.postThumbnailDataUrl || (existing && existing.postThumbnailDataUrl) || '',
+    sentBy: (range.sentBy != null ? range.sentBy : (existing && existing.sentBy)) || '',
+    sentByName: (range.sentByName != null ? range.sentByName : (existing && existing.sentByName)) || '',
+    sentAt: Number(range.sentAt != null ? range.sentAt : (existing && existing.sentAt)) || 0
   };
 
   var idx = -1;
@@ -472,6 +475,34 @@ function updateClipRangeMetadata(rangeId, patch) {
   return upsertClipRange(Object.assign({
     id: id, inTime: existing.inTime, outTime: existing.outTime
   }, pick));
+}
+
+function markRangeSent(rangeId) {
+  var id = String(rangeId || '').trim();
+  if (!id) return null;
+  var existing = null;
+  for (var i = 0; i < state.clipRanges.length; i++) {
+    if (state.clipRanges[i].id === id) { existing = state.clipRanges[i]; break; }
+  }
+  if (!existing) return null;
+  return upsertClipRange({
+    id: id, inTime: existing.inTime, outTime: existing.outTime,
+    sentBy: state.me.id, sentByName: state.me.name || '', sentAt: Date.now()
+  });
+}
+
+function markRangeUnsent(rangeId) {
+  var id = String(rangeId || '').trim();
+  if (!id) return null;
+  var existing = null;
+  for (var i = 0; i < state.clipRanges.length; i++) {
+    if (state.clipRanges[i].id === id) { existing = state.clipRanges[i]; break; }
+  }
+  if (!existing) return null;
+  return upsertClipRange({
+    id: id, inTime: existing.inTime, outTime: existing.outTime,
+    sentBy: '', sentByName: '', sentAt: 0
+  });
 }
 
 function getIndicatorAtTime(timeSec) {
@@ -944,7 +975,9 @@ window.CollabUI = {
   subscribe: subscribe,
   simulate: simulate,
   updateClipRangeCaption: updateClipRangeCaption,
-  updateClipRangeMetadata: updateClipRangeMetadata
+  updateClipRangeMetadata: updateClipRangeMetadata,
+  markRangeSent: markRangeSent,
+  markRangeUnsent: markRangeUnsent
 };
 
 if (document.readyState === 'loading') {
