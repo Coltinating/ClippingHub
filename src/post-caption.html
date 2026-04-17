@@ -501,6 +501,7 @@ html, body {
   let localEditAt = 0;
 
   let state = {
+    isHelper: false,
     selectedClipId: null,
     timelineClips: [],
   };
@@ -754,6 +755,11 @@ html, body {
               <button class="x-action-btn" type="button" data-action="open-folder" data-clip-id="${escAttr(clip.id)}">Open Folder</button>
               <button class="x-action-btn" type="button" data-action="copy-caption" data-clip-id="${escAttr(clip.id)}">Copy Caption</button>
             </div>` : ''}
+            ${state.isHelper ? `<div class="x-post-actions">${
+              clip.sentBy
+                ? `<button class="x-action-btn" type="button" data-action="unsend" data-clip-id="${escAttr(clip.collabRangeId || clip.id)}">Unsend</button>`
+                : `<button class="x-action-btn" type="button" data-action="send" data-clip-id="${escAttr(clip.collabRangeId || clip.id)}">Send to Clipper</button>`
+            }</div>` : ''}
             <div class="clips-select">${isSelected ? 'Selected for editing' : 'Click to edit this caption'}</div>
           </div>
         </article>
@@ -806,6 +812,10 @@ html, body {
         sendAction({ type: 'showById', id });
       } else if (actionBtn.dataset.action === 'copy-caption') {
         sendAction({ type: 'copyCaptionById', id });
+      } else if (actionBtn.dataset.action === 'send') {
+        sendAction({ type: 'sendClipById', id });
+      } else if (actionBtn.dataset.action === 'unsend') {
+        sendAction({ type: 'unsendClipById', id });
       }
       return;
     }

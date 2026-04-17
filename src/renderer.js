@@ -1638,6 +1638,9 @@ function toPostCaptionRecord(clip) {
     helperId: clip.helperId || clip.collabHelperId || null,
     helperName: clip.helperName || clip.collabHelperName || '',
     postCaptionUpdatedAt: Number(clip.postCaptionUpdatedAt) || 0,
+    sentBy: clip.sentBy || '',
+    sentByName: clip.sentByName || '',
+    collabRangeId: clip.collabRangeId || clip.id || '',
   };
 }
 
@@ -1737,6 +1740,7 @@ function syncPostCaptionState() {
   if (selected) ensurePostCaptionThumb(selected);
   try {
     window.clipper.sendPostCaptionStateUpdate({
+      isHelper: isHelperRole(),
       selectedClipId: selected ? selected.id : null,
       timelineClips: captionTimelineClips.map(c => toPostCaptionRecord(c)).filter(Boolean),
     });
@@ -2286,6 +2290,14 @@ window.clipper.onPostCaptionAction((action) => {
   if (action.type === 'requestThumb') {
     const clip = completedClips.find(c => c.id === action.id) || getTimelineClipById(action.id);
     if (clip) ensurePostCaptionThumb(clip);
+    return;
+  }
+  if (action.type === 'sendClipById') {
+    if (window.CollabUI && window.CollabUI.markRangeSent) window.CollabUI.markRangeSent(action.id);
+    return;
+  }
+  if (action.type === 'unsendClipById') {
+    if (window.CollabUI && window.CollabUI.markRangeUnsent) window.CollabUI.markRangeUnsent(action.id);
     return;
   }
   if (action.type === 'editPostCaptionById') {
