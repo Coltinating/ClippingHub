@@ -614,7 +614,9 @@ function renderMembers(listEl) {
     return '<div class="collab-member-row" data-user-id="' + esc(m.id) + '">' +
       '<div class="collab-member-avatar" style="' + avatarStyle + '"></div>' +
       '<div class="collab-member-meta">' +
-        '<div class="collab-member-name" style="color:' + color + '">' + esc(m.name) + ' <small style="color:#8a95a8;font-weight:500;">' + esc(m.role || 'editor') + '</small></div>' +
+        '<div class="collab-member-name" style="color:' + color + '">' + esc(m.name) +
+          '<span class="collab-member-role-badge ' + esc(m.role || 'viewer') + '">' + esc(m.role || 'viewer') + '</span>' +
+        '</div>' +
         handle +
       '</div>' +
     '</div>';
@@ -665,6 +667,30 @@ function openProfilePopover(userId, anchorEl) {
         window.clipper.openExternal('https://x.com/' + xAnchor.dataset.handle);
       }
     });
+  }
+
+  // Role-assignment buttons (only if self is clipper and target is not self)
+  var iAmClipper = (state.me.role === 'clipper') && m.id !== state.me.id;
+  if (iAmClipper) {
+    var actions = document.createElement('div');
+    actions.className = 'profile-popover-role-actions';
+    var currentRole = m.role || 'viewer';
+    [['helper', 'Assign as my Helper'],
+     ['clipper', 'Promote to Clipper'],
+     ['viewer', 'Demote to Viewer']].forEach(function (pair) {
+      var role = pair[0], label = pair[1];
+      if (currentRole === role) return;
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-ghost btn-xs';
+      btn.textContent = label;
+      btn.addEventListener('click', function () {
+        setMemberRole(m.id, role, role === 'helper' ? { assistUserId: state.me.id } : {});
+        pop.remove();
+      });
+      actions.appendChild(btn);
+    });
+    pop.appendChild(actions);
   }
 
   setTimeout(function () {

@@ -787,6 +787,19 @@ video {
 }
 .clip-card-sent { background: rgba(29, 155, 240, 0.04); }
 
+.collab-member-role-badge {
+  font-size: 10px; padding: 1px 7px; border-radius: 999px;
+  font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; margin-left: 6px;
+}
+.collab-member-role-badge.viewer { background: #23303f; color: #9cb0c6; }
+.collab-member-role-badge.helper { background: #2e3b1f; color: #d0e48a; }
+.collab-member-role-badge.clipper { background: #1d3555; color: #9ec8ff; }
+
+.profile-popover-role-actions {
+  display: flex; flex-direction: column; gap: 6px; width: 100%; margin-top: 6px;
+}
+.profile-popover-role-actions .btn { width: 100%; justify-content: center; }
+
 .clip-card-times {
   display: flex; gap: 8px; font-family: 'Consolas', monospace;
   font-size: 11px; color: var(--dim); margin-bottom: 4px;
