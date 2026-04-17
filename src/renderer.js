@@ -13,6 +13,16 @@ function fmtSize(b) {
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function escAttr(s) { return String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 function escH(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function renderAttributionBadge(clip) {
+  if (!window.CollabUtils || typeof window.CollabUtils.formatClipAttribution !== 'function') return '';
+  const clipperName = clip.collabClipperName || clip.clipperName || '';
+  const helperName = clip.collabHelperName || clip.helperName || '';
+  if (!clipperName) return '';
+  const text = window.CollabUtils.formatClipAttribution({ clipperName, helperName });
+  if (!text) return '';
+  return `<span class="clip-card-attribution">${escH(text)}</span>`;
+}
 const X_PREVIEW_CHAR_LIMIT = 280;
 const clipFrameThumbCache = new Map();
 
@@ -816,6 +826,7 @@ function renderPendingClips() {
       <div class="clip-card-header">
         <input class="clip-card-name" type="text" value="${escAttr(clip.name)}" data-idx="${idx}" placeholder="Clip name...">
         <button class="clip-card-remove" data-idx="${idx}">&times;</button>
+        ${renderAttributionBadge(clip)}
       </div>
       <div class="clip-card-times">
         <span><span class="label">IN</span> <span class="in-val timestamp-editable" data-field="inTime" data-idx="${idx}" title="Click to edit">${fmtHMS(clip.inTime)}</span><button class="repick-btn" data-action="repickIn" data-idx="${idx}" title="Re-pick IN from video">&#9998;</button></span>
@@ -1446,6 +1457,7 @@ function renderDownloadingClips() {
       card.innerHTML = `
         <div class="download-card-header">
           <div class="download-card-name">${escH(dl.name)}</div>
+          ${renderAttributionBadge(dl)}
         </div>
         <div class="download-progress"><div class="download-progress-fill" style="width:${dl.progress}%"></div></div>
         <div class="download-progress-text">${dl.progress}% \u2014 processing with ffmpeg...</div>
@@ -1499,7 +1511,7 @@ function renderCompletedClips() {
         <div class="completed-card-header">
           <span class="completed-card-icon">&#127916;</span>
           <div class="completed-card-info">
-            <div class="completed-card-name" title="${escAttr(clip.name)}">${escH(clip.name)}</div>
+            <div class="completed-card-name" title="${escAttr(clip.name)}">${escH(clip.name)}${renderAttributionBadge(clip)}</div>
             <div class="completed-card-summary${(clip.caption || '').trim() ? '' : ' empty'}" title="${escAttr((clip.caption || '').trim() || 'No caption/summary set')}">${escH((clip.caption || '').trim() || 'No caption/summary set')}</div>
             <div class="completed-card-file" title="${escAttr(clip.fileName || '')}">${escH(clip.fileName || '')}${clip.fileSize ? ` · ${fmtSize(clip.fileSize)}` : ''}</div>
           </div>
