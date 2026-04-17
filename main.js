@@ -375,9 +375,11 @@ function upsertLobbyMember(lobby, member, preferredRole) {
     existing.lastSeenAt = now;
     if (!existing.joinedAt) existing.joinedAt = now;
     if (preferredRole && !existing.role) existing.role = preferredRole;
-    if (xHandle !== undefined) existing.xHandle = xHandle;
-    if (color !== undefined) existing.color = color;
-    if (pfpDataUrl !== undefined) existing.pfpDataUrl = pfpDataUrl;
+    // Only overwrite profile fields when the incoming call actually carries them.
+    // Bare { id, name } helper/clipper aux calls must NOT wipe profile state.
+    if (xHandle) existing.xHandle = xHandle;
+    if (color) existing.color = color;
+    if (pfpDataUrl) existing.pfpDataUrl = pfpDataUrl;
     return existing;
   }
   const created = {
