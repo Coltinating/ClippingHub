@@ -274,7 +274,7 @@ async function createLobby(name, password, code) {
     name: name,
     password: password || '',
     code: safeCode(code || ''),
-    user: { id: state.me.id, name: state.me.name }
+    user: mePayload()
   });
   if (!res || !res.success) {
     setStatus((res && res.error) ? res.error : 'Create failed');
@@ -298,7 +298,7 @@ async function joinLobby(code, password) {
   var res = await window.clipper.collabJoinLobby({
     code: cleanCode,
     password: password || '',
-    user: { id: state.me.id, name: state.me.name }
+    user: mePayload()
   });
   if (!res || !res.success) {
     setStatus((res && res.error) ? res.error : 'Join failed');
@@ -325,7 +325,7 @@ async function refreshLobby() {
   if (!state.lobby || !window.clipper || !window.clipper.collabGetLobby) return null;
   var res = await window.clipper.collabGetLobby({
     code: state.lobby.code,
-    user: { id: state.me.id, name: state.me.name }
+    user: mePayload()
   });
   if (!res || !res.success) return null;
   applyLobby(res.lobby);
@@ -353,7 +353,7 @@ async function addChat(text, userName) {
   var res = await window.clipper.collabAddChat({
     code: state.lobby.code,
     text: msg,
-    user: { id: state.me.id, name: state.me.name }
+    user: mePayload()
   });
   if (res && res.success) applyLobby(res.lobby);
   else if (res && res.error) setStatus(res.error);
@@ -412,7 +412,7 @@ function upsertClipRange(range) {
     window.clipper.collabUpsertRange({
       code: state.lobby.code,
       range: next,
-      user: { id: state.me.id, name: state.me.name }
+      user: mePayload()
     }).then(function (res) {
       if (res && res.success) applyLobby(res.lobby);
       else if (res && res.error) setStatus(res.error);
