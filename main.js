@@ -1429,6 +1429,9 @@ ipcMain.handle('collab-upsert-range', (_, payload) => {
       upsertLobbyMember(lobby, { id: helperId, name: helperName }, null);
     }
 
+    const prefer = (fromRange, fromExisting, fallback) =>
+      fromRange != null ? fromRange : (fromExisting != null ? fromExisting : fallback);
+
     const nextRange = {
       id: rangeId,
       userId,
@@ -1442,6 +1445,17 @@ ipcMain.handle('collab-upsert-range', (_, payload) => {
       pendingOut: !!range.pendingOut,
       status: String(range.status || existingRange?.status || 'done'),
       streamKey: String(range.streamKey || existingRange?.streamKey || 'default'),
+      name: String(prefer(range.name, existingRange?.name, '')),
+      caption: String(prefer(range.caption, existingRange?.caption, '')),
+      postCaption: String(prefer(range.postCaption, existingRange?.postCaption, '')),
+      postCaptionUpdatedAt: Number(prefer(range.postCaptionUpdatedAt, existingRange?.postCaptionUpdatedAt, 0)) || 0,
+      fileName: String(prefer(range.fileName, existingRange?.fileName, '')),
+      filePath: String(prefer(range.filePath, existingRange?.filePath, '')),
+      displayPath: String(prefer(range.displayPath, existingRange?.displayPath, '')),
+      postThumbnailDataUrl: String(prefer(range.postThumbnailDataUrl, existingRange?.postThumbnailDataUrl, '')),
+      sentBy: String(prefer(range.sentBy, existingRange?.sentBy, '')),
+      sentByName: String(prefer(range.sentByName, existingRange?.sentByName, '')),
+      sentAt: Number(prefer(range.sentAt, existingRange?.sentAt, 0)) || 0,
       createdAt: range.createdAt || existingRange?.createdAt || nowIso(),
       updatedAt: nowIso()
     };
