@@ -577,8 +577,20 @@ function updateCollabClipStage(clip, status, extra) {
   }, meta, extra || {}));
 }
 
+function getMyLobbyRole() {
+  const st = window.CollabUI && window.CollabUI.getState && window.CollabUI.getState();
+  if (!st || !st.lobby) return 'clipper';
+  return (st.me && st.me.role) || 'viewer';
+}
+
+function canMarkClips() {
+  const r = getMyLobbyRole();
+  return r === 'clipper' || r === 'helper';
+}
+
 function handleMarkIn() {
   if (vid.style.display === 'none') return;
+  if (!canMarkClips()) { dbg('ACTION', 'Mark IN blocked — viewer role'); return; }
   // Re-pick mode: block normal IN logic for ANY repick state
   if (repickState) {
     if (repickState.field === 'inTime') {
@@ -623,6 +635,7 @@ function handleMarkIn() {
 }
 
 function handleMarkOut() {
+  if (!canMarkClips()) { dbg('ACTION', 'Mark OUT blocked — viewer role'); return; }
   // Re-pick mode: update existing clip's OUT time
   if (repickState && repickState.field === 'outTime') {
     pendingClips[repickState.idx].outTime = vid.currentTime;
