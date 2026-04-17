@@ -32,6 +32,7 @@ html, body {
 
 .pc-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -70,13 +71,13 @@ html, body {
 .pc-panels {
   min-height: 0;
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: clamp(220px, 24vw, 320px) minmax(0, 1fr);
   overflow: hidden;
 }
 
 .pc-caption-layout {
   display: grid;
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  grid-template-columns: clamp(240px, 28vw, 360px) minmax(0, 1fr);
   gap: 0;
   height: 100%;
   min-height: 0;
@@ -101,7 +102,7 @@ html, body {
   width: 100%;
   margin-top: 10px;
   min-height: 220px;
-  max-height: calc(100vh - 300px);
+  max-height: max(160px, calc(100vh - 300px));
   resize: vertical;
   border: 1px solid #2a78ca;
   border-radius: 10px;
@@ -372,15 +373,31 @@ html, body {
   font-size: 13px;
 }
 
-@media (max-width: 1280px) {
+/* Stage 1 — tighten paddings and fonts before restructuring */
+@media (max-width: 1100px) {
+  .pc-editor-pane { padding: 12px; }
+  .pc-editor-input { font-size: 14px; min-height: 180px; padding: 10px; }
+  .x-timeline { width: 100%; }
+}
+
+/* Stage 2 — stack clips above caption at medium widths */
+@media (max-width: 860px) {
   .pc-panels {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(240px, 34%) 1fr;
+    grid-template-rows: minmax(200px, 34%) 1fr;
   }
   .pc-clips-pane { border-right: none; border-bottom: 1px solid var(--line); }
   .pc-caption-layout {
-    grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
   }
+  .pc-preview-pane { border-top: 1px solid var(--line); }
+}
+
+/* Stage 3 — below this, let the shell scroll rather than squishing further */
+@media (max-width: 520px) {
+  body { overflow-x: auto; }
+  .pc-shell { min-width: 520px; }
 }
 </style>
 </head>

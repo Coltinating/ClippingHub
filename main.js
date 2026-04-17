@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, nativeImage, shell, dialog, session } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeImage, shell, dialog, session, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -6,6 +6,13 @@ const { URL } = require('url');
 const express = require('express');
 const http = require('http');
 const https = require('https');
+const {
+  sanitizeLayoutKey,
+  ensureDefaultLayouts,
+  saveLayoutFile,
+  deleteLayoutFile,
+  listLayoutFiles
+} = require('./src/lib/layout-config');
 
 // ── FFmpeg Path Resolver ────────────────────────────────────────
 const { getFfmpegPath, getFfprobePath } = require('./src/lib/ffmpeg-path');
@@ -180,6 +187,9 @@ const activeDownloads = new Map();
 
 // Detachable hub window
 let hubWindow = null;
+// Detached post caption window
+let postCaptionWindow = null;
+let lastPostCaptionOpenContext = null;
 
 // Broadcast progress to main window + hub window
 function broadcastProgress(clipName, progress) {
@@ -195,6 +205,11 @@ const USER_CONFIG_PATH = path.join(CONFIG_DIR, 'user_config.json');
 const WATERMARK_CONFIG_PATH = path.join(CONFIG_DIR, 'watermark_config.json');
 const CHANNEL_CONFIG_PATH = path.join(CONFIG_DIR, 'channel_config.json');
 const COLLAB_DIR = path.join(CONFIG_DIR, 'collab_lobbies');
+const PANEL_LAYOUTS_DIR = path.join(CONFIG_DIR, 'panel_layouts');
+const PANEL_LAYOUT_STATE_PATH = path.join(CONFIG_DIR, 'panel_layout_state.json');
+const BUNDLED_LAYOUTS_DIR = path.join(__dirname, 'layouts');
+const DEFAULT_WORKSPACE_KEYS = ['default', 'editing', 'minimal'];
+const DEFAULT_WORKSPACE_SET = new Set(DEFAULT_WORKSPACE_KEYS);
 
 function ensureConfigDir() {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
@@ -203,6 +218,54 @@ function ensureConfigDir() {
 function ensureCollabDir() {
   ensureConfigDir();
   fs.mkdirSync(COLLAB_DIR, { recursive: true });
+}
+
+function loadBundledDefaultLayouts() {
+  const out = {};
+  for (let i = 0; i < DEFAULT_WORKSPACE_KEYS.length; i++) {
+    const key = DEFAULT_WORKSPACE_KEYS[i];
+    const filePath = path.join(BUNDLED_LAYOUTS_DIR, `${key}.json`);
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const layout = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      if (layout && layout.tree) out[key] = layout;
+    } catch {}
+  }
+  return out;
+}
+
+function loadPanelLayoutState() {
+  try {
+    if (!fs.existsSync(PANEL_LAYOUT_STATE_PATH)) {
+      return { version: 1, activeWorkspace: 'default' };
+    }
+    const parsed = JSON.parse(fs.readFileSync(PANEL_LAYOUT_STATE_PATH, 'utf-8'));
+    return {
+      version: Number(parsed && parsed.version) || 1,
+      activeWorkspace: sanitizeLayoutKey(parsed && parsed.activeWorkspace ? parsed.activeWorkspace : 'default')
+    };
+  } catch {
+    return { version: 1, activeWorkspace: 'default' };
+  }
+}
+
+function savePanelLayoutState(state) {
+  ensureConfigDir();
+  const next = {
+    version: 1,
+    activeWorkspace: sanitizeLayoutKey(state && state.activeWorkspace ? state.activeWorkspace : 'default')
+  };
+  fs.writeFileSync(PANEL_LAYOUT_STATE_PATH, JSON.stringify(next, null, 2));
+  return next;
+}
+
+function ensurePanelLayoutConfig() {
+  ensureConfigDir();
+  const defaults = loadBundledDefaultLayouts();
+  ensureDefaultLayouts(PANEL_LAYOUTS_DIR, defaults);
+  if (!fs.existsSync(PANEL_LAYOUT_STATE_PATH)) {
+    savePanelLayoutState({ activeWorkspace: 'default' });
+  }
 }
 
 function nowIso() {
@@ -974,6 +1037,64 @@ ipcMain.on('hub-action', (_, action) => {
   }
 });
 
+// IPC: detached post caption window
+ipcMain.handle('open-post-caption-window', (_, context = {}) => {
+  const safeContext = {
+    tab: context && context.tab === 'clips' ? 'clips' : 'caption',
+    source: context && typeof context.source === 'string' ? context.source : 'unknown',
+    requestId: Date.now()
+  };
+  lastPostCaptionOpenContext = safeContext;
+  if (postCaptionWindow && !postCaptionWindow.isDestroyed()) {
+    if (postCaptionWindow.isMinimized()) postCaptionWindow.restore();
+    postCaptionWindow.webContents.send('post-caption-open-context', safeContext);
+    postCaptionWindow.focus();
+    return { opened: true };
+  }
+  postCaptionWindow = new BrowserWindow({
+    width: 1220, height: 860,
+    minWidth: 480, minHeight: 540,
+    backgroundColor: '#0a0a0a',
+    title: 'Post Captioning - Clipper Hub',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-postcaption.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    }
+  });
+  postCaptionWindow.setMenuBarVisibility(false);
+  postCaptionWindow.loadFile(path.join(__dirname, 'src', 'post-caption.html'));
+  postCaptionWindow.webContents.on('did-finish-load', () => {
+    if (lastPostCaptionState && postCaptionWindow && !postCaptionWindow.isDestroyed()) {
+      postCaptionWindow.webContents.send('post-caption-state-update', lastPostCaptionState);
+    }
+    if (lastPostCaptionOpenContext && postCaptionWindow && !postCaptionWindow.isDestroyed()) {
+      postCaptionWindow.webContents.send('post-caption-open-context', lastPostCaptionOpenContext);
+    }
+  });
+  postCaptionWindow.on('closed', () => { postCaptionWindow = null; });
+  return { opened: true };
+});
+
+ipcMain.handle('close-post-caption-window', () => {
+  if (postCaptionWindow && !postCaptionWindow.isDestroyed()) postCaptionWindow.close();
+  postCaptionWindow = null;
+});
+
+let lastPostCaptionState = null;
+ipcMain.on('post-caption-state-update', (_, state) => {
+  lastPostCaptionState = state;
+  if (postCaptionWindow && !postCaptionWindow.isDestroyed()) {
+    postCaptionWindow.webContents.send('post-caption-state-update', state);
+  }
+});
+
+ipcMain.on('post-caption-action', (_, action) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('post-caption-action', action);
+  }
+});
+
 // Save filtered debug output to file and open in explorer
 ipcMain.handle('save-debug-log', async (_, { text, filterName }) => {
   fs.mkdirSync(DEBUG_DIR, { recursive: true });
@@ -1009,6 +1130,10 @@ ipcMain.handle('open-clips-folder', () => {
 });
 
 ipcMain.handle('show-in-folder', (_, filePath) => shell.showItemInFolder(filePath));
+ipcMain.handle('copy-text', (_, text) => {
+  clipboard.writeText(String(text || ''));
+  return { success: true };
+});
 
 // ══════════════════════════════════════════════════════════════════
 // ── Config IPC handlers ─────────────────────────────────────────
@@ -1244,30 +1369,53 @@ ipcMain.handle('collab-upsert-range', (_, payload) => {
     if (!userId) return { success: false, error: 'Missing user id' };
     upsertLobbyMember(lobby, { id: userId, name: userName }, null);
 
+    let idx = -1;
+    const rangeId = String(range.id || makeCollabId('range'));
+    for (let i = 0; i < lobby.clipRanges.length; i++) {
+      if (lobby.clipRanges[i].id === rangeId) { idx = i; break; }
+    }
+
+    const existingRange = idx >= 0 ? lobby.clipRanges[idx] : null;
     const inTime = Number(range.inTime);
-    const outTime = Number(range.outTime);
+    const outCandidate = Number(range.outTime);
+    const outTime = Number.isFinite(outCandidate)
+      ? outCandidate
+      : (existingRange && Number.isFinite(Number(existingRange.outTime)) ? Number(existingRange.outTime) : inTime);
     if (!Number.isFinite(inTime) || !Number.isFinite(outTime)) {
       return { success: false, error: 'Invalid range times' };
     }
+
+    const clipperId = String((range.clipperId || existingRange?.clipperId || userId)).trim() || userId;
+    const clipperName = normalizeDisplayName(range.clipperName || existingRange?.clipperName || userName) || userName;
+    const helperIdRaw = String(range.helperId ?? existingRange?.helperId ?? '').trim();
+    const helperNameRaw = normalizeDisplayName(range.helperName ?? existingRange?.helperName ?? '');
+    const helperId = helperIdRaw || null;
+    const helperName = helperNameRaw || '';
+
+    upsertLobbyMember(lobby, { id: clipperId, name: clipperName }, null);
+    if (helperId && helperName) {
+      upsertLobbyMember(lobby, { id: helperId, name: helperName }, null);
+    }
+
     const nextRange = {
-      id: String(range.id || makeCollabId('range')),
+      id: rangeId,
       userId,
       userName,
+      clipperId,
+      clipperName,
+      helperId,
+      helperName,
       inTime: Math.min(inTime, outTime),
       outTime: Math.max(inTime, outTime),
-      status: String(range.status || 'done'),
-      streamKey: String(range.streamKey || 'default'),
-      createdAt: range.createdAt || nowIso(),
+      pendingOut: !!range.pendingOut,
+      status: String(range.status || existingRange?.status || 'done'),
+      streamKey: String(range.streamKey || existingRange?.streamKey || 'default'),
+      createdAt: range.createdAt || existingRange?.createdAt || nowIso(),
       updatedAt: nowIso()
     };
 
-    let idx = -1;
-    for (let i = 0; i < lobby.clipRanges.length; i++) {
-      if (lobby.clipRanges[i].id === nextRange.id) { idx = i; break; }
-    }
     if (idx >= 0) {
-      nextRange.createdAt = lobby.clipRanges[idx].createdAt || nextRange.createdAt;
-      lobby.clipRanges[idx] = nextRange;
+      lobby.clipRanges[idx] = Object.assign({}, lobby.clipRanges[idx], nextRange);
     } else {
       lobby.clipRanges.push(nextRange);
     }
@@ -1459,6 +1607,43 @@ ipcMain.handle('show-preview', async (_, { filePath }) => {
 // Clipper's segment-based download pipeline — PRESERVED FROM CLIPPER
 // Added: watermark filter, outro concatenation, GPU accel options
 // ══════════════════════════════════════════════════════════════════
+
+ipcMain.handle('extract-clip-first-frame', async (_, { filePath }) => {
+  if (!filePath) return { success: false, error: 'Missing filePath' };
+  if (!fs.existsSync(filePath)) return { success: false, error: 'Clip file not found' };
+
+  const tempDir = path.join(app.getPath('temp'), 'ClippingHubThumbs');
+  fs.mkdirSync(tempDir, { recursive: true });
+  const outPath = path.join(
+    tempDir,
+    `thumb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.jpg`
+  );
+
+  try {
+    await new Promise((resolve, reject) => {
+      const ffArgs = ['-y', '-ss', '0', '-i', filePath, '-frames:v', '1', '-q:v', '2', outPath];
+      const proc = spawn(getFfmpegPath(), ffArgs, { stdio: ['ignore', 'ignore', 'pipe'] });
+      let stderr = '';
+      proc.stderr.on('data', d => { stderr += d.toString(); });
+      proc.on('error', reject);
+      proc.on('close', code => {
+        if (code === 0 && fs.existsSync(outPath)) resolve();
+        else reject(new Error(`First-frame extract failed (${code}): ${stderr.slice(-400)}`));
+      });
+    });
+
+    const b64 = fs.readFileSync(outPath).toString('base64');
+    return { success: true, dataUrl: `data:image/jpeg;base64,${b64}` };
+  } catch (err) {
+    debugLog('ERROR', 'First-frame thumbnail extraction failed', {
+      error: err.message,
+      filePath: sanitize(filePath)
+    });
+    return { success: false, error: err.message };
+  } finally {
+    try { fs.unlinkSync(outPath); } catch {}
+  }
+});
 
 ipcMain.handle('download-clip', async (event, { m3u8Url, m3u8Text, startSec, durationSec, clipName, watermark, imageWatermark, outro, ffmpegOptions, batchOutputDir, batchManifest, keepTempFiles, logFfmpegCommands }) => {
   const { parseSegments, findCoveringSegments, buildConcatArgs, buildImageWatermarkArgs } = require('./src/lib/ffmpeg-args.js');
@@ -1860,6 +2045,7 @@ function createWindow() {
     // Close child windows so the app quits
     if (hubWindow && !hubWindow.isDestroyed()) hubWindow.close();
     if (debugWindow && !debugWindow.isDestroyed()) debugWindow.close();
+    if (postCaptionWindow && !postCaptionWindow.isDestroyed()) postCaptionWindow.close();
   });
 }
 
@@ -1867,6 +2053,7 @@ function createWindow() {
 app.whenReady().then(() => {
   clipsDir = path.join(app.getPath('videos'), 'ClipperHub');
   ensureConfigDir();
+  ensurePanelLayoutConfig();
   initDebugLog();
   registerBatchIPC(debugLog);
 
@@ -1919,23 +2106,78 @@ function setupAutoUpdater() {
 }
 
 // ── Layout config files ────────────────────────────────────────────
-const layoutsDir = path.join(__dirname, 'layouts');
-
 ipcMain.handle('layouts:get-builtins', async () => {
-  const fs = require('fs');
-  let files;
-  try { files = fs.readdirSync(layoutsDir).filter(f => f.endsWith('.json')); }
-  catch (e) { return []; }
-  const layouts = [];
-  for (const file of files) {
-    try {
-      const raw = fs.readFileSync(path.join(layoutsDir, file), 'utf-8');
-      const layout = JSON.parse(raw);
-      layout._filename = file.replace('.json', '');
-      layouts.push(layout);
-    } catch (e) { /* skip corrupt files */ }
+  ensurePanelLayoutConfig();
+  return listLayoutFiles(PANEL_LAYOUTS_DIR, DEFAULT_WORKSPACE_SET);
+});
+
+ipcMain.handle('layouts:list', async () => {
+  ensurePanelLayoutConfig();
+  return listLayoutFiles(PANEL_LAYOUTS_DIR, DEFAULT_WORKSPACE_SET);
+});
+
+ipcMain.handle('layouts:save', async (_, payload) => {
+  try {
+    ensurePanelLayoutConfig();
+    const opts = payload || {};
+    const source = opts.layout && typeof opts.layout === 'object' ? opts.layout : {};
+    const desiredKey = opts.key ? sanitizeLayoutKey(opts.key) : '';
+    const key = desiredKey || undefined;
+    const name = String(opts.name || source.name || desiredKey || 'Layout').trim() || 'Layout';
+    const result = saveLayoutFile(PANEL_LAYOUTS_DIR, {
+      key,
+      name,
+      layout: Object.assign({}, source, { name })
+    });
+    return { success: true, key: result.key, layout: Object.assign({ _filename: result.key }, result.layout) };
+  } catch (err) {
+    return { success: false, error: err.message };
   }
-  return layouts;
+});
+
+ipcMain.handle('collab-remove-range', (_, payload) => {
+  try {
+    const code = sanitizeCode(payload?.code);
+    const rangeId = String(payload?.rangeId || payload?.id || '').trim();
+    if (!code || !rangeId) return { success: false, error: 'Missing code or range id' };
+    const lobby = loadLobbyByCode(code);
+    if (!lobby) return { success: false, error: 'Lobby not found' };
+
+    const before = lobby.clipRanges.length;
+    lobby.clipRanges = lobby.clipRanges.filter(r => String(r.id || '') !== rangeId);
+    const removed = before !== lobby.clipRanges.length;
+    if (removed) saveLobby(lobby);
+    return { success: true, lobby, removed };
+  } catch (err) {
+    debugLog('COLLAB', 'Remove range failed', { error: err.message });
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('layouts:delete', async (_, key) => {
+  try {
+    ensurePanelLayoutConfig();
+    const result = deleteLayoutFile(PANEL_LAYOUTS_DIR, key, DEFAULT_WORKSPACE_SET);
+    if (!result.success) return result;
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('layouts:load-state', async () => {
+  ensurePanelLayoutConfig();
+  return loadPanelLayoutState();
+});
+
+ipcMain.handle('layouts:save-state', async (_, state) => {
+  try {
+    ensurePanelLayoutConfig();
+    const next = savePanelLayoutState(state);
+    return { success: true, state: next };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 });
 
 // ── Floating panel windows ──────────────────────────────────────────
