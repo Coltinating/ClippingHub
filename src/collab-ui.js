@@ -64,7 +64,10 @@ var prefs = loadPrefs();
 var state = {
   me: {
     id: makeId('u'),
-    name: normalizeName(prefs.meName || 'You')
+    name: normalizeName(prefs.meName || 'You'),
+    xHandle: (window.Profile && window.Profile.sanitizeXHandle(prefs.meXHandle)) || '',
+    color: (window.Profile && window.Profile.resolveUserColor({ color: prefs.meColor }, '')) || '',
+    pfpDataUrl: (window.Profile && window.Profile.validatePfpDataUrl(prefs.mePfpDataUrl, 256000) ? prefs.mePfpDataUrl : '') || ''
   },
   assignment: {
     role: normalizeRole(prefs.role || 'clipper'),
@@ -82,11 +85,36 @@ function savePrefs() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       meName: state.me.name,
+      meXHandle: state.me.xHandle || '',
+      meColor: state.me.color || '',
+      mePfpDataUrl: state.me.pfpDataUrl || '',
       lastCode: state.lobby ? state.lobby.code : state.lastCode,
       role: state.assignment.role,
       assistUserId: state.assignment.assistUserId
     }));
   } catch (_) {}
+}
+
+function updateLocalProfile(partial) {
+  if (!partial || typeof partial !== 'object') return;
+  if (partial.name != null) state.me.name = normalizeName(partial.name);
+  if (partial.xHandle != null && window.Profile) {
+    state.me.xHandle = window.Profile.sanitizeXHandle(partial.xHandle);
+  }
+  if (partial.color != null && window.Profile) {
+    state.me.color = window.Profile.resolveUserColor({ color: partial.color }, '');
+  }
+  if (partial.pfpDataUrl != null && window.Profile) {
+    state.me.pfpDataUrl = window.Profile.validatePfpDataUrl(partial.pfpDataUrl, 256000) ? partial.pfpDataUrl : '';
+  }
+  savePrefs();
+  emit();
+  if (state.lobby) refreshLobby();
+}
+
+function mePayload() {
+  if (window.Profile && window.Profile.buildProfilePayload) return window.Profile.buildProfilePayload(state.me);
+  return { id: state.me.id, name: state.me.name };
 }
 
 function findMemberById(memberId) {
@@ -732,6 +760,8 @@ function setState(nextState) {
 window.CollabUI = {
   getState: function () { return state; },
   setState: setState,
+  updateLocalProfile: updateLocalProfile,
+  mePayload: mePayload,
   createLobby: createLobby,
   joinLobby: joinLobby,
   leaveLobby: leaveLobby,
