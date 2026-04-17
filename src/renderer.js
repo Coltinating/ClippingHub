@@ -14,6 +14,21 @@ function uid() { return Date.now().toString(36) + Math.random().toString(36).sli
 function escAttr(s) { return String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 function escH(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+function renderSendUnsendButton(clip, idx) {
+  const ctx = window.CollabUI && window.CollabUI.getMarkContext && window.CollabUI.getMarkContext();
+  const isHelper = !!(ctx && ctx.helperId);
+  if (isHelper) {
+    if (clip.sentBy) {
+      return `<button class="btn btn-ghost btn-xs" data-action="unsend" data-idx="${idx}" title="Unsend from Clipper">Unsend</button>`;
+    }
+    return `<button class="btn btn-accent btn-xs" data-action="send" data-idx="${idx}" title="Send to assigned Clipper">Send to Clipper</button>`;
+  }
+  if (clip.sentBy) {
+    return `<button class="btn btn-ghost btn-xs" data-action="revoke" data-idx="${idx}" title="Revoke this clip">Revoke</button>`;
+  }
+  return '';
+}
+
 function renderAttributionBadge(clip) {
   if (!window.CollabUtils || typeof window.CollabUtils.formatClipAttribution !== 'function') return '';
   const clipperName = clip.collabClipperName || clip.clipperName || '';
@@ -821,10 +836,21 @@ function renderPendingClips() {
 
   const btns = userConfig.buttons;
 
-  list.innerHTML = pendingClips.map((clip, idx) => `
-    <div class="clip-card">
+  list.innerHTML = pendingClips.map((clip, idx) => {
+    const isSent = !!clip.sentBy;
+    const lockedPrefix = isSent && clip.sentByName ? clip.sentByName + ' - ' : '';
+    const bareName = isSent && window.SendFlow
+      ? window.SendFlow.stripLockedPrefix(clip.name || '', clip.sentByName)
+      : (clip.name || '');
+    const sentBorderColor = isSent && window.CollabUI
+      ? window.CollabUI.getUserColor(clip.sentBy, clip.sentByName)
+      : '';
+    const cardStyle = sentBorderColor ? ` style="border-left:4px solid ${sentBorderColor};"` : '';
+    return `
+    <div class="clip-card${isSent ? ' clip-card-sent' : ''}"${cardStyle}>
       <div class="clip-card-header">
-        <input class="clip-card-name" type="text" value="${escAttr(clip.name)}" data-idx="${idx}" placeholder="Clip name...">
+        ${isSent ? `<span class="clip-card-locked-prefix">${escH(lockedPrefix)}</span>` : ''}
+        <input class="clip-card-name" type="text" value="${escAttr(bareName)}" data-idx="${idx}" placeholder="Clip name...">
         <button class="clip-card-remove" data-idx="${idx}">&times;</button>
         ${renderAttributionBadge(clip)}
       </div>
@@ -844,9 +870,11 @@ function renderPendingClips() {
           ${(clip.watermark || clip.imageWatermark) ? '<span class="wm-dot"></span>' : ''}
         </button>` : ''}
         ${btns.appendOutro ? `<button class="btn btn-ghost btn-xs" data-action="outro" data-idx="${idx}" title="Add Outro${clip.outro ? ' (set)' : ''}">Add Outro${clip.outro ? ' *' : ''}</button>` : ''}
+        ${renderSendUnsendButton(clip, idx)}
       </div>
     </div>
-  `).join('');
+    `;
+  }).join('');
 
   list.onclick = e => {
     // Handle timestamp click-to-edit
@@ -874,11 +902,40 @@ function renderPendingClips() {
     if (btn.dataset.action === 'outro') { dbg('ACTION', 'Open outro modal', { idx }); openOutroModal(idx); }
     if (btn.dataset.action === 'repickIn') { enterRepickMode(idx, 'inTime'); }
     if (btn.dataset.action === 'repickOut') { enterRepickMode(idx, 'outTime'); }
+    if (btn.dataset.action === 'send') {
+      const c = pendingClips[idx];
+      if (c && c.collabRangeId && window.CollabUI && window.CollabUI.markRangeSent) {
+        window.CollabUI.markRangeSent(c.collabRangeId);
+        c.sentBy = window.CollabUI.getState().me.id;
+        c.sentByName = window.CollabUI.getState().me.name;
+        renderPendingClips();
+      }
+    }
+    if (btn.dataset.action === 'unsend' || btn.dataset.action === 'revoke') {
+      const c = pendingClips[idx];
+      if (c && c.collabRangeId && window.CollabUI && window.CollabUI.markRangeUnsent) {
+        window.CollabUI.markRangeUnsent(c.collabRangeId);
+        if (btn.dataset.action === 'unsend') {
+          c.sentBy = '';
+          c.sentByName = '';
+        } else {
+          pendingClips.splice(idx, 1);
+        }
+        renderPendingClips();
+      }
+    }
   };
   list.oninput = e => {
     const idx = parseInt(e.target.dataset.idx);
     if (isNaN(idx)) return;
-    if (e.target.classList.contains('clip-card-name'))    pendingClips[idx].name    = e.target.value;
+    if (e.target.classList.contains('clip-card-name')) {
+      const bare = e.target.value;
+      if (pendingClips[idx].sentBy && window.SendFlow) {
+        pendingClips[idx].name = window.SendFlow.buildLockedClipName(pendingClips[idx].sentByName, bare);
+      } else {
+        pendingClips[idx].name = bare;
+      }
+    }
     if (e.target.classList.contains('clip-card-caption')) pendingClips[idx].caption = e.target.value;
   };
 
@@ -1733,17 +1790,66 @@ function applyRemoteCaptionEditsIntoLocalClips() {
   return changed;
 }
 
+function ingestSentClipsIntoPending() {
+  if (!window.CollabUI || !window.SendFlow) return;
+  const st = window.CollabUI.getState();
+  const ranges = (st && st.clipRanges) || [];
+  const myId = st.me.id;
+  const sentToMe = ranges.filter(r => r && r.sentBy && r.clipperId === myId);
+
+  sentToMe.forEach(range => {
+    const existingIdx = pendingClips.findIndex(c => c.collabRangeId === range.id);
+    const baseName = range.name || ('Clip ' + String(range.id).slice(-4));
+    const lockedName = window.SendFlow.buildLockedClipName(range.sentByName, baseName);
+    if (existingIdx >= 0) {
+      const existing = pendingClips[existingIdx];
+      existing.inTime = range.inTime;
+      existing.outTime = range.outTime;
+      if (range.caption && !existing.caption) existing.caption = range.caption;
+      if (range.postCaption != null) existing.postCaption = range.postCaption;
+      existing.name = lockedName;
+      existing.sentBy = range.sentBy;
+      existing.sentByName = range.sentByName;
+    } else {
+      pendingClips.push({
+        id: range.id,
+        collabRangeId: range.id,
+        name: lockedName,
+        caption: range.caption || '',
+        postCaption: range.postCaption || '',
+        inTime: range.inTime, outTime: range.outTime,
+        m3u8Url: '', m3u8Text: null,
+        isLive: false, seekableStart: 0,
+        sentBy: range.sentBy,
+        sentByName: range.sentByName,
+        collabClipperId: range.clipperId,
+        collabClipperName: range.clipperName,
+        collabHelperId: range.helperId,
+        collabHelperName: range.helperName
+      });
+    }
+  });
+
+  const sentIds = new Set(sentToMe.map(r => r.id));
+  pendingClips = pendingClips.filter(c => {
+    if (!c.sentBy) return true;
+    return sentIds.has(c.collabRangeId);
+  });
+
+  renderPendingClips();
+}
+
 function handleCollabRangeUpdate() {
   if (isHelperRole()) {
     projectCollabRangesIntoCaptionTimeline();
     syncPostCaptionState();
   } else {
     const changed = applyRemoteCaptionEditsIntoLocalClips();
+    ingestSentClipsIntoPending();
     if (changed) {
-      if (typeof renderPendingClips === 'function') renderPendingClips();
       if (typeof renderCompletedClips === 'function') renderCompletedClips();
-      syncPostCaptionState();
     }
+    syncPostCaptionState();
   }
 }
 

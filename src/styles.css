@@ -779,6 +779,14 @@ video {
   white-space: nowrap;
 }
 
+.clip-card-locked-prefix {
+  display: inline-block; padding: 4px 8px; margin-right: 6px;
+  background: #0b1018; color: #9cc3ff; border: 1px solid #1e2a3a;
+  border-radius: 6px; font-size: 12px; font-weight: 700;
+  user-select: none;
+}
+.clip-card-sent { background: rgba(29, 155, 240, 0.04); }
+
 .clip-card-times {
   display: flex; gap: 8px; font-family: 'Consolas', monospace;
   font-size: 11px; color: var(--dim); margin-bottom: 4px;
