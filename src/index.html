@@ -116,6 +116,7 @@
       <svg class="tool-icon" viewBox="0 0 14 14" fill="currentColor"><polygon points="3,2 11,7 3,12"/></svg>
       Load Stream
     </button>
+    <button class="tool-btn" id="postCaptionEditorBtn" title="Open Post Caption Editor (Timeline)">&#120143; Caption Editor</button>
     <div class="toolbar-sep"></div>
 
     <!-- <button class="tool-btn" id="navBtn" title="Browse Streams">&#127760; Browse</button> -->
@@ -433,6 +434,17 @@
       <div class="panel-body collab-panel-body">
         <div class="collab-form-grid">
           <label class="collab-field">Profile Name<input id="collabProfileNameInput" type="text" placeholder="Editor Name"></label>
+          <label class="collab-field">Role
+            <select id="collabRoleSelect">
+              <option value="clipper">Clipper</option>
+              <option value="helper">Slave (Helper)</option>
+            </select>
+          </label>
+          <label class="collab-field">Assist Clipper
+            <select id="collabAssistSelect">
+              <option value="">None</option>
+            </select>
+          </label>
           <label class="collab-field">Lobby Name<input id="collabLobbyNameInput" type="text" placeholder="Night Shift Clips"></label>
           <label class="collab-field">Password<input id="collabLobbyPasswordInput" type="password" placeholder="password"></label>
           <label class="collab-field">Join Code<input id="collabLobbyCodeInput" type="text" placeholder="AB12CD"></label>
@@ -529,7 +541,7 @@
         <div class="hub-group">
           <div class="hub-group-title">
             <span>&#10003; Completed</span>
-            <button class="btn btn-ghost btn-xs clear-btn" id="clearCompleted" title="Clear all completed">Clear</button>
+            <button class="btn btn-ghost btn-xs clear-btn" id="clearCompleted" title="Clear downloaded clips list">Clear Downloads</button>
             <button class="btn btn-ghost btn-xs" id="openCompletedFolder" title="Open folder">&#128193;</button>
           </div>
           <div class="clip-list" id="completedClipList">
@@ -598,6 +610,8 @@
 <script src="panel-bus.js"></script>
 <script src="panel-factory.js"></script>
 <script src="viewer-player.js"></script>
+<script src="lib/collab-utils.js"></script>
+<script src="lib/caption-sync.js"></script>
 <script src="collab-ui.js"></script>
 <script src="renderer.js"></script>
 <script src="batch/batch-testing.js"></script>

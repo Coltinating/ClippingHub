@@ -1669,6 +1669,67 @@ function syncPostCaptionState() {
   } catch (_) {}
 }
 
+function isHelperRole() {
+  try {
+    const ctx = window.CollabUI && window.CollabUI.getMarkContext && window.CollabUI.getMarkContext();
+    return !!(ctx && ctx.helperId);
+  } catch (_) { return false; }
+}
+
+function projectCollabRangesIntoCaptionTimeline() {
+  if (!window.CollabUI || !window.CaptionSync) return;
+  const st = window.CollabUI.getState ? window.CollabUI.getState() : null;
+  const ranges = (st && st.clipRanges) || [];
+  const ctx = window.CollabUI.getMarkContext && window.CollabUI.getMarkContext();
+  const targetClipperId = ctx && ctx.clipperId;
+  if (!targetClipperId) return;
+  const projected = ranges
+    .filter(r => r && r.clipperId === targetClipperId)
+    .map(r => window.CaptionSync.projectRangeToTimelineClip(r))
+    .filter(Boolean);
+  captionTimelineClips = projected;
+}
+
+function applyRemoteCaptionEditsIntoLocalClips() {
+  if (!window.CollabUI || !window.CaptionSync) return;
+  const st = window.CollabUI.getState ? window.CollabUI.getState() : null;
+  const ranges = (st && st.clipRanges) || [];
+  const byRangeId = new Map(ranges.map(r => [r.id, r]));
+  const applyTo = (clip) => {
+    if (!clip || !clip.collabRangeId) return false;
+    const remote = byRangeId.get(clip.collabRangeId);
+    if (!remote) return false;
+    const resolved = window.CaptionSync.resolveCaption({
+      local: { value: clip.postCaption || '', updatedAt: clip.postCaptionUpdatedAt || 0 },
+      remote: { value: remote.postCaption || '', updatedAt: remote.postCaptionUpdatedAt || 0 }
+    });
+    if (resolved.source === 'remote' && resolved.value !== (clip.postCaption || '')) {
+      clip.postCaption = resolved.value;
+      clip.postCaptionUpdatedAt = resolved.updatedAt;
+      return true;
+    }
+    return false;
+  };
+  let changed = false;
+  if (typeof pendingClips !== 'undefined') pendingClips.forEach(c => { if (applyTo(c)) changed = true; });
+  if (typeof completedClips !== 'undefined') completedClips.forEach(c => { if (applyTo(c)) changed = true; });
+  return changed;
+}
+
+function handleCollabRangeUpdate() {
+  if (isHelperRole()) {
+    projectCollabRangesIntoCaptionTimeline();
+    syncPostCaptionState();
+  } else {
+    const changed = applyRemoteCaptionEditsIntoLocalClips();
+    if (changed) {
+      if (typeof renderPendingClips === 'function') renderPendingClips();
+      if (typeof renderCompletedClips === 'function') renderCompletedClips();
+      syncPostCaptionState();
+    }
+  }
+}
+
 function openPostCaptionWindow(idx, opts = {}) {
   if (typeof idx === 'number' && completedClips[idx]) {
     selectedPostCaptionClipId = completedClips[idx].id;
@@ -2720,6 +2781,15 @@ $('configBtn').onclick = () => { dbg('ACTION', 'Open settings modal'); openConfi
 renderPendingClips();
 renderDownloadingClips();
 renderCompletedClips();
+
+/* ─── Collab caption sync subscription ──────────────────────── */
+(function wireCollabSync() {
+  if (!window.CollabUI || !window.CollabUI.subscribe) {
+    setTimeout(wireCollabSync, 100);
+    return;
+  }
+  window.CollabUI.subscribe(handleCollabRangeUpdate);
+})();
 
 })();
 
