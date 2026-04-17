@@ -1288,7 +1288,8 @@ ipcMain.handle('collab-create-lobby', (_, payload) => {
       updatedAt: nowIso(),
       members: [],
       chat: [],
-      clipRanges: []
+      clipRanges: [],
+      deliveries: []
     };
     upsertLobbyMember(lobby, memberFromUser(user, userName), 'clipper');
     saveLobby(lobby);
@@ -1436,6 +1437,127 @@ ipcMain.handle('collab-set-member-role', (_, payload) => {
   }
 });
 
+ipcMain.handle('collab-create-delivery', (_, payload) => {
+  try {
+    const code = sanitizeCode(payload?.code);
+    const fromId = String(payload?.fromUserId || '').trim();
+    const toId = String(payload?.toUserId || '').trim();
+    const type = String(payload?.type || '').trim();
+    const rangeId = String(payload?.rangeId || '').trim();
+    const body = payload?.payload || null;
+    const fromUserColor = String(payload?.fromUserColor || '');
+    const fromUserName = String(payload?.fromUserName || '');
+
+    if (!code || !fromId || !toId || !rangeId) {
+      return { success: false, error: 'Missing code / fromUserId / toUserId / rangeId' };
+    }
+    if (!['clip', 'clipUpdate', 'clipUnsend'].includes(type)) {
+      return { success: false, error: 'Invalid delivery type' };
+    }
+
+    const lobby = loadLobbyByCode(code);
+    if (!lobby) return { success: false, error: 'Lobby not found' };
+    lobby.deliveries = Array.isArray(lobby.deliveries) ? lobby.deliveries : [];
+
+    const actor = lobby.members.find(m => m.id === fromId);
+    if (!actor) return { success: false, error: 'Actor not in lobby' };
+    if (actor.role !== 'helper' && actor.role !== 'clipper') {
+      return { success: false, error: 'Viewers cannot send deliveries' };
+    }
+
+    // Collapse semantics: if an undelivered 'clip' exists for this rangeId, update/overwrite it.
+    const existingIdx = lobby.deliveries.findIndex(d =>
+      d && !d.delivered && d.rangeId === rangeId && d.fromUserId === fromId && d.toUserId === toId
+    );
+
+    if (type === 'clipUnsend') {
+      if (existingIdx >= 0) {
+        // Not yet consumed -> just remove it.
+        lobby.deliveries.splice(existingIdx, 1);
+        saveLobby(lobby);
+        return { success: true, lobby, unsentBeforeDelivery: true };
+      }
+      // Already consumed -> enqueue an unsend message for the receiver.
+      lobby.deliveries.push({
+        id: makeCollabId('dlv'),
+        type: 'clipUnsend',
+        fromUserId: fromId, fromUserName, fromUserColor,
+        toUserId: toId,
+        rangeId,
+        payload: null,
+        createdAt: nowIso(),
+        delivered: false
+      });
+      saveLobby(lobby);
+      return { success: true, lobby, unsentBeforeDelivery: false };
+    }
+
+    if (existingIdx >= 0 && type === 'clipUpdate') {
+      lobby.deliveries[existingIdx].payload = body;
+      lobby.deliveries[existingIdx].updatedAt = nowIso();
+      lobby.deliveries[existingIdx].type = 'clip';
+      saveLobby(lobby);
+      return { success: true, lobby, merged: true };
+    }
+
+    if (existingIdx >= 0) {
+      // Same rangeId, fresh 'clip' -> overwrite
+      lobby.deliveries[existingIdx].payload = body;
+      lobby.deliveries[existingIdx].updatedAt = nowIso();
+      saveLobby(lobby);
+      return { success: true, lobby, merged: true };
+    }
+
+    lobby.deliveries.push({
+      id: makeCollabId('dlv'),
+      type: type === 'clipUpdate' ? 'clip' : type,
+      fromUserId: fromId, fromUserName, fromUserColor,
+      toUserId: toId,
+      rangeId,
+      payload: body,
+      createdAt: nowIso(),
+      delivered: false
+    });
+    if (lobby.deliveries.length > 500) {
+      // Trim delivered entries first (safe to drop -- receiver already has them).
+      // Only fall back to dropping undelivered oldest if still over cap.
+      const undelivered = lobby.deliveries.filter(d => d && !d.delivered);
+      const delivered = lobby.deliveries.filter(d => d && d.delivered);
+      if (undelivered.length >= 500) {
+        lobby.deliveries = undelivered.slice(undelivered.length - 500);
+      } else {
+        const keepDelivered = delivered.slice(delivered.length - (500 - undelivered.length));
+        lobby.deliveries = [...keepDelivered, ...undelivered].sort((a, b) =>
+          String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
+        );
+      }
+    }
+    saveLobby(lobby);
+    return { success: true, lobby };
+  } catch (err) {
+    debugLog('COLLAB', 'Create delivery failed', { error: err.message });
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('collab-consume-deliveries', (_, payload) => {
+  try {
+    const code = sanitizeCode(payload?.code);
+    const userId = String(payload?.userId || '').trim();
+    if (!code || !userId) return { success: false, error: 'Missing code / userId' };
+    const lobby = loadLobbyByCode(code);
+    if (!lobby) return { success: false, error: 'Lobby not found' };
+    lobby.deliveries = Array.isArray(lobby.deliveries) ? lobby.deliveries : [];
+    const mine = lobby.deliveries.filter(d => d && d.toUserId === userId && !d.delivered);
+    mine.forEach(d => { d.delivered = true; d.deliveredAt = nowIso(); });
+    if (mine.length) saveLobby(lobby);
+    return { success: true, deliveries: mine };
+  } catch (err) {
+    debugLog('COLLAB', 'Consume deliveries failed', { error: err.message });
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('collab-upsert-range', (_, payload) => {
   try {
     const code = sanitizeCode(payload?.code);
@@ -1478,33 +1600,18 @@ ipcMain.handle('collab-upsert-range', (_, payload) => {
       upsertLobbyMember(lobby, { id: helperId, name: helperName }, null);
     }
 
-    const prefer = (fromRange, fromExisting, fallback) =>
-      fromRange != null ? fromRange : (fromExisting != null ? fromExisting : fallback);
-
     const nextRange = {
       id: rangeId,
-      userId,
-      userName,
-      clipperId,
-      clipperName,
-      helperId,
-      helperName,
+      userId, userName,
+      clipperId, clipperName,
+      helperId, helperName,
       inTime: Math.min(inTime, outTime),
       outTime: Math.max(inTime, outTime),
       pendingOut: !!range.pendingOut,
       status: String(range.status || existingRange?.status || 'done'),
       streamKey: String(range.streamKey || existingRange?.streamKey || 'default'),
-      name: String(prefer(range.name, existingRange?.name, '')),
-      caption: String(prefer(range.caption, existingRange?.caption, '')),
-      postCaption: String(prefer(range.postCaption, existingRange?.postCaption, '')),
-      postCaptionUpdatedAt: Number(prefer(range.postCaptionUpdatedAt, existingRange?.postCaptionUpdatedAt, 0)) || 0,
-      fileName: String(prefer(range.fileName, existingRange?.fileName, '')),
-      filePath: String(prefer(range.filePath, existingRange?.filePath, '')),
-      displayPath: String(prefer(range.displayPath, existingRange?.displayPath, '')),
-      postThumbnailDataUrl: String(prefer(range.postThumbnailDataUrl, existingRange?.postThumbnailDataUrl, '')),
-      sentBy: String(prefer(range.sentBy, existingRange?.sentBy, '')),
-      sentByName: String(prefer(range.sentByName, existingRange?.sentByName, '')),
-      sentAt: Number(prefer(range.sentAt, existingRange?.sentAt, 0)) || 0,
+      name: String(range.name || existingRange?.name || ''),
+      caption: String(range.caption || existingRange?.caption || ''),
       createdAt: range.createdAt || existingRange?.createdAt || nowIso(),
       updatedAt: nowIso()
     };
