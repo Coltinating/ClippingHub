@@ -1106,6 +1106,18 @@ ipcMain.handle('save-debug-log', async (_, { text, filterName }) => {
   return { success: true, filePath };
 });
 
+// ── IPC: open external URL in default browser ────────────────────
+ipcMain.handle('open-external-url', async (_, url) => {
+  try {
+    const u = new URL(String(url || ''));
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return { success: false, error: 'invalid-protocol' };
+    await shell.openExternal(u.toString());
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err && err.message || err) };
+  }
+});
+
 // ── IPC: proxy port ──────────────────────────────────────────────
 ipcMain.handle('get-proxy-port', () => proxyPort);
 

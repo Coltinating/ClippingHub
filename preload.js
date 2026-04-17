@@ -19,9 +19,11 @@ contextBridge.exposeInMainWorld('clipper', {
   chooseClipsDir: () => ipcRenderer.invoke('choose-clips-dir'),
   openClipsFolder: () => ipcRenderer.invoke('open-clips-folder'),
   showInFolder: (p) => ipcRenderer.invoke('show-in-folder', p),
+  copyText: (text) => ipcRenderer.invoke('copy-text', text),
 
   // Clip download
   downloadClip: (opts) => ipcRenderer.invoke('download-clip', opts),
+  extractClipFirstFrame: (filePath) => ipcRenderer.invoke('extract-clip-first-frame', { filePath }),
   onClipProgress: (cb) => ipcRenderer.on('clip-progress', (_, d) => cb(d)),
 
   // Native drag-out (to social media etc.)
@@ -68,6 +70,9 @@ contextBridge.exposeInMainWorld('clipper', {
   // Cancel active download
   cancelClip: (clipName) => ipcRenderer.invoke('cancel-clip', { clipName }),
 
+  // Open URL in default browser
+  openExternal: (url) => ipcRenderer.invoke('open-external-url', url),
+
   // Delete clip file (for Re-Stage)
   deleteClipFile: (filePath) => ipcRenderer.invoke('delete-clip-file', { filePath }),
 
@@ -77,6 +82,10 @@ contextBridge.exposeInMainWorld('clipper', {
   onHubReattached: (cb) => ipcRenderer.on('hub-reattached', () => cb()),
   sendHubStateUpdate: (state) => ipcRenderer.send('hub-state-update', state),
   onHubAction: (cb) => ipcRenderer.on('hub-action', (_, action) => cb(action)),
+  openPostCaptionWindow: (opts) => ipcRenderer.invoke('open-post-caption-window', opts || {}),
+  closePostCaptionWindow: () => ipcRenderer.invoke('close-post-caption-window'),
+  sendPostCaptionStateUpdate: (state) => ipcRenderer.send('post-caption-state-update', state),
+  onPostCaptionAction: (cb) => ipcRenderer.on('post-caption-action', (_, action) => cb(action)),
 
   // Batch testing (dev)
   openBatchProgress: () => ipcRenderer.invoke('open-batch-progress'),
@@ -90,6 +99,7 @@ contextBridge.exposeInMainWorld('clipper', {
   collabGetLobby: (payload) => ipcRenderer.invoke('collab-get-lobby', payload),
   collabAddChat: (payload) => ipcRenderer.invoke('collab-add-chat', payload),
   collabUpsertRange: (payload) => ipcRenderer.invoke('collab-upsert-range', payload),
+  collabRemoveRange: (payload) => ipcRenderer.invoke('collab-remove-range', payload),
 
   // Floating panel windows
   floatCreate: (opts) => ipcRenderer.invoke('float:create', opts),
@@ -104,4 +114,9 @@ contextBridge.exposeInMainWorld('clipper', {
 
   // Layout config files
   getBuiltinLayouts: () => ipcRenderer.invoke('layouts:get-builtins'),
+  listPanelLayouts: () => ipcRenderer.invoke('layouts:list'),
+  savePanelLayout: (payload) => ipcRenderer.invoke('layouts:save', payload),
+  deletePanelLayout: (key) => ipcRenderer.invoke('layouts:delete', key),
+  loadPanelLayoutState: () => ipcRenderer.invoke('layouts:load-state'),
+  savePanelLayoutState: (state) => ipcRenderer.invoke('layouts:save-state', state),
 });
