@@ -527,9 +527,74 @@ function renderMembers(listEl) {
     return;
   }
   listEl.innerHTML = state.members.map(function (m) {
-    var color = getUserColor(m.id, m.name);
-    return '<div class="collab-list-item"><span class="collab-name" style="color:' + color + '">' + esc(m.name) + '</span><small>' + esc(m.role || 'editor') + '</small></div>';
+    var color = (m.color) || getUserColor(m.id, m.name);
+    var avatarStyle = m.pfpDataUrl ? 'background-image:url(' + JSON.stringify(m.pfpDataUrl) + ');' : '';
+    var handle = m.xHandle ? '<div class="collab-member-handle">@' + esc(m.xHandle) + '</div>' : '';
+    return '<div class="collab-member-row" data-user-id="' + esc(m.id) + '">' +
+      '<div class="collab-member-avatar" style="' + avatarStyle + '"></div>' +
+      '<div class="collab-member-meta">' +
+        '<div class="collab-member-name" style="color:' + color + '">' + esc(m.name) + ' <small style="color:#8a95a8;font-weight:500;">' + esc(m.role || 'editor') + '</small></div>' +
+        handle +
+      '</div>' +
+    '</div>';
   }).join('');
+  if (!listEl._profileClickBound) {
+    listEl.addEventListener('click', function (e) {
+      var row = e.target.closest('[data-user-id]');
+      if (!row) return;
+      openProfilePopover(row.dataset.userId, row);
+    });
+    listEl._profileClickBound = true;
+  }
+}
+
+function openProfilePopover(userId, anchorEl) {
+  var m = null;
+  for (var i = 0; i < state.members.length; i++) {
+    if (state.members[i].id === userId) { m = state.members[i]; break; }
+  }
+  if (!m) return;
+  var existing = document.querySelector('.profile-popover');
+  if (existing) existing.remove();
+
+  var pop = document.createElement('div');
+  pop.className = 'profile-popover';
+  var color = (m.color) || getUserColor(m.id, m.name);
+  var avatarHtml = m.pfpDataUrl
+    ? '<div class="profile-popover-avatar" style="background-image:url(' + JSON.stringify(m.pfpDataUrl) + ');"></div>'
+    : '<div class="profile-popover-avatar"></div>';
+  var xHtml = m.xHandle
+    ? '<a href="#" class="profile-popover-x" data-handle="' + esc(m.xHandle) + '">@' + esc(m.xHandle) + '</a>'
+    : '<span class="profile-popover-x-empty">No X handle</span>';
+  pop.innerHTML = avatarHtml +
+    '<div class="profile-popover-name" style="color:' + color + '">' + esc(m.name || 'Editor') + '</div>' +
+    '<div class="profile-popover-role">' + esc(m.role || '') + '</div>' +
+    xHtml;
+  document.body.appendChild(pop);
+
+  var rect = anchorEl.getBoundingClientRect();
+  pop.style.top = (rect.bottom + 6) + 'px';
+  pop.style.left = Math.max(6, Math.min(window.innerWidth - 260, rect.left)) + 'px';
+
+  var xAnchor = pop.querySelector('.profile-popover-x');
+  if (xAnchor) {
+    xAnchor.addEventListener('click', function (e) {
+      e.preventDefault();
+      if (window.clipper && window.clipper.openExternal) {
+        window.clipper.openExternal('https://x.com/' + xAnchor.dataset.handle);
+      }
+    });
+  }
+
+  setTimeout(function () {
+    function onDoc(e) {
+      if (!pop.contains(e.target)) {
+        pop.remove();
+        document.removeEventListener('click', onDoc);
+      }
+    }
+    document.addEventListener('click', onDoc);
+  }, 0);
 }
 
 function renderMemberChips() {
