@@ -341,6 +341,17 @@ function generateLobbyCode() {
   return Math.random().toString(36).slice(2, 10).toUpperCase();
 }
 
+function memberFromUser(user, overrideName) {
+  if (!user) return { id: '', name: overrideName || '' };
+  return {
+    id: String(user.id || '').trim(),
+    name: overrideName != null ? overrideName : normalizeDisplayName(user.name) || 'Editor',
+    xHandle: String(user.xHandle || '').trim(),
+    color: String(user.color || '').trim(),
+    pfpDataUrl: String(user.pfpDataUrl || '')
+  };
+}
+
 function upsertLobbyMember(lobby, member, preferredRole) {
   const memberId = String(member && member.id || '').trim();
   if (!memberId) return null;
@@ -356,11 +367,17 @@ function upsertLobbyMember(lobby, member, preferredRole) {
       break;
     }
   }
+  const xHandle = String(member && member.xHandle || '').trim();
+  const color = String(member && member.color || '').trim();
+  const pfpDataUrl = String(member && member.pfpDataUrl || '');
   if (existing) {
     existing.name = nextName || existing.name || 'Editor';
     existing.lastSeenAt = now;
     if (!existing.joinedAt) existing.joinedAt = now;
     if (preferredRole && !existing.role) existing.role = preferredRole;
+    if (xHandle !== undefined) existing.xHandle = xHandle;
+    if (color !== undefined) existing.color = color;
+    if (pfpDataUrl !== undefined) existing.pfpDataUrl = pfpDataUrl;
     return existing;
   }
   const created = {
@@ -368,7 +385,10 @@ function upsertLobbyMember(lobby, member, preferredRole) {
     name: nextName,
     role: preferredRole || 'editor',
     joinedAt: now,
-    lastSeenAt: now
+    lastSeenAt: now,
+    xHandle: xHandle,
+    color: color,
+    pfpDataUrl: pfpDataUrl
   };
   lobby.members.push(created);
   return created;
@@ -1259,7 +1279,7 @@ ipcMain.handle('collab-create-lobby', (_, payload) => {
       chat: [],
       clipRanges: []
     };
-    upsertLobbyMember(lobby, { id: userId, name: userName }, 'host');
+    upsertLobbyMember(lobby, memberFromUser(user, userName), 'host');
     saveLobby(lobby);
     debugLog('COLLAB', 'Lobby created', { code, name: lobby.name, hostId: userId });
     return { success: true, lobby };
@@ -1285,7 +1305,7 @@ ipcMain.handle('collab-join-lobby', (_, payload) => {
     if ((lobby.password || '') !== password) return { success: false, error: 'Wrong password' };
 
     const role = lobby.hostId ? 'editor' : 'host';
-    const member = upsertLobbyMember(lobby, { id: userId, name: userName }, role);
+    const member = upsertLobbyMember(lobby, memberFromUser(user, userName), role);
     if (!lobby.hostId && member) lobby.hostId = member.id;
     pickNextHost(lobby);
     saveLobby(lobby);
@@ -1325,7 +1345,7 @@ ipcMain.handle('collab-get-lobby', (_, payload) => {
 
     const user = payload?.user || null;
     if (user && user.id) {
-      const member = upsertLobbyMember(lobby, { id: user.id, name: normalizeDisplayName(user.name) || 'Editor' }, null);
+      const member = upsertLobbyMember(lobby, memberFromUser(user), null);
       if (member) saveLobby(lobby);
     }
     return { success: true, lobby };
@@ -1347,7 +1367,7 @@ ipcMain.handle('collab-add-chat', (_, payload) => {
     const userId = String(user.id || '').trim();
     const userName = normalizeDisplayName(user.name) || 'Editor';
     if (!userId) return { success: false, error: 'Missing user id' };
-    upsertLobbyMember(lobby, { id: userId, name: userName }, null);
+    upsertLobbyMember(lobby, memberFromUser(user, userName), null);
 
     lobby.chat.push({
       id: makeCollabId('msg'),
@@ -1379,7 +1399,7 @@ ipcMain.handle('collab-upsert-range', (_, payload) => {
     const userId = String((range.userId || user.id || '')).trim();
     const userName = normalizeDisplayName(range.userName || user.name) || 'Editor';
     if (!userId) return { success: false, error: 'Missing user id' };
-    upsertLobbyMember(lobby, { id: userId, name: userName }, null);
+    upsertLobbyMember(lobby, memberFromUser({ ...user, id: userId, name: userName }, userName), null);
 
     let idx = -1;
     const rangeId = String(range.id || makeCollabId('range'));
