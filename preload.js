@@ -100,6 +100,9 @@ contextBridge.exposeInMainWorld('clipper', {
   collabAddChat: (payload) => ipcRenderer.invoke('collab-add-chat', payload),
   collabUpsertRange: (payload) => ipcRenderer.invoke('collab-upsert-range', payload),
   collabRemoveRange: (payload) => ipcRenderer.invoke('collab-remove-range', payload),
+  collabSetMemberRole: (payload) => ipcRenderer.invoke('collab-set-member-role', payload),
+  collabCreateDelivery: (payload) => ipcRenderer.invoke('collab-create-delivery', payload),
+  collabConsumeDeliveries: (payload) => ipcRenderer.invoke('collab-consume-deliveries', payload),
 
   // Floating panel windows
   floatCreate: (opts) => ipcRenderer.invoke('float:create', opts),
