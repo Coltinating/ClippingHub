@@ -611,40 +611,56 @@ function renderMemberChips() {
 }
 
 function renderSession() {
+  var inactive = document.getElementById('lobbyInactiveState');
+  var active = document.getElementById('lobbyActiveState');
   var status = document.getElementById('collabSessionStatus');
   var members = document.getElementById('collabMembersList');
   var codeInput = document.getElementById('collabLobbyCodeInput');
-  var profileInput = document.getElementById('collabProfileNameInput');
-  var roleInput = document.getElementById('collabRoleSelect');
   var assistInput = document.getElementById('collabAssistSelect');
   syncAssistTarget();
+
+  // Status line (inactive-state only, for error/success)
   if (status) {
-    var roleText = state.assignment.role === 'helper'
-      ? ('Helper' + (state.assignment.assistUserName ? ' -> ' + state.assignment.assistUserName : ''))
-      : 'Clipper';
-    if (statusText) status.textContent = statusText + ' - role ' + roleText;
-    else if (state.lobby) status.textContent = state.lobby.name + ' - code ' + state.lobby.code + ' - role ' + roleText;
-    else status.textContent = 'No active lobby - role ' + roleText;
+    status.textContent = statusText || '';
+    status.className = 'lobby-status' + (statusText ? ' ' + (status.dataset.tone || '') : '');
   }
-  if (profileInput && document.activeElement !== profileInput) {
-    profileInput.value = state.me.name;
+
+  // Toggle inactive vs active state
+  if (inactive) inactive.hidden = !!state.lobby;
+  if (active) active.hidden = !state.lobby;
+
+  if (codeInput && !state.lobby && state.lastCode && !codeInput.value) {
+    codeInput.value = state.lastCode;
   }
-  if (codeInput) {
-    if (state.lobby && state.lobby.code) codeInput.value = state.lobby.code;
-    else if (state.lastCode && !codeInput.value) codeInput.value = state.lastCode;
-  }
-  if (roleInput) roleInput.value = state.assignment.role;
-  if (assistInput) {
-    var html = ['<option value="">None</option>'];
-    for (var i = 0; i < state.members.length; i++) {
-      var member = state.members[i];
-      if (!member || member.id === state.me.id) continue;
-      var selected = member.id === state.assignment.assistUserId ? ' selected' : '';
-      html.push('<option value="' + esc(member.id) + '"' + selected + '>' + esc(member.name) + '</option>');
+
+  if (state.lobby) {
+    var nameEl = document.getElementById('lobbyActiveName');
+    var codeEl = document.getElementById('lobbyActiveCode');
+    var countEl = document.getElementById('lobbyMemberCount');
+    if (nameEl) nameEl.textContent = state.lobby.name || 'Lobby';
+    if (codeEl) codeEl.textContent = state.lobby.code || '------';
+    if (countEl) countEl.textContent = String(state.members.length || 0);
+
+    document.querySelectorAll('.lobby-role-opt').forEach(function (btn) {
+      btn.classList.toggle('active', btn.dataset.role === state.assignment.role);
+    });
+
+    var assistWrap = document.getElementById('lobbyAssistWrap');
+    if (assistWrap) assistWrap.hidden = state.assignment.role !== 'helper';
+
+    if (assistInput) {
+      var html = ['<option value="">Select Clipper</option>'];
+      for (var i = 0; i < state.members.length; i++) {
+        var member = state.members[i];
+        if (!member || member.id === state.me.id) continue;
+        var selected = member.id === state.assignment.assistUserId ? ' selected' : '';
+        html.push('<option value="' + esc(member.id) + '"' + selected + '>' + esc(member.name) + '</option>');
+      }
+      assistInput.innerHTML = html.join('');
+      assistInput.disabled = state.assignment.role !== 'helper';
     }
-    assistInput.innerHTML = html.join('');
-    assistInput.disabled = state.assignment.role !== 'helper';
   }
+
   renderMembers(members);
 }
 
@@ -788,28 +804,41 @@ function bindUi() {
   var createBtn = document.getElementById('collabCreateBtn');
   var joinBtn = document.getElementById('collabJoinBtn');
   var leaveBtn = document.getElementById('collabLeaveBtn');
-  var simBtn = document.getElementById('collabSimulateBtn');
   var sendBtn = document.getElementById('collabChatSend');
   var chatInput = document.getElementById('collabChatInput');
-  var profileInput = document.getElementById('collabProfileNameInput');
-  var roleInput = document.getElementById('collabRoleSelect');
   var assistInput = document.getElementById('collabAssistSelect');
   var activityList = document.getElementById('collabActivityList');
 
-  if (profileInput) {
-    profileInput.value = state.me.name;
-    profileInput.addEventListener('change', function () {
-      var clean = normalizeName(profileInput.value);
-      if (clean) updateMeName(clean);
-      renderSession();
+  // Tab switching
+  var tabCreate = document.getElementById('lobbyTabCreate');
+  var tabJoin = document.getElementById('lobbyTabJoin');
+  var panelCreate = document.getElementById('lobbyPanelCreate');
+  var panelJoin = document.getElementById('lobbyPanelJoin');
+  if (tabCreate && tabJoin && panelCreate && panelJoin) {
+    tabCreate.addEventListener('click', function () {
+      tabCreate.classList.add('active'); tabJoin.classList.remove('active');
+      panelCreate.hidden = false; panelJoin.hidden = true;
+    });
+    tabJoin.addEventListener('click', function () {
+      tabJoin.classList.add('active'); tabCreate.classList.remove('active');
+      panelJoin.hidden = false; panelCreate.hidden = true;
     });
   }
-  if (roleInput) {
-    roleInput.value = state.assignment.role;
-    roleInput.addEventListener('change', function () {
-      setRole(roleInput.value);
-    });
-  }
+
+  // Copy join code
+  var copyBtn = document.getElementById('lobbyCopyCodeBtn');
+  if (copyBtn) copyBtn.addEventListener('click', function () {
+    if (state.lobby && state.lobby.code && navigator.clipboard) {
+      navigator.clipboard.writeText(state.lobby.code);
+      setStatus('Code copied');
+    }
+  });
+
+  // Role toggle buttons
+  document.querySelectorAll('.lobby-role-opt').forEach(function (btn) {
+    btn.addEventListener('click', function () { setRole(btn.dataset.role); });
+  });
+
   if (assistInput) {
     assistInput.addEventListener('change', function () {
       setAssistUserId(assistInput.value || '');
@@ -817,13 +846,11 @@ function bindUi() {
   }
 
   function ensureProfileName() {
-    var proposed = profileInput ? profileInput.value : state.me.name;
-    var clean = normalizeName(proposed);
+    var clean = normalizeName(state.me.name);
     if (!clean) {
-      setStatus('Enter profile name');
+      setStatus('Set your name in the top-right profile card first');
       return false;
     }
-    updateMeName(clean);
     return true;
   }
 
@@ -831,12 +858,11 @@ function bindUi() {
     createBtn.onclick = async function () {
       if (!ensureProfileName()) return;
       var nameInput = document.getElementById('collabLobbyNameInput');
-      var passInput = document.getElementById('collabLobbyPasswordInput');
-      var codeInput = document.getElementById('collabLobbyCodeInput');
+      var passInput = document.getElementById('collabLobbyPasswordInputCreate');
       await createLobby(
         nameInput ? nameInput.value : '',
         passInput ? passInput.value : '',
-        codeInput ? codeInput.value : ''
+        ''
       );
     };
   }
@@ -844,7 +870,7 @@ function bindUi() {
   if (joinBtn) {
     joinBtn.onclick = async function () {
       if (!ensureProfileName()) return;
-      var passInput = document.getElementById('collabLobbyPasswordInput');
+      var passInput = document.getElementById('collabLobbyPasswordInputJoin');
       var codeInput = document.getElementById('collabLobbyCodeInput');
       await joinLobby(
         codeInput ? codeInput.value : '',
@@ -854,7 +880,6 @@ function bindUi() {
   }
 
   if (leaveBtn) leaveBtn.onclick = function () { leaveLobby(); };
-  if (simBtn) simBtn.onclick = function () { simulate(); };
 
   function sendChat() {
     if (!chatInput) return;
