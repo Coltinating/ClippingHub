@@ -313,6 +313,15 @@ function loadLobbyByCode(code) {
     if (!Array.isArray(parsed.members)) parsed.members = [];
     if (!Array.isArray(parsed.chat)) parsed.chat = [];
     if (!Array.isArray(parsed.clipRanges)) parsed.clipRanges = [];
+    if (!Array.isArray(parsed.deliveries)) parsed.deliveries = [];
+    // Normalize legacy roles: host → clipper, editor → viewer.
+    for (let i = 0; i < parsed.members.length; i++) {
+      const m = parsed.members[i];
+      if (!m) continue;
+      if (m.role === 'host') m.role = 'clipper';
+      else if (m.role === 'editor') m.role = 'viewer';
+      else if (!m.role) m.role = 'viewer';
+    }
     parsed.code = safeCode;
     return parsed;
   } catch (err) {
@@ -1281,7 +1290,7 @@ ipcMain.handle('collab-create-lobby', (_, payload) => {
       chat: [],
       clipRanges: []
     };
-    upsertLobbyMember(lobby, memberFromUser(user, userName), 'host');
+    upsertLobbyMember(lobby, memberFromUser(user, userName), 'clipper');
     saveLobby(lobby);
     debugLog('COLLAB', 'Lobby created', { code, name: lobby.name, hostId: userId });
     return { success: true, lobby };
@@ -1306,7 +1315,7 @@ ipcMain.handle('collab-join-lobby', (_, payload) => {
     if (!lobby) return { success: false, error: 'Lobby not found' };
     if ((lobby.password || '') !== password) return { success: false, error: 'Wrong password' };
 
-    const role = lobby.hostId ? 'editor' : 'host';
+    const role = lobby.hostId ? 'viewer' : 'clipper';
     const member = upsertLobbyMember(lobby, memberFromUser(user, userName), role);
     if (!lobby.hostId && member) lobby.hostId = member.id;
     pickNextHost(lobby);
