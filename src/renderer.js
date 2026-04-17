@@ -1701,7 +1701,7 @@ function projectCollabRangesIntoCaptionTimeline() {
   const targetClipperId = ctx && ctx.clipperId;
   if (!targetClipperId) return;
   const projected = ranges
-    .filter(r => r && r.clipperId === targetClipperId)
+    .filter(r => r && r.clipperId === targetClipperId && r.sentBy)
     .map(r => window.CaptionSync.projectRangeToTimelineClip(r))
     .filter(Boolean);
   captionTimelineClips = projected;
