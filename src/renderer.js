@@ -13,6 +13,92 @@ function fmtSize(b) {
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function escAttr(s) { return String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 function escH(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+const X_PREVIEW_CHAR_LIMIT = 280;
+const clipFrameThumbCache = new Map();
+
+function toFileUrl(filePath) {
+  if (!filePath) return '';
+  if (/^file:\/\//i.test(filePath)) return filePath;
+  let normalized = String(filePath).replace(/\\/g, '/');
+  if (/^[a-zA-Z]:\//.test(normalized)) normalized = '/' + normalized;
+  return encodeURI('file://' + normalized);
+}
+
+function getClipStartFrameDataUrl(filePath) {
+  if (!filePath) return Promise.resolve(null);
+  if (clipFrameThumbCache.has(filePath)) return Promise.resolve(clipFrameThumbCache.get(filePath) || null);
+  const captureFromVideo = () => new Promise(resolve => {
+    let settled = false;
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.muted = true;
+    video.playsInline = true;
+
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      try {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+      } catch (_) {}
+    };
+    const finish = (dataUrl) => {
+      if (settled) return;
+      settled = true;
+      clipFrameThumbCache.set(filePath, dataUrl || '');
+      cleanup();
+      resolve(dataUrl || null);
+    };
+    const capture = () => {
+      if (!video.videoWidth || !video.videoHeight) {
+        finish(null);
+        return;
+      }
+      const maxWidth = 1280;
+      const scale = Math.min(1, maxWidth / video.videoWidth);
+      const width = Math.round(video.videoWidth * scale);
+      const height = Math.round(video.videoHeight * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        finish(null);
+        return;
+      }
+      ctx.drawImage(video, 0, 0, width, height);
+      let dataUrl = null;
+      try {
+        dataUrl = canvas.toDataURL('image/jpeg', 0.86);
+      } catch (_) {
+        dataUrl = null;
+      }
+      finish(dataUrl);
+    };
+
+    const timeoutId = setTimeout(() => finish(null), 7000);
+    video.addEventListener('loadeddata', capture, { once: true });
+    video.addEventListener('error', () => finish(null), { once: true });
+    try {
+      video.src = toFileUrl(filePath);
+      video.load();
+    } catch (_) {
+      finish(null);
+    }
+  });
+
+  if (window.clipper && window.clipper.extractClipFirstFrame) {
+    return window.clipper.extractClipFirstFrame(filePath).then((res) => {
+      if (res && res.success && res.dataUrl) {
+        clipFrameThumbCache.set(filePath, res.dataUrl);
+        return res.dataUrl;
+      }
+      return captureFromVideo();
+    }).catch(() => captureFromVideo());
+  }
+
+  return captureFromVideo();
+}
 
 /* ─── Debug Logger (always capturing, detached window) ──── */
 function dbg(category, message, data) {
@@ -59,9 +145,14 @@ document.addEventListener('DOMContentLoaded', () => {
 const PS = window.Player.state;
 let markingIn = false;
 let pendingInTime = null;
+let pendingMarkRangeId = null;
+let pendingInFrameDataUrl = null;
 let pendingClips = [];
 let downloadingClips = [];
 let completedClips = [];
+let captionTimelineClips = [];
+let selectedPostCaptionClipId = null;
+const postCaptionThumbInflight = new Map();
 let activeDownloadId = null;   // id of clip currently being processed
 let repickState = null;        // { idx, field } when re-picking IN/OUT
 
@@ -288,12 +379,19 @@ async function saveUniversalConfigs() {
 /* ─── Stream loading (delegated to Player module) ──────────── */
 const urlIn      = $('urlIn');
 const loadBtn    = $('loadBtn');
+const postCaptionEditorBtn = $('postCaptionEditorBtn');
 const navBtn     = $('navBtn');
 const importBtn  = $('importBtn');
 const vid        = $('vid');
 const playerWrap = $('playerWrap');
 
 loadBtn.onclick = () => { dbg('ACTION', 'Load Stream clicked', { url: urlIn.value.trim().slice(0, 120) }); window.Player.stream.handleURL(urlIn.value.trim()); };
+if (postCaptionEditorBtn) {
+  postCaptionEditorBtn.onclick = () => {
+    dbg('ACTION', 'Open Post Caption Editor from header');
+    openPostCaptionWindow(undefined, { tab: 'clips', source: 'header-button' });
+  };
+}
 urlIn.onkeydown = e => { if (e.key === 'Enter') { dbg('ACTION', 'URL submitted via Enter', { url: urlIn.value.trim().slice(0, 120) }); window.Player.stream.handleURL(urlIn.value.trim()); } };
 
 if (navBtn) navBtn.onclick = () => {
@@ -380,6 +478,79 @@ const markerState = $('markerState');
 
 markInBtn.onclick  = handleMarkIn;
 markOutBtn.onclick = handleMarkOut;
+if (window._panelBus && window._panelBus.on) {
+  window._panelBus.on('collab:jump-to-time', function (payload) {
+    if (!payload || !isFinite(payload.time)) return;
+    vid.currentTime = Number(payload.time);
+  });
+}
+
+function captureCurrentVideoFrameDataUrl(videoEl) {
+  if (!videoEl || !videoEl.videoWidth || !videoEl.videoHeight) return null;
+  const maxWidth = 1280;
+  const scale = Math.min(1, maxWidth / videoEl.videoWidth);
+  const width = Math.round(videoEl.videoWidth * scale);
+  const height = Math.round(videoEl.videoHeight * scale);
+  if (width <= 0 || height <= 0) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(videoEl, 0, 0, width, height);
+  try {
+    return canvas.toDataURL('image/jpeg', 0.86);
+  } catch (_) {
+    return null;
+  }
+}
+
+function getCollabMarkContext() {
+  if (window.CollabUI && window.CollabUI.getMarkContext) {
+    const ctx = window.CollabUI.getMarkContext();
+    if (ctx) return ctx;
+  }
+  const collabState = window.CollabUI && window.CollabUI.getState ? window.CollabUI.getState() : null;
+  const name = collabState && collabState.me ? collabState.me.name : 'You';
+  const userId = collabState && collabState.me ? collabState.me.id : null;
+  return {
+    userId,
+    userName: name,
+    clipperId: userId,
+    clipperName: name,
+    helperId: null,
+    helperName: ''
+  };
+}
+
+function upsertCollabClipRange(rangePatch) {
+  if (!window.CollabUI || !window.CollabUI.upsertClipRange) return null;
+  const ctx = getCollabMarkContext();
+  return window.CollabUI.upsertClipRange(Object.assign({
+    userId: ctx.userId,
+    userName: ctx.userName,
+    clipperId: ctx.clipperId,
+    clipperName: ctx.clipperName,
+    helperId: ctx.helperId,
+    helperName: ctx.helperName
+  }, rangePatch || {}));
+}
+
+function updateCollabClipStage(clip, status, extra) {
+  if (!clip || !clip.collabRangeId || !window.CollabUI || !window.CollabUI.upsertClipRange) return;
+  const meta = {};
+  if (clip.collabClipperId) meta.clipperId = clip.collabClipperId;
+  if (clip.collabClipperName) meta.clipperName = clip.collabClipperName;
+  if (clip.collabHelperId) meta.helperId = clip.collabHelperId;
+  if (clip.collabHelperName) meta.helperName = clip.collabHelperName;
+  upsertCollabClipRange(Object.assign({
+    id: clip.collabRangeId,
+    inTime: clip.inTime,
+    outTime: clip.outTime,
+    pendingOut: false,
+    status: status
+  }, meta, extra || {}));
+}
 
 function handleMarkIn() {
   if (vid.style.display === 'none') return;
@@ -394,11 +565,12 @@ function handleMarkIn() {
     }
     return;  // Block normal IN logic for ANY repick state
   }
-  if (markingIn) { dbg('ACTION', 'Mark IN cancelled (toggled off)'); cancelMarking(); return; }
+  if (markingIn) { dbg('ACTION', 'Mark IN cancelled (toggled off)'); cancelMarking({ removePendingRange: true }); return; }
 
   pendingInTime = vid.currentTime;
   dbg('ACTION', 'Mark IN pressed', { currentTime: pendingInTime });
   markingIn = true;
+  pendingInFrameDataUrl = captureCurrentVideoFrameDataUrl(vid);
   markInBtn.classList.add('active');
   markOutBtn.disabled = false;
   markerState.classList.add('marking');
@@ -413,7 +585,16 @@ function handleMarkIn() {
   } else {
     markerState._seekableStart = seekable.length > 0 ? seekable.start(0) : 0;
   }
+  const collabRange = upsertCollabClipRange({
+    id: pendingMarkRangeId || undefined,
+    inTime: pendingInTime,
+    outTime: pendingInTime,
+    pendingOut: true,
+    status: 'marking'
+  });
+  if (collabRange && collabRange.id) pendingMarkRangeId = collabRange.id;
   dbg('MARK', 'IN set', { inTime: pendingInTime, seekableStart: markerState._seekableStart, seekableEnd: seekable.length > 0 ? seekable.end(seekable.length-1) : null, isLive: PS.isLive, currentTime: vid.currentTime });
+  renderProgressMarkers();
 }
 
 function handleMarkOut() {
@@ -436,27 +617,43 @@ function handleMarkOut() {
   const localM3u8Text = (window.LocalPlaylist && window.LocalPlaylist.isActive() && PS.isLive)
     ? window.LocalPlaylist.getPlaylistText()
     : null;
+  const markCtx = getCollabMarkContext();
   const clipObj = {
     id: uid(),
     name: 'Clip ' + (pendingClips.length + completedClips.length + 1),
     caption: '',
+    postCaption: '',
     inTime: pendingInTime,
     outTime,
     m3u8Url: PS.currentM3U8,
     m3u8Text: localM3u8Text,
     isLive: PS.isLive,
     seekableStart: markerState._seekableStart || 0,
+    postThumbnailDataUrl: pendingInFrameDataUrl || '',
+    collabClipperId: markCtx.clipperId || null,
+    collabClipperName: markCtx.clipperName || '',
+    collabHelperId: markCtx.helperId || null,
+    collabHelperName: markCtx.helperName || '',
   };
   if (window.CollabUI && window.CollabUI.upsertClipRange) {
-    const collabState = window.CollabUI.getState ? window.CollabUI.getState() : null;
-    const collabName = collabState && collabState.me ? collabState.me.name : 'You';
-    const collabRange = window.CollabUI.upsertClipRange({
-      userName: collabName,
+    const collabRange = upsertCollabClipRange({
+      id: pendingMarkRangeId || undefined,
+      clipperId: clipObj.collabClipperId,
+      clipperName: clipObj.collabClipperName,
+      helperId: clipObj.collabHelperId,
+      helperName: clipObj.collabHelperName,
       inTime: clipObj.inTime,
       outTime: clipObj.outTime,
+      pendingOut: false,
       status: 'queued'
     });
-    if (collabRange) clipObj.collabRangeId = collabRange.id;
+    if (collabRange) {
+      clipObj.collabRangeId = collabRange.id;
+      clipObj.collabClipperId = collabRange.clipperId || clipObj.collabClipperId;
+      clipObj.collabClipperName = collabRange.clipperName || clipObj.collabClipperName;
+      clipObj.collabHelperId = collabRange.helperId || clipObj.collabHelperId;
+      clipObj.collabHelperName = collabRange.helperName || clipObj.collabHelperName;
+    }
   }
   dbg('MARK', 'OUT set — clip created', { name: clipObj.name, inTime: clipObj.inTime, outTime: clipObj.outTime, duration: outTime - pendingInTime, seekableStart: clipObj.seekableStart, isLive: PS.isLive, m3u8: PS.currentM3U8?.slice(0, 80) });
 
@@ -473,11 +670,15 @@ function handleMarkOut() {
     renderPendingClips();
   }
 
-  cancelMarking();
+  cancelMarking({ removePendingRange: false });
 }
 
-function cancelMarking() {
+function cancelMarking(opts) {
+  var options = Object.assign({ removePendingRange: true }, opts || {});
+  var rangeId = pendingMarkRangeId;
   markingIn = false; pendingInTime = null;
+  pendingMarkRangeId = null;
+  pendingInFrameDataUrl = null;
   markInBtn.classList.remove('active');
   markOutBtn.disabled = true;
   markerState.classList.remove('marking');
@@ -485,6 +686,10 @@ function cancelMarking() {
   markerState.querySelector('.marker-state-label').textContent = 'Ready to mark';
   markerState.querySelector('.marker-state-hint').innerHTML = 'Press <kbd>I</kbd> to set IN point during playback';
   markerState._seekableStart = null;
+  if (options.removePendingRange && rangeId && window.CollabUI && window.CollabUI.removeClipRange) {
+    window.CollabUI.removeClipRange(rangeId);
+  }
+  renderProgressMarkers();
 }
 
 /* ─── Progress bar markers ──────────────────────────────────── */
@@ -534,6 +739,14 @@ function renderProgressMarkers() {
       const outPct = toPct(range.outTime);
       const clampedIn = Math.max(0, Math.min(100, inPct));
       const clampedOut = Math.max(0, Math.min(100, outPct));
+      if (range.pendingOut) {
+        if (clampedIn < 0 || clampedIn > 100) return;
+        const marker = Object.assign(document.createElement('div'), { className: 'progress-marker in ghost' });
+        marker.style.left = clampedIn + '%';
+        marker.style.background = color;
+        progTrack.appendChild(marker);
+        return;
+      }
       if (clampedOut <= 0 || clampedIn >= 100 || clampedOut <= clampedIn) return;
 
       const ghostRange = Object.assign(document.createElement('div'), { className: 'progress-marker-range ghost' });
@@ -632,7 +845,16 @@ function renderPendingClips() {
     const btn = e.target.closest('[data-action], .clip-card-remove');
     if (!btn) return;
     const idx = parseInt(btn.dataset.idx);
-    if (btn.classList.contains('clip-card-remove')) { dbg('ACTION', 'Remove clip', { idx, name: pendingClips[idx]?.name }); pendingClips.splice(idx, 1); renderPendingClips(); return; }
+    if (btn.classList.contains('clip-card-remove')) {
+      const removed = pendingClips[idx];
+      dbg('ACTION', 'Remove clip', { idx, name: removed?.name });
+      pendingClips.splice(idx, 1);
+      if (removed && removed.collabRangeId && window.CollabUI && window.CollabUI.removeClipRange) {
+        window.CollabUI.removeClipRange(removed.collabRangeId);
+      }
+      renderPendingClips();
+      return;
+    }
     if (btn.dataset.action === 'download') { dbg('ACTION', 'Download clip clicked', { idx, name: pendingClips[idx]?.name }); downloadClip(idx); }
     if (btn.dataset.action === 'preview') { dbg('ACTION', 'Preview watermark clicked', { idx, name: pendingClips[idx]?.name }); previewClip(idx, btn); }
     if (btn.dataset.action === 'jumpin') { dbg('ACTION', 'Jump to IN', { idx, time: pendingClips[idx]?.inTime }); vid.currentTime = pendingClips[idx].inTime; }
@@ -651,6 +873,7 @@ function renderPendingClips() {
 
   updateClipCount();
   syncHubState();
+  syncPostCaptionState();
 }
 
 /* ─── Inline Timestamp Editing ─────────────────────────────────── */
@@ -1062,17 +1285,7 @@ function openOutroModal(idx) {
 function downloadClip(idx) {
   const clip = pendingClips.splice(idx, 1)[0];
   if (!clip) return;
-  if (window.CollabUI && window.CollabUI.upsertClipRange && clip.collabRangeId) {
-    const collabState = window.CollabUI.getState ? window.CollabUI.getState() : null;
-    const collabName = collabState && collabState.me ? collabState.me.name : 'You';
-    window.CollabUI.upsertClipRange({
-      id: clip.collabRangeId,
-      userName: collabName,
-      inTime: clip.inTime,
-      outTime: clip.outTime,
-      status: 'downloading'
-    });
-  }
+  updateCollabClipStage(clip, 'downloading');
   renderPendingClips();
 
   if (!clip.m3u8Url) { alert('No stream URL for this clip.'); return; }
@@ -1092,6 +1305,7 @@ function downloadClip(idx) {
   const dl = { id: clip.id, name: clip.name, progress: 0, clip, startSec, durationSec };
   downloadingClips.push(dl);
   renderDownloadingClips();
+  syncPostCaptionState();
   processDownloadQueue();
 }
 
@@ -1144,20 +1358,27 @@ async function processDownloadQueue() {
       renderDownloadingClips();
       dbg('CLIP', 'Download succeeded', { name: clip.name, filePath: result.filePath, fileSize: result.fileSize });
       completedClips.unshift({
-        id: clip.id, name: clip.name, caption: clip.caption,
+        id: clip.id, name: clip.name, caption: clip.caption, postCaption: clip.postCaption || '',
+        stage: 'downloaded',
         filePath: result.filePath, displayPath: result.displayPath, fileName: result.fileName, fileSize: result.fileSize,
         // Preserve timing for Re-Stage
         inTime: clip.inTime, outTime: clip.outTime, m3u8Url: clip.m3u8Url, m3u8Text: clip.m3u8Text || null,
         isLive: clip.isLive, seekableStart: clip.seekableStart, collabRangeId: clip.collabRangeId,
+        collabClipperId: clip.collabClipperId || null,
+        collabClipperName: clip.collabClipperName || '',
+        collabHelperId: clip.collabHelperId || null,
+        collabHelperName: clip.collabHelperName || '',
+        postThumbnailDataUrl: clip.postThumbnailDataUrl || '',
       });
-      if (window.CollabUI && window.CollabUI.upsertClipRange && clip.collabRangeId) {
-        const collabState = window.CollabUI.getState ? window.CollabUI.getState() : null;
-        const collabName = collabState && collabState.me ? collabState.me.name : 'You';
-        window.CollabUI.upsertClipRange({
-          id: clip.collabRangeId,
-          userName: collabName,
-          inTime: clip.inTime,
-          outTime: clip.outTime,
+      upsertCaptionTimelineClip(completedClips[0]);
+      updateCollabClipStage(clip, 'done');
+      if (clip.collabRangeId && window.CollabUI && window.CollabUI.updateClipRangeMetadata) {
+        const done = completedClips[0];
+        window.CollabUI.updateClipRangeMetadata(clip.collabRangeId, {
+          fileName: done.fileName || '',
+          filePath: done.filePath || '',
+          displayPath: done.displayPath || '',
+          postThumbnailDataUrl: done.postThumbnailDataUrl || '',
           status: 'done'
         });
       }
@@ -1165,32 +1386,14 @@ async function processDownloadQueue() {
     } else if (result && result.cancelled) {
       downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
       renderDownloadingClips();
-      if (window.CollabUI && window.CollabUI.upsertClipRange && clip.collabRangeId) {
-        const collabState = window.CollabUI.getState ? window.CollabUI.getState() : null;
-        const collabName = collabState && collabState.me ? collabState.me.name : 'You';
-        window.CollabUI.upsertClipRange({
-          id: clip.collabRangeId,
-          userName: collabName,
-          inTime: clip.inTime,
-          outTime: clip.outTime,
-          status: 'queued'
-        });
-      }
+      syncPostCaptionState();
+      updateCollabClipStage(clip, 'queued');
       dbg('CLIP', 'Download cancelled by user', { name: clip.name });
     } else {
       downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
       renderDownloadingClips();
-      if (window.CollabUI && window.CollabUI.upsertClipRange && clip.collabRangeId) {
-        const collabState = window.CollabUI.getState ? window.CollabUI.getState() : null;
-        const collabName = collabState && collabState.me ? collabState.me.name : 'You';
-        window.CollabUI.upsertClipRange({
-          id: clip.collabRangeId,
-          userName: collabName,
-          inTime: clip.inTime,
-          outTime: clip.outTime,
-          status: 'queued'
-        });
-      }
+      syncPostCaptionState();
+      updateCollabClipStage(clip, 'queued');
       dbg('ERROR', 'Download failed', { name: clip.name, error: result?.error });
       alert('Download failed: ' + (result?.error || 'Unknown error'));
     }
@@ -1199,17 +1402,8 @@ async function processDownloadQueue() {
     downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
     activeDownloadId = null;
     renderDownloadingClips();
-    if (window.CollabUI && window.CollabUI.upsertClipRange && clip.collabRangeId) {
-      const collabState = window.CollabUI.getState ? window.CollabUI.getState() : null;
-      const collabName = collabState && collabState.me ? collabState.me.name : 'You';
-      window.CollabUI.upsertClipRange({
-        id: clip.collabRangeId,
-        userName: collabName,
-        inTime: clip.inTime,
-        outTime: clip.outTime,
-        status: 'queued'
-      });
-    }
+    syncPostCaptionState();
+    updateCollabClipStage(clip, 'queued');
     alert('Download error: ' + err.message);
   }
 
@@ -1288,24 +1482,40 @@ document.addEventListener('DOMContentLoaded', () => {
 /* ─── Completed ─────────────────────────────────────────────── */
 function renderCompletedClips() {
   const list = $('completedClipList');
+  upsertCaptionTimelineFromCompleted();
   if (completedClips.length === 0) {
     list.innerHTML = '<div class="empty-state"><small>Downloaded clips appear here — drag to post!</small></div>';
-    updateClipCount(); return;
+    updateClipCount();
+    syncHubState();
+    syncPostCaptionState();
+    return;
   }
 
   const showFfmpegLog = userConfig.devFeatures?.ffmpegLogs;
 
   list.innerHTML = completedClips.map((clip, idx) => `
     <div class="completed-card" draggable="true" data-path="${escAttr(clip.displayPath || clip.filePath)}">
-      <span class="completed-card-icon">&#127916;</span>
-      <div class="completed-card-info">
-        <div class="completed-card-name">${escH(clip.name)}</div>
-        <div class="completed-card-meta">${escH(clip.fileName)} · ${fmtSize(clip.fileSize)}</div>
-      </div>
-      <div class="completed-card-actions">
-        ${clip.m3u8Url ? `<button class="btn btn-ghost btn-xs restage-btn" data-action="restage" data-idx="${idx}" title="Send back to Pending">Re-Stage</button>` : ''}
-        ${showFfmpegLog ? `<button class="btn btn-ghost btn-xs ffmpeg-log-btn" data-action="ffmpeglog" data-idx="${idx}" title="View FFMPEG Log">&#128220;</button>` : ''}
-        <button class="btn btn-ghost btn-xs" data-action="show" data-idx="${idx}">&#128193;</button>
+      <div class="completed-card-main">
+        <div class="completed-card-header">
+          <span class="completed-card-icon">&#127916;</span>
+          <div class="completed-card-info">
+            <div class="completed-card-name" title="${escAttr(clip.name)}">${escH(clip.name)}</div>
+            <div class="completed-card-summary${(clip.caption || '').trim() ? '' : ' empty'}" title="${escAttr((clip.caption || '').trim() || 'No caption/summary set')}">${escH((clip.caption || '').trim() || 'No caption/summary set')}</div>
+            <div class="completed-card-file" title="${escAttr(clip.fileName || '')}">${escH(clip.fileName || '')}${clip.fileSize ? ` · ${fmtSize(clip.fileSize)}` : ''}</div>
+          </div>
+        </div>
+        <div class="completed-card-actions-row">
+          <button class="btn btn-ghost btn-xs completed-open-btn" data-action="show" data-idx="${idx}" title="Open in folder">Open Folder</button>
+          <button class="btn btn-ghost btn-xs completed-open-btn" data-action="copycaption" data-idx="${idx}" title="Copy post caption">Copy Caption</button>
+          <details class="completed-actions-menu">
+            <summary class="btn btn-ghost btn-xs completed-actions-trigger" title="More actions">More ▾</summary>
+            <div class="completed-actions-popover">
+              <button class="completed-action-item action-x" data-action="postcaption" data-idx="${idx}" title="Open X post caption editor">&#120143; Caption</button>
+              ${clip.m3u8Url ? `<button class="completed-action-item action-restage" data-action="restage" data-idx="${idx}" title="Send back to Pending">Re-Stage</button>` : ''}
+              ${showFfmpegLog ? `<button class="completed-action-item action-log" data-action="ffmpeglog" data-idx="${idx}" title="View FFMPEG Log">FFMPEG Log</button>` : ''}
+            </div>
+          </details>
+        </div>
       </div>
     </div>`).join('');
 
@@ -1316,18 +1526,329 @@ function renderCompletedClips() {
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
     const ci = parseInt(btn.dataset.idx);
+    const menu = btn.closest('.completed-actions-menu');
+    if (menu && menu.hasAttribute('open')) menu.removeAttribute('open');
+    if (btn.dataset.action === 'postcaption') { openPostCaptionWindow(ci, { tab: 'caption', source: 'clip-card' }); return; }
     if (btn.dataset.action === 'show') { dbg('ACTION', 'Show in folder', { name: completedClips[ci]?.name }); window.clipper.showInFolder(completedClips[ci].filePath); }
+    if (btn.dataset.action === 'copycaption') {
+      const clip = completedClips[ci];
+      const text = clip ? (clip.postCaption || clip.caption || '').trim() : '';
+      if (text && window.clipper && window.clipper.copyText) window.clipper.copyText(text);
+    }
     if (btn.dataset.action === 'ffmpeglog') { dbg('ACTION', 'View FFMPEG log', { name: completedClips[ci]?.name }); window.clipper.openClipFfmpegLog(completedClips[ci].name); }
     if (btn.dataset.action === 'restage') { showRestageConfirmation(ci, completedClips[ci]); }
   };
 
   updateClipCount();
   syncHubState();
+  syncPostCaptionState();
 }
 
 function updateClipCount() {
   const n = pendingClips.length + downloadingClips.length + completedClips.length;
   $('clipCount').textContent = n + (n === 1 ? ' clip' : ' clips');
+}
+
+function toPostCaptionRecord(clip) {
+  if (!clip) return null;
+  return {
+    id: clip.id,
+    name: clip.name || '',
+    caption: clip.caption || '',
+    postCaption: clip.postCaption || '',
+    stage: clip.stage || 'downloaded',
+    fileName: clip.fileName || '',
+    fileSize: clip.fileSize || 0,
+    filePath: clip.filePath || '',
+    displayPath: clip.displayPath || '',
+    postThumbnailDataUrl: clip.postThumbnailDataUrl || '',
+    inTime: clip.inTime,
+    outTime: clip.outTime,
+  };
+}
+
+function upsertCaptionTimelineClip(clip) {
+  const rec = toPostCaptionRecord(clip);
+  if (!rec || !rec.id) return;
+  const idx = captionTimelineClips.findIndex(c => c.id === rec.id);
+  if (idx >= 0) {
+    captionTimelineClips[idx] = { ...captionTimelineClips[idx], ...rec };
+  } else {
+    captionTimelineClips.unshift(rec);
+  }
+}
+
+function upsertCaptionTimelineFromCompleted() {
+  completedClips.forEach(c => upsertCaptionTimelineClip({ ...c, stage: 'downloaded' }));
+}
+
+function syncCaptionTimelineStages() {
+  const liveMap = new Map();
+  const stageRank = { pending: 1, downloading: 2, downloaded: 3 };
+  const putLive = (clip, stage) => {
+    const rec = toPostCaptionRecord({ ...clip, stage });
+    if (!rec || !rec.id) return;
+    const existing = liveMap.get(rec.id);
+    if (!existing || stageRank[rec.stage] >= stageRank[existing.stage]) {
+      liveMap.set(rec.id, rec);
+    }
+  };
+
+  pendingClips.forEach(c => putLive(c, 'pending'));
+  downloadingClips.forEach(d => putLive(d.clip || d, 'downloading'));
+  completedClips.forEach(c => putLive(c, 'downloaded'));
+
+  captionTimelineClips = captionTimelineClips.filter((clip) => {
+    if (!clip || !clip.id) return false;
+    if (clip.stage === 'pending' || clip.stage === 'downloading') {
+      return liveMap.has(clip.id);
+    }
+    return true;
+  });
+
+  liveMap.forEach((rec) => {
+    const idx = captionTimelineClips.findIndex(c => c.id === rec.id);
+    if (idx >= 0) captionTimelineClips[idx] = { ...captionTimelineClips[idx], ...rec };
+    else captionTimelineClips.unshift(rec);
+  });
+}
+
+function getTimelineClipById(id) {
+  if (!id) return null;
+  return captionTimelineClips.find(c => c.id === id) || null;
+}
+
+function getPostCaptionSelectedClip() {
+  if (selectedPostCaptionClipId) {
+    const selected = completedClips.find(c => c.id === selectedPostCaptionClipId) || getTimelineClipById(selectedPostCaptionClipId);
+    if (selected) return selected;
+  }
+  if (completedClips.length > 0) {
+    selectedPostCaptionClipId = completedClips[0].id;
+    return completedClips[0];
+  }
+  if (captionTimelineClips.length > 0) {
+    selectedPostCaptionClipId = captionTimelineClips[0].id;
+    return captionTimelineClips[0];
+  }
+  selectedPostCaptionClipId = null;
+  return null;
+}
+
+function ensurePostCaptionThumb(clip) {
+  if (!clip || !clip.filePath || clip.postThumbnailDataUrl) return;
+  if (postCaptionThumbInflight.has(clip.id)) return;
+  const pending = getClipStartFrameDataUrl(clip.filePath).then((dataUrl) => {
+    if (!dataUrl) return;
+    const latest = completedClips.find(c => c.id === clip.id) || getTimelineClipById(clip.id);
+    if (!latest) return;
+    latest.postThumbnailDataUrl = dataUrl;
+    if (latest.collabRangeId && window.CollabUI && window.CollabUI.updateClipRangeMetadata) {
+      window.CollabUI.updateClipRangeMetadata(latest.collabRangeId, {
+        postThumbnailDataUrl: latest.postThumbnailDataUrl
+      });
+    }
+    upsertCaptionTimelineClip(latest);
+    syncPostCaptionState();
+    syncHubState();
+  }).finally(() => {
+    postCaptionThumbInflight.delete(clip.id);
+  });
+  postCaptionThumbInflight.set(clip.id, pending);
+}
+
+function syncPostCaptionState() {
+  syncCaptionTimelineStages();
+  const selected = getPostCaptionSelectedClip();
+  if (selected) ensurePostCaptionThumb(selected);
+  try {
+    window.clipper.sendPostCaptionStateUpdate({
+      selectedClipId: selected ? selected.id : null,
+      timelineClips: captionTimelineClips.map(c => toPostCaptionRecord(c)).filter(Boolean),
+    });
+  } catch (_) {}
+}
+
+function openPostCaptionWindow(idx, opts = {}) {
+  if (typeof idx === 'number' && completedClips[idx]) {
+    selectedPostCaptionClipId = completedClips[idx].id;
+  }
+  const selected = getPostCaptionSelectedClip();
+  if (selected) ensurePostCaptionThumb(selected);
+  syncPostCaptionState();
+  if (window.clipper?.openPostCaptionWindow) {
+    window.clipper.openPostCaptionWindow({
+      tab: opts.tab === 'clips' ? 'clips' : 'caption',
+      source: opts.source || 'clip-card',
+    }).then(() => {
+      syncPostCaptionState();
+    }).catch(() => {});
+  }
+}
+
+function showPostCaptionModal(idx) {
+  openPostCaptionWindow(idx);
+  return;
+  const initialClip = completedClips[idx];
+  if (!initialClip) return;
+  const clipId = initialClip.id;
+  const old = document.querySelector('.postcap-modal-overlay');
+  if (old) old.remove();
+
+  const clipDuration = fmtDur(Math.max(0, (initialClip.outTime || 0) - (initialClip.inTime || 0)));
+  const overlay = document.createElement('div');
+  overlay.className = 'wm-modal-overlay postcap-modal-overlay';
+  overlay.innerHTML = `
+    <div class="wm-modal postcap-modal">
+      <div class="wm-modal-title postcap-modal-title"><span>Post Captioning</span><button class="postcap-close-x" id="postCaptionCloseX" type="button" aria-label="Close">X</button></div>
+      <div class="postcap-subtitle">Editing caption for ${escH(initialClip.name)}</div>
+      <div class="wm-modal-body postcap-layout">
+        <div class="postcap-editor-pane">
+          <label class="wm-label">X Post Caption</label>
+          <textarea id="postCaptionInput" class="postcap-editor-input" spellcheck="false" placeholder="Write your post caption here..."></textarea>
+          <div class="postcap-counter" id="postCaptionCounter"><span id="postCaptionCount">0</span> / ${X_PREVIEW_CHAR_LIMIT} preview chars</div>
+          <div class="postcap-note">Timeline preview follows X behavior: text expands until 280 characters, then collapses behind "Show more".</div>
+        </div>
+        <div class="postcap-preview-pane">
+          <div class="x-mock-timeline">
+            <article class="x-mock-post">
+              <div class="x-mock-avatar"></div>
+              <div class="x-mock-main">
+                <div class="x-mock-header"><span class="x-mock-name">Template Account</span><span class="x-mock-handle">@templatefeed - 2m</span></div>
+                <div class="x-mock-text">Earlier post in the timeline for context.</div>
+              </div>
+            </article>
+            <article class="x-mock-post focus">
+              <div class="x-mock-avatar focus"></div>
+              <div class="x-mock-main">
+                <div class="x-mock-header"><span class="x-mock-name">Your Clip</span><span class="x-mock-handle">@clipstudiopost - now</span></div>
+                <div class="x-mock-text placeholder" id="postCaptionPreviewText">Enter Post Caption...</div>
+                <button class="x-show-more" id="postCaptionShowMore" type="button" style="display:none;">Show more</button>
+                <div class="x-video-card" id="postCaptionThumb">
+                  <span class="x-video-play">&#9658;</span>
+                  <span class="x-video-duration">${escH(clipDuration)}</span>
+                </div>
+                <div class="x-engagement-row">
+                  <span>2 Replies</span><span>2 Reposts</span><span>78 Likes</span><span>910 Views</span>
+                </div>
+              </div>
+            </article>
+            <article class="x-mock-post">
+              <div class="x-mock-avatar"></div>
+              <div class="x-mock-main">
+                <div class="x-mock-header"><span class="x-mock-name">Template Account</span><span class="x-mock-handle">@templatefeed - 4m</span></div>
+                <div class="x-mock-text">Another post below so the focused post sits in a realistic feed.</div>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
+      <div class="wm-modal-actions">
+        <button class="btn btn-ghost btn-sm" id="postCaptionClose">Close</button>
+        <button class="btn btn-primary btn-sm" id="postCaptionDone">Done</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const getClip = () => {
+    const byId = completedClips.find(c => c.id === clipId);
+    if (byId) return byId;
+    return completedClips[idx] || null;
+  };
+  const input = overlay.querySelector('#postCaptionInput');
+  const previewText = overlay.querySelector('#postCaptionPreviewText');
+  const showMoreBtn = overlay.querySelector('#postCaptionShowMore');
+  const thumb = overlay.querySelector('#postCaptionThumb');
+  const counter = overlay.querySelector('#postCaptionCounter');
+  const countEl = overlay.querySelector('#postCaptionCount');
+
+  let expanded = false;
+  let syncTimer = null;
+  const queueSync = () => {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => syncHubState(), 140);
+  };
+  const autoSizeInput = () => {
+    input.style.height = 'auto';
+    const maxHeight = 360;
+    input.style.height = Math.min(maxHeight, Math.max(140, input.scrollHeight)) + 'px';
+  };
+  const applyPreviewText = (caption) => {
+    const raw = caption || '';
+    countEl.textContent = String(raw.length);
+    counter.classList.toggle('over', raw.length > X_PREVIEW_CHAR_LIMIT);
+    if (!raw.length) {
+      previewText.textContent = 'Enter Post Caption...';
+      previewText.classList.add('placeholder');
+      showMoreBtn.style.display = 'none';
+      expanded = false;
+      return;
+    }
+    previewText.classList.remove('placeholder');
+    const isOverflow = raw.length > X_PREVIEW_CHAR_LIMIT;
+    if (!isOverflow) expanded = false;
+    previewText.textContent = (isOverflow && !expanded)
+      ? (raw.slice(0, X_PREVIEW_CHAR_LIMIT).trimEnd() + '...')
+      : raw;
+    showMoreBtn.style.display = isOverflow ? 'inline-flex' : 'none';
+    showMoreBtn.textContent = expanded ? 'Show less' : 'Show more';
+  };
+  const closeModal = () => {
+    clearTimeout(syncTimer);
+    syncHubState();
+    document.removeEventListener('keydown', onEscClose);
+    overlay.remove();
+  };
+  const onEscClose = (e) => {
+    if (e.key === 'Escape') closeModal();
+  };
+  document.addEventListener('keydown', onEscClose);
+
+  input.addEventListener('input', () => {
+    const clip = getClip();
+    if (!clip) { closeModal(); return; }
+    clip.postCaption = input.value;
+    applyPreviewText(clip.postCaption);
+    autoSizeInput();
+    queueSync();
+  });
+  showMoreBtn.addEventListener('click', () => {
+    expanded = !expanded;
+    applyPreviewText(input.value || '');
+  });
+  overlay.querySelector('#postCaptionClose').onclick = closeModal;
+  overlay.querySelector('#postCaptionCloseX').onclick = closeModal;
+  overlay.querySelector('#postCaptionDone').onclick = closeModal;
+
+  input.value = initialClip.postCaption || '';
+  applyPreviewText(input.value);
+  autoSizeInput();
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+
+  const applyThumb = (dataUrl) => {
+    if (!dataUrl) {
+      thumb.classList.add('no-thumb');
+      return;
+    }
+    thumb.classList.remove('no-thumb');
+    thumb.classList.add('has-thumb');
+    thumb.style.backgroundImage = 'url(' + JSON.stringify(dataUrl) + ')';
+  };
+  if (initialClip.postThumbnailDataUrl) {
+    applyThumb(initialClip.postThumbnailDataUrl);
+  } else {
+    getClipStartFrameDataUrl(initialClip.filePath).then(dataUrl => {
+      if (!document.body.contains(overlay)) return;
+      const latestClip = getClip();
+      if (!latestClip) return;
+      if (dataUrl) {
+        latestClip.postThumbnailDataUrl = dataUrl;
+      }
+      applyThumb(dataUrl);
+    });
+  }
 }
 
 /* ─── Re-Stage Confirmation ────────────────────────────────────── */
@@ -1367,18 +1888,14 @@ function showRestageConfirmation(idx, clip) {
       inTime: clip.inTime, outTime: clip.outTime,
       m3u8Url: clip.m3u8Url, m3u8Text: clip.m3u8Text || null, isLive: clip.isLive,
       seekableStart: clip.seekableStart || 0, collabRangeId: clip.collabRangeId || null,
+      collabClipperId: clip.collabClipperId || null,
+      collabClipperName: clip.collabClipperName || '',
+      collabHelperId: clip.collabHelperId || null,
+      collabHelperName: clip.collabHelperName || '',
+      postThumbnailDataUrl: clip.postThumbnailDataUrl || '',
     });
-    if (window.CollabUI && window.CollabUI.upsertClipRange && clip.collabRangeId) {
-      const collabState = window.CollabUI.getState ? window.CollabUI.getState() : null;
-      const collabName = collabState && collabState.me ? collabState.me.name : 'You';
-      window.CollabUI.upsertClipRange({
-        id: clip.collabRangeId,
-        userName: collabName,
-        inTime: clip.inTime,
-        outTime: clip.outTime,
-        status: 'queued'
-      });
-    }
+    updateCollabClipStage(clip, 'queued');
+    upsertCaptionTimelineClip(clip);
     completedClips.splice(idx, 1);
     renderPendingClips();
     renderCompletedClips();
@@ -1389,7 +1906,8 @@ function showRestageConfirmation(idx, clip) {
 /* ─── Clear Completed ──────────────────────────────────────────── */
 $('clearCompleted').onclick = () => {
   if (completedClips.length === 0) return;
-  dbg('ACTION', 'Clear all completed clips');
+  dbg('ACTION', 'Clear downloaded clips list (keep caption timeline)');
+  upsertCaptionTimelineFromCompleted();
   completedClips = [];
   renderCompletedClips();
 };
@@ -1420,9 +1938,11 @@ function syncHubState() {
         id: d.id, name: d.name, progress: d.progress
       })),
       completedClips: completedClips.map(c => ({
-        id: c.id, name: c.name, caption: c.caption || '',
+        id: c.id, name: c.name, caption: c.caption || '', postCaption: c.postCaption || '',
+        stage: c.stage || 'downloaded',
         fileName: c.fileName, fileSize: c.fileSize,
         filePath: c.filePath, displayPath: c.displayPath,
+        postThumbnailDataUrl: c.postThumbnailDataUrl || '',
         m3u8Url: c.m3u8Url, m3u8Text: c.m3u8Text || null, inTime: c.inTime, outTime: c.outTime,
         isLive: c.isLive, seekableStart: c.seekableStart,
       })),
@@ -1456,13 +1976,17 @@ window.clipper.onHubAction(async (action) => {
       break;
     case 'cancel': {
       const dl = downloadingClips.find(d => d.id === action.id);
-      if (dl) { window.clipper.cancelClip(dl.name); downloadingClips = downloadingClips.filter(d => d.id !== action.id); if (activeDownloadId === action.id) activeDownloadId = null; renderDownloadingClips(); processDownloadQueue(); }
+      if (dl) { window.clipper.cancelClip(dl.name); downloadingClips = downloadingClips.filter(d => d.id !== action.id); if (activeDownloadId === action.id) activeDownloadId = null; renderDownloadingClips(); syncPostCaptionState(); processDownloadQueue(); }
       break;
     }
     case 'remove': {
       if (action.idx >= 0 && action.idx < pendingClips.length) {
-        dbg('ACTION', 'Remove pending clip from hub', { idx: action.idx, name: pendingClips[action.idx].name });
+        const removed = pendingClips[action.idx];
+        dbg('ACTION', 'Remove pending clip from hub', { idx: action.idx, name: removed.name });
         pendingClips.splice(action.idx, 1);
+        if (removed && removed.collabRangeId && window.CollabUI && window.CollabUI.removeClipRange) {
+          window.CollabUI.removeClipRange(removed.collabRangeId);
+        }
         renderPendingClips();
       }
       break;
@@ -1497,6 +2021,17 @@ window.clipper.onHubAction(async (action) => {
     case 'clearOutro':
       if (pendingClips[action.idx]) { delete pendingClips[action.idx].outro; renderPendingClips(); }
       break;
+    case 'editPostCaption':
+      if (completedClips[action.idx]) {
+        completedClips[action.idx].postCaption = action.value || '';
+        upsertCaptionTimelineClip(completedClips[action.idx]);
+        syncHubState();
+        syncPostCaptionState();
+      }
+      break;
+    case 'openPostCaption':
+      openPostCaptionWindow(action.idx, { tab: 'caption', source: 'hub-card' });
+      break;
     case 'ffmpeglog':
       if (completedClips[action.idx]) window.clipper.openClipFfmpegLog(completedClips[action.idx].name);
       break;
@@ -1504,31 +2039,98 @@ window.clipper.onHubAction(async (action) => {
       const clip = completedClips[action.idx];
       if (clip && clip.m3u8Url) {
         await window.clipper.deleteClipFile(clip.filePath);
-        pendingClips.push({ id: uid(), name: clip.name, caption: clip.caption || '', inTime: clip.inTime, outTime: clip.outTime, m3u8Url: clip.m3u8Url, m3u8Text: clip.m3u8Text || null, isLive: clip.isLive, seekableStart: clip.seekableStart || 0, collabRangeId: clip.collabRangeId || null });
-        if (window.CollabUI && window.CollabUI.upsertClipRange && clip.collabRangeId) {
-          const collabState = window.CollabUI.getState ? window.CollabUI.getState() : null;
-          const collabName = collabState && collabState.me ? collabState.me.name : 'You';
-          window.CollabUI.upsertClipRange({
-            id: clip.collabRangeId,
-            userName: collabName,
-            inTime: clip.inTime,
-            outTime: clip.outTime,
-            status: 'queued'
-          });
-        }
+        pendingClips.push({
+          id: uid(),
+          name: clip.name,
+          caption: clip.caption || '',
+          inTime: clip.inTime,
+          outTime: clip.outTime,
+          m3u8Url: clip.m3u8Url,
+          m3u8Text: clip.m3u8Text || null,
+          isLive: clip.isLive,
+          seekableStart: clip.seekableStart || 0,
+          collabRangeId: clip.collabRangeId || null,
+          collabClipperId: clip.collabClipperId || null,
+          collabClipperName: clip.collabClipperName || '',
+          collabHelperId: clip.collabHelperId || null,
+          collabHelperName: clip.collabHelperName || '',
+          postThumbnailDataUrl: clip.postThumbnailDataUrl || ''
+        });
+        updateCollabClipStage(clip, 'queued');
+        upsertCaptionTimelineClip(clip);
         completedClips.splice(action.idx, 1);
         renderPendingClips(); renderCompletedClips();
       }
       break;
     }
     case 'restage': showRestageConfirmation(action.idx, completedClips[action.idx]); break;
-    case 'clearCompleted': completedClips = []; renderCompletedClips(); break;
+    case 'clearCompleted':
+      upsertCaptionTimelineFromCompleted();
+      completedClips = [];
+      renderCompletedClips();
+      break;
     case 'show': if (completedClips[action.idx]) window.clipper.showInFolder(completedClips[action.idx].filePath); break;
     case 'openDebug': if (window.clipper?.openDebugWindow) window.clipper.openDebugWindow(); break;
     case 'outputPathChanged':
       $('outputPath').textContent = action.path;
       syncHubState();
       break;
+  }
+});
+
+window.clipper.onPostCaptionAction((action) => {
+  if (!action || !action.type) return;
+  var byId = function (id) {
+    if (!id) return null;
+    var inPending = pendingClips.find(c => c.id === id);
+    if (inPending) return inPending;
+    var inDownloading = downloadingClips.find(d => d.id === id);
+    if (inDownloading && inDownloading.clip) return inDownloading.clip;
+    var inCompleted = completedClips.find(c => c.id === id);
+    if (inCompleted) return inCompleted;
+    return getTimelineClipById(id);
+  };
+  if (action.type === 'selectClip') {
+    if (action.id && (completedClips.some(c => c.id === action.id) || getTimelineClipById(action.id))) {
+      selectedPostCaptionClipId = action.id;
+      const selected = getPostCaptionSelectedClip();
+      if (selected) ensurePostCaptionThumb(selected);
+      syncPostCaptionState();
+    }
+    return;
+  }
+  if (action.type === 'requestThumb') {
+    const clip = completedClips.find(c => c.id === action.id) || getTimelineClipById(action.id);
+    if (clip) ensurePostCaptionThumb(clip);
+    return;
+  }
+  if (action.type === 'editPostCaptionById') {
+    const clip = byId(action.id);
+    if (!clip) return;
+    clip.postCaption = action.value || '';
+    clip.postCaptionUpdatedAt = Date.now();
+    upsertCaptionTimelineClip(clip);
+    selectedPostCaptionClipId = clip.id;
+    if (clip.collabRangeId && window.CollabUI && window.CollabUI.updateClipRangeCaption) {
+      window.CollabUI.updateClipRangeCaption(clip.collabRangeId, clip.postCaption);
+    }
+    syncHubState();
+    syncPostCaptionState();
+    return;
+  }
+  if (action.type === 'showById') {
+    const clip = byId(action.id);
+    if (clip && clip.filePath) window.clipper.showInFolder(clip.filePath);
+    return;
+  }
+  if (action.type === 'copyCaptionById') {
+    const clip = byId(action.id);
+    if (!clip) return;
+    const text = (clip.postCaption || clip.caption || '').trim();
+    if (!text) return;
+    if (window.clipper && window.clipper.copyText) {
+      window.clipper.copyText(text);
+    }
   }
 });
 
@@ -2120,3 +2722,5 @@ renderDownloadingClips();
 renderCompletedClips();
 
 })();
+
+
