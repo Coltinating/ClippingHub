@@ -2216,6 +2216,7 @@ svg { display: block; }
   position: fixed; inset: 0; background: rgba(0,0,0,0.6);
   display: flex; align-items: center; justify-content: center; z-index: 1000;
 }
+.profile-modal-overlay[hidden] { display: none !important; }
 .profile-modal {
   background: #0b1018; border: 1px solid #22303c; border-radius: 14px;
   padding: 18px; width: min(420px, 90vw); display: flex; flex-direction: column; gap: 12px;
