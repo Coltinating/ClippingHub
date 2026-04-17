@@ -467,32 +467,75 @@
         </div>
       </div>
       <div class="panel-body collab-panel-body">
-        <div class="collab-form-grid">
-          <label class="collab-field">Profile Name<input id="collabProfileNameInput" type="text" placeholder="Editor Name"></label>
-          <label class="collab-field">Role
-            <select id="collabRoleSelect">
-              <option value="clipper">Clipper</option>
-              <option value="helper">Slave (Helper)</option>
-            </select>
-          </label>
-          <label class="collab-field">Assist Clipper
-            <select id="collabAssistSelect">
-              <option value="">None</option>
-            </select>
-          </label>
-          <label class="collab-field">Lobby Name<input id="collabLobbyNameInput" type="text" placeholder="Night Shift Clips"></label>
-          <label class="collab-field">Password<input id="collabLobbyPasswordInput" type="password" placeholder="password"></label>
-          <label class="collab-field">Join Code<input id="collabLobbyCodeInput" type="text" placeholder="AB12CD"></label>
+        <!-- Inactive-lobby state -->
+        <div class="lobby-card" id="lobbyInactiveState">
+          <div class="lobby-tabs" role="tablist">
+            <button class="lobby-tab active" id="lobbyTabCreate" role="tab" type="button">Create</button>
+            <button class="lobby-tab" id="lobbyTabJoin" role="tab" type="button">Join</button>
+          </div>
+
+          <div class="lobby-tab-panel" id="lobbyPanelCreate">
+            <label class="lobby-field">
+              <span class="lobby-label">Lobby Name</span>
+              <input id="collabLobbyNameInput" type="text" placeholder="Night Shift Clips">
+            </label>
+            <label class="lobby-field">
+              <span class="lobby-label">Password <span class="lobby-hint">(optional)</span></span>
+              <input id="collabLobbyPasswordInputCreate" type="password" placeholder="········">
+            </label>
+            <button class="btn btn-primary lobby-primary" id="collabCreateBtn" type="button">Create Lobby</button>
+          </div>
+
+          <div class="lobby-tab-panel" id="lobbyPanelJoin" hidden>
+            <label class="lobby-field">
+              <span class="lobby-label">Join Code</span>
+              <input id="collabLobbyCodeInput" type="text" maxlength="8" placeholder="AB12CD" autocomplete="off">
+            </label>
+            <label class="lobby-field">
+              <span class="lobby-label">Password</span>
+              <input id="collabLobbyPasswordInputJoin" type="password" placeholder="········">
+            </label>
+            <button class="btn btn-primary lobby-primary" id="collabJoinBtn" type="button">Join Lobby</button>
+          </div>
+
+          <div class="lobby-status" id="collabSessionStatus" aria-live="polite"></div>
         </div>
-        <div class="collab-btn-row">
-          <button class="btn btn-primary btn-xs" id="collabCreateBtn">Create</button>
-          <button class="btn btn-ghost btn-xs" id="collabJoinBtn">Join</button>
-          <button class="btn btn-ghost btn-xs" id="collabLeaveBtn">Leave</button>
-          <button class="btn btn-accent btn-xs" id="collabSimulateBtn">Simulate</button>
+
+        <!-- Active-lobby state -->
+        <div class="lobby-card" id="lobbyActiveState" hidden>
+          <div class="lobby-header">
+            <div class="lobby-title-row">
+              <div class="lobby-title" id="lobbyActiveName">Lobby</div>
+              <button class="btn btn-ghost btn-xs" id="collabLeaveBtn" type="button">Leave</button>
+            </div>
+            <div class="lobby-code-row">
+              <span class="lobby-code-label">Code</span>
+              <span class="lobby-code" id="lobbyActiveCode">------</span>
+              <button class="btn btn-ghost btn-xs" id="lobbyCopyCodeBtn" type="button" title="Copy code">Copy</button>
+            </div>
+          </div>
+
+          <div class="lobby-role-row">
+            <div class="lobby-role-toggle" role="radiogroup">
+              <button class="lobby-role-opt" data-role="clipper" type="button">Clipper</button>
+              <button class="lobby-role-opt" data-role="helper" type="button">Helper</button>
+            </div>
+            <label class="lobby-field lobby-assist" id="lobbyAssistWrap" hidden>
+              <span class="lobby-label">Assisting</span>
+              <select id="collabAssistSelect">
+                <option value="">Select Clipper</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="lobby-members">
+            <div class="lobby-section-title">
+              <span>Editors</span>
+              <span class="lobby-member-count" id="lobbyMemberCount">0</span>
+            </div>
+            <div class="lobby-member-list" id="collabMembersList"></div>
+          </div>
         </div>
-        <div class="collab-status" id="collabSessionStatus">No active lobby</div>
-        <div class="collab-subtitle">Editors</div>
-        <div class="collab-list" id="collabMembersList"></div>
       </div>
     </div>
 
