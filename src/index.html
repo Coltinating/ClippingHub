@@ -10,6 +10,41 @@
 </head>
 <body>
 
+<!-- Account card (top-right) -->
+<div class="account-card" id="accountCard">
+  <div class="account-avatar" id="accountAvatar"></div>
+  <div class="account-meta">
+    <div class="account-name" id="accountName">Guest</div>
+    <div class="account-handle" id="accountHandle"></div>
+  </div>
+  <button class="btn btn-ghost btn-xs" id="accountEditBtn" type="button">Edit</button>
+</div>
+
+<!-- Profile edit modal -->
+<div class="profile-modal-overlay" id="profileModal" hidden>
+  <div class="profile-modal">
+    <div class="profile-modal-header">
+      <h3>Your Profile</h3>
+      <button class="btn btn-ghost btn-xs" id="profileModalClose" type="button">X</button>
+    </div>
+    <label class="profile-field">Name<input id="profileNameInput" type="text" maxlength="32" placeholder="Your name"></label>
+    <label class="profile-field">X / Twitter handle<input id="profileXHandleInput" type="text" maxlength="16" placeholder="handle (no @)"></label>
+    <label class="profile-field">Name color<input id="profileColorInput" type="color" value="#5bb1ff"></label>
+    <div class="profile-field">
+      <span>Profile picture</span>
+      <div class="profile-pfp-row">
+        <div class="profile-pfp-preview" id="profilePfpPreview"></div>
+        <button class="btn btn-ghost btn-xs" id="profilePfpBtn" type="button">Choose Image…</button>
+        <button class="btn btn-ghost btn-xs" id="profilePfpClearBtn" type="button">Clear</button>
+        <input type="file" id="profilePfpFile" accept="image/png,image/jpeg,image/webp" hidden>
+      </div>
+    </div>
+    <div class="profile-modal-actions">
+      <button class="btn btn-primary btn-xs" id="profileSaveBtn" type="button">Save</button>
+    </div>
+  </div>
+</div>
+
 <div class="app">
 
   <!-- ── Menu Bar ──────────────────────────────────────────── -->
@@ -610,6 +645,7 @@
 <script src="panel-bus.js"></script>
 <script src="panel-factory.js"></script>
 <script src="viewer-player.js"></script>
+<script src="lib/profile.js"></script>
 <script src="lib/collab-utils.js"></script>
 <script src="lib/caption-sync.js"></script>
 <script src="collab-ui.js"></script>

@@ -636,11 +636,87 @@ function renderActivity() {
   }).join('');
 }
 
+function renderAccountCard() {
+  var nameEl = document.getElementById('accountName');
+  var handleEl = document.getElementById('accountHandle');
+  var avatarEl = document.getElementById('accountAvatar');
+  if (!nameEl || !handleEl || !avatarEl) return;
+  nameEl.textContent = state.me.name || 'Guest';
+  var color = state.me.color || getUserColor(state.me.id, state.me.name);
+  if (color) nameEl.style.color = color;
+  handleEl.textContent = state.me.xHandle ? '@' + state.me.xHandle : '';
+  avatarEl.style.backgroundImage = state.me.pfpDataUrl ? 'url(' + JSON.stringify(state.me.pfpDataUrl) + ')' : '';
+}
+
+function openProfileModal() {
+  var overlay = document.getElementById('profileModal');
+  if (!overlay) return;
+  var nameInput = document.getElementById('profileNameInput');
+  var xInput = document.getElementById('profileXHandleInput');
+  var colorInput = document.getElementById('profileColorInput');
+  var preview = document.getElementById('profilePfpPreview');
+  if (nameInput) nameInput.value = state.me.name || '';
+  if (xInput) xInput.value = state.me.xHandle || '';
+  if (colorInput) colorInput.value = state.me.color || '#5bb1ff';
+  if (preview) preview.style.backgroundImage = state.me.pfpDataUrl ? 'url(' + JSON.stringify(state.me.pfpDataUrl) + ')' : '';
+  overlay.hidden = false;
+}
+
+function closeProfileModal() {
+  var overlay = document.getElementById('profileModal');
+  if (overlay) overlay.hidden = true;
+}
+
+function bindProfileUi() {
+  var editBtn = document.getElementById('accountEditBtn');
+  if (editBtn) editBtn.addEventListener('click', openProfileModal);
+  var closeBtn = document.getElementById('profileModalClose');
+  if (closeBtn) closeBtn.addEventListener('click', closeProfileModal);
+  var saveBtn = document.getElementById('profileSaveBtn');
+  if (saveBtn) saveBtn.addEventListener('click', function () {
+    var nameInput = document.getElementById('profileNameInput');
+    var xInput = document.getElementById('profileXHandleInput');
+    var colorInput = document.getElementById('profileColorInput');
+    updateLocalProfile({
+      name: nameInput ? nameInput.value : undefined,
+      xHandle: xInput ? xInput.value : undefined,
+      color: colorInput ? colorInput.value : undefined
+    });
+    closeProfileModal();
+  });
+  var pfpBtn = document.getElementById('profilePfpBtn');
+  var pfpFile = document.getElementById('profilePfpFile');
+  var pfpClear = document.getElementById('profilePfpClearBtn');
+  if (pfpBtn && pfpFile) pfpBtn.addEventListener('click', function () { pfpFile.click(); });
+  if (pfpFile) pfpFile.addEventListener('change', function (e) {
+    var file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (file.size > 200000) { alert('Image must be under 200KB'); return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      var dataUrl = String(reader.result || '');
+      if (!window.Profile || !window.Profile.validatePfpDataUrl(dataUrl, 256000)) {
+        alert('Invalid image'); return;
+      }
+      updateLocalProfile({ pfpDataUrl: dataUrl });
+      var preview = document.getElementById('profilePfpPreview');
+      if (preview) preview.style.backgroundImage = 'url(' + JSON.stringify(dataUrl) + ')';
+    };
+    reader.readAsDataURL(file);
+  });
+  if (pfpClear) pfpClear.addEventListener('click', function () {
+    updateLocalProfile({ pfpDataUrl: '' });
+    var preview = document.getElementById('profilePfpPreview');
+    if (preview) preview.style.backgroundImage = '';
+  });
+}
+
 function renderAll() {
   renderSession();
   renderChat();
   renderActivity();
   renderMemberChips();
+  renderAccountCard();
 }
 
 function bindUi() {
@@ -784,10 +860,12 @@ window.CollabUI = {
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', function () {
     bindUi();
+    bindProfileUi();
     renderAll();
   });
 } else {
   bindUi();
+  bindProfileUi();
   renderAll();
 }
 
