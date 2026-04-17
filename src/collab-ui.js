@@ -67,7 +67,8 @@ var state = {
     name: normalizeName(prefs.meName || 'You'),
     xHandle: (window.Profile && window.Profile.sanitizeXHandle(prefs.meXHandle)) || '',
     color: (window.Profile && window.Profile.resolveUserColor({ color: prefs.meColor }, '')) || '',
-    pfpDataUrl: (window.Profile && window.Profile.validatePfpDataUrl(prefs.mePfpDataUrl, 256000) ? prefs.mePfpDataUrl : '') || ''
+    pfpDataUrl: (window.Profile && window.Profile.validatePfpDataUrl(prefs.mePfpDataUrl, 256000) ? prefs.mePfpDataUrl : '') || '',
+    role: 'clipper'
   },
   assignment: {
     role: normalizeRole(prefs.role || 'clipper'),
@@ -236,6 +237,7 @@ function applyLobby(lobby) {
     state.members = [];
     state.chat = [];
     state.clipRanges = [];
+    state.me.role = state.assignment.role === 'helper' ? 'helper' : 'clipper';
     stopPolling();
     emit();
     return;
@@ -252,6 +254,22 @@ function applyLobby(lobby) {
   state.members = Array.isArray(lobby.members) ? lobby.members.slice() : [];
   state.chat = Array.isArray(lobby.chat) ? lobby.chat.slice() : [];
   state.clipRanges = Array.isArray(lobby.clipRanges) ? lobby.clipRanges.slice() : [];
+  // Derive my role from the lobby's member record (authoritative).
+  var myMember = state.members.find(function (m) { return m.id === state.me.id; }) || null;
+  var normalize = (window.RolePermissions && window.RolePermissions.normalizeRole) || function (r) { return r || 'viewer'; };
+  state.me.role = myMember ? normalize(myMember.role) : 'viewer';
+  if (myMember && myMember.assistUserId) {
+    state.assignment.assistUserId = myMember.assistUserId;
+    state.assignment.role = 'helper';
+  } else if (state.me.role === 'helper') {
+    state.assignment.role = 'helper';
+  } else if (state.me.role === 'clipper') {
+    state.assignment.role = 'clipper';
+    state.assignment.assistUserId = '';
+  } else {
+    state.assignment.role = 'viewer';
+    state.assignment.assistUserId = '';
+  }
   syncAssistTarget();
   startPolling();
   emit();
@@ -443,65 +461,97 @@ function removeClipRange(rangeId) {
   return true;
 }
 
-function updateClipRangeCaption(rangeId, value) {
-  var id = String(rangeId || '').trim();
-  if (!id) return null;
-  var existing = null;
-  for (var i = 0; i < state.clipRanges.length; i++) {
-    if (state.clipRanges[i].id === id) { existing = state.clipRanges[i]; break; }
-  }
-  if (!existing) return null;
-  return upsertClipRange({
-    id: id,
-    inTime: existing.inTime,
-    outTime: existing.outTime,
-    postCaption: String(value == null ? '' : value),
-    postCaptionUpdatedAt: Date.now()
+function sendClipDelivery(clip) {
+  if (!state.lobby || !window.clipper || !window.clipper.collabCreateDelivery) return null;
+  if (!clip || !clip.id) return null;
+  var target = state.assignment.assistUserId || '';
+  if (!target) { setStatus('Pick an assigned Clipper first'); return null; }
+  var payload = window.Delivery ? window.Delivery.buildClipDeliveryPayload(clip) : {};
+  var payloadJson = JSON.stringify(payload);
+  return window.clipper.collabCreateDelivery({
+    code: state.lobby.code,
+    fromUserId: state.me.id,
+    fromUserName: state.me.name || '',
+    fromUserColor: state.me.color || '',
+    toUserId: target,
+    type: 'clip',
+    rangeId: clip.id,
+    payload: payload
+  }).then(function (res) {
+    if (res && res.success) {
+      applyLobby(res.lobby);
+      clip._lastSentPayloadJson = payloadJson;
+    } else if (res && res.error) setStatus(res.error);
+    return res;
   });
 }
 
-function updateClipRangeMetadata(rangeId, patch) {
-  var id = String(rangeId || '').trim();
-  if (!id || !patch) return null;
-  var existing = null;
-  for (var i = 0; i < state.clipRanges.length; i++) {
-    if (state.clipRanges[i].id === id) { existing = state.clipRanges[i]; break; }
-  }
-  if (!existing) return null;
-  var pick = {};
-  ['fileName', 'filePath', 'displayPath', 'postThumbnailDataUrl', 'status'].forEach(function (k) {
-    if (patch[k] != null) pick[k] = patch[k];
-  });
-  return upsertClipRange(Object.assign({
-    id: id, inTime: existing.inTime, outTime: existing.outTime
-  }, pick));
-}
-
-function markRangeSent(rangeId) {
-  var id = String(rangeId || '').trim();
-  if (!id) return null;
-  var existing = null;
-  for (var i = 0; i < state.clipRanges.length; i++) {
-    if (state.clipRanges[i].id === id) { existing = state.clipRanges[i]; break; }
-  }
-  if (!existing) return null;
-  return upsertClipRange({
-    id: id, inTime: existing.inTime, outTime: existing.outTime,
-    sentBy: state.me.id, sentByName: state.me.name || '', sentAt: Date.now()
+function resendClipDelivery(clip) {
+  if (!state.lobby || !window.clipper || !window.clipper.collabCreateDelivery) return null;
+  if (!clip || !clip.id) return null;
+  var target = state.assignment.assistUserId || '';
+  if (!target) return null;
+  var payload = window.Delivery ? window.Delivery.buildClipDeliveryPayload(clip) : {};
+  var payloadJson = JSON.stringify(payload);
+  // Change-diff gate: skip if payload is identical to last-sent snapshot.
+  if (clip._lastSentPayloadJson === payloadJson) return Promise.resolve({ success: true, skipped: true });
+  return window.clipper.collabCreateDelivery({
+    code: state.lobby.code,
+    fromUserId: state.me.id,
+    fromUserName: state.me.name || '',
+    fromUserColor: state.me.color || '',
+    toUserId: target,
+    type: 'clipUpdate',
+    rangeId: clip.id,
+    payload: payload
+  }).then(function (res) {
+    if (res && res.success) {
+      applyLobby(res.lobby);
+      clip._lastSentPayloadJson = payloadJson;
+    }
+    return res;
   });
 }
 
-function markRangeUnsent(rangeId) {
-  var id = String(rangeId || '').trim();
-  if (!id) return null;
-  var existing = null;
-  for (var i = 0; i < state.clipRanges.length; i++) {
-    if (state.clipRanges[i].id === id) { existing = state.clipRanges[i]; break; }
-  }
-  if (!existing) return null;
-  return upsertClipRange({
-    id: id, inTime: existing.inTime, outTime: existing.outTime,
-    sentBy: '', sentByName: '', sentAt: 0
+function unsendClipDelivery(clip) {
+  if (!state.lobby || !window.clipper || !window.clipper.collabCreateDelivery) return null;
+  if (!clip || !clip.id) return null;
+  var target = state.assignment.assistUserId || '';
+  if (!target) return null;
+  return window.clipper.collabCreateDelivery({
+    code: state.lobby.code,
+    fromUserId: state.me.id,
+    fromUserName: state.me.name || '',
+    fromUserColor: state.me.color || '',
+    toUserId: target,
+    type: 'clipUnsend',
+    rangeId: clip.id,
+    payload: null
+  }).then(function (res) { if (res && res.success) applyLobby(res.lobby); return res; });
+}
+
+function consumeMyDeliveries() {
+  if (!state.lobby || !window.clipper || !window.clipper.collabConsumeDeliveries) return Promise.resolve([]);
+  return window.clipper.collabConsumeDeliveries({
+    code: state.lobby.code,
+    userId: state.me.id
+  }).then(function (res) {
+    return (res && res.success && Array.isArray(res.deliveries)) ? res.deliveries : [];
+  });
+}
+
+function setMemberRole(targetId, role, opts) {
+  if (!state.lobby || !window.clipper || !window.clipper.collabSetMemberRole) return null;
+  return window.clipper.collabSetMemberRole({
+    code: state.lobby.code,
+    actorId: state.me.id,
+    targetId: targetId,
+    role: role,
+    assistUserId: (opts && opts.assistUserId) || ''
+  }).then(function (res) {
+    if (res && res.success) applyLobby(res.lobby);
+    else if (res && res.error) setStatus(res.error);
+    return res;
   });
 }
 
@@ -974,10 +1024,11 @@ window.CollabUI = {
   getUserColor: getUserColor,
   subscribe: subscribe,
   simulate: simulate,
-  updateClipRangeCaption: updateClipRangeCaption,
-  updateClipRangeMetadata: updateClipRangeMetadata,
-  markRangeSent: markRangeSent,
-  markRangeUnsent: markRangeUnsent
+  sendClipDelivery: sendClipDelivery,
+  resendClipDelivery: resendClipDelivery,
+  unsendClipDelivery: unsendClipDelivery,
+  consumeMyDeliveries: consumeMyDeliveries,
+  setMemberRole: setMemberRole
 };
 
 if (document.readyState === 'loading') {
