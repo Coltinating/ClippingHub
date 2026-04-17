@@ -11,6 +11,7 @@ var NAME_COLORS = [
   '#5bb1ff', '#ff7a59', '#33d69f', '#ffcf5a', '#f08fff',
   '#7ee3ff', '#ff9e7d', '#7be08b', '#ffd16e', '#c8a0ff'
 ];
+var utils = window.CollabUtils || null;
 
 function nowIso() {
   return new Date().toISOString();
@@ -26,6 +27,11 @@ function safeCode(raw) {
 
 function normalizeName(raw) {
   return String(raw || '').trim().replace(/\s+/g, ' ').slice(0, 32);
+}
+
+function normalizeRole(raw) {
+  var role = String(raw || '').toLowerCase();
+  return role === 'helper' ? 'helper' : 'clipper';
 }
 
 function alpha(hex, a) {
@@ -60,6 +66,11 @@ var state = {
     id: makeId('u'),
     name: normalizeName(prefs.meName || 'You')
   },
+  assignment: {
+    role: normalizeRole(prefs.role || 'clipper'),
+    assistUserId: String(prefs.assistUserId || '').trim(),
+    assistUserName: ''
+  },
   lobby: null,
   members: [],
   chat: [],
@@ -71,9 +82,86 @@ function savePrefs() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       meName: state.me.name,
-      lastCode: state.lobby ? state.lobby.code : state.lastCode
+      lastCode: state.lobby ? state.lobby.code : state.lastCode,
+      role: state.assignment.role,
+      assistUserId: state.assignment.assistUserId
     }));
   } catch (_) {}
+}
+
+function findMemberById(memberId) {
+  if (!memberId) return null;
+  for (var i = 0; i < state.members.length; i++) {
+    if (state.members[i].id === memberId) return state.members[i];
+  }
+  return null;
+}
+
+function syncAssistTarget() {
+  if (!state.assignment.assistUserId) {
+    state.assignment.assistUserName = '';
+    return;
+  }
+  var match = findMemberById(state.assignment.assistUserId);
+  if (!match || match.id === state.me.id) {
+    state.assignment.assistUserId = '';
+    state.assignment.assistUserName = '';
+    return;
+  }
+  state.assignment.assistUserName = normalizeName(match.name || '');
+}
+
+function setRole(role) {
+  state.assignment.role = normalizeRole(role);
+  if (state.assignment.role !== 'helper') {
+    state.assignment.assistUserId = '';
+    state.assignment.assistUserName = '';
+  } else {
+    syncAssistTarget();
+  }
+  emit();
+}
+
+function setAssistUserId(userId) {
+  state.assignment.assistUserId = String(userId || '').trim();
+  syncAssistTarget();
+  emit();
+}
+
+function getMarkContext() {
+  var meName = normalizeName(state.me.name || 'You') || 'You';
+  var meId = state.me.id;
+  if (state.assignment.role !== 'helper') {
+    return {
+      userId: meId,
+      userName: meName,
+      clipperId: meId,
+      clipperName: meName,
+      helperId: null,
+      helperName: ''
+    };
+  }
+  syncAssistTarget();
+  var assist = findMemberById(state.assignment.assistUserId);
+  if (!assist) {
+    return {
+      userId: meId,
+      userName: meName,
+      clipperId: meId,
+      clipperName: meName,
+      helperId: null,
+      helperName: ''
+    };
+  }
+  var clipperName = normalizeName(assist.name || '') || 'Clipper';
+  return {
+    userId: meId,
+    userName: meName,
+    clipperId: assist.id,
+    clipperName: clipperName,
+    helperId: meId,
+    helperName: meName
+  };
 }
 
 function getMemberColorMap() {
@@ -136,6 +224,7 @@ function applyLobby(lobby) {
   state.members = Array.isArray(lobby.members) ? lobby.members.slice() : [];
   state.chat = Array.isArray(lobby.chat) ? lobby.chat.slice() : [];
   state.clipRanges = Array.isArray(lobby.clipRanges) ? lobby.clipRanges.slice() : [];
+  syncAssistTarget();
   startPolling();
   emit();
 }
@@ -164,7 +253,7 @@ async function createLobby(name, password, code) {
     return null;
   }
   applyLobby(res.lobby);
-  setStatus('Joined Lobby · code ' + state.lobby.code);
+  setStatus('Joined Lobby - code ' + state.lobby.code);
   return state.lobby;
 }
 
@@ -188,7 +277,7 @@ async function joinLobby(code, password) {
     return null;
   }
   applyLobby(res.lobby);
-  setStatus('Joined Lobby · code ' + state.lobby.code);
+  setStatus('Joined Lobby - code ' + state.lobby.code);
   return state.lobby;
 }
 
@@ -244,19 +333,40 @@ async function addChat(text, userName) {
 }
 
 function upsertClipRange(range) {
-  if (!range || !isFinite(range.inTime) || !isFinite(range.outTime)) return null;
+  if (!range || !isFinite(range.inTime)) return null;
   var inTime = Number(range.inTime);
-  var outTime = Number(range.outTime);
+  var outCandidate = Number(range.outTime);
+  var outTime = isFinite(outCandidate) ? outCandidate : inTime;
+  var rangeId = range.id || makeId('range');
+  var existing = null;
+  for (var i = 0; i < state.clipRanges.length; i++) {
+    if (state.clipRanges[i].id === rangeId) {
+      existing = state.clipRanges[i];
+      break;
+    }
+  }
+  var actor = getMarkContext();
   var next = {
-    id: range.id || makeId('range'),
-    userId: range.userId || state.me.id,
-    userName: range.userName || state.me.name,
+    id: rangeId,
+    userId: range.userId || actor.userId || state.me.id,
+    userName: range.userName || actor.userName || state.me.name,
+    clipperId: range.clipperId || (existing && existing.clipperId) || actor.clipperId || state.me.id,
+    clipperName: range.clipperName || (existing && existing.clipperName) || actor.clipperName || state.me.name,
+    helperId: (range.helperId != null ? range.helperId : (existing ? existing.helperId : actor.helperId)) || null,
+    helperName: range.helperName != null ? range.helperName : ((existing && existing.helperName) || actor.helperName || ''),
     inTime: Math.min(inTime, outTime),
     outTime: Math.max(inTime, outTime),
-    status: range.status || 'done',
-    streamKey: range.streamKey || 'default',
-    createdAt: range.createdAt || nowIso(),
-    updatedAt: nowIso()
+    pendingOut: !!range.pendingOut,
+    status: range.status || (existing && existing.status) || 'done',
+    streamKey: range.streamKey || (existing && existing.streamKey) || 'default',
+    createdAt: range.createdAt || (existing && existing.createdAt) || nowIso(),
+    updatedAt: nowIso(),
+    postCaption: (range.postCaption != null ? range.postCaption : (existing && existing.postCaption)) || '',
+    postCaptionUpdatedAt: Number(range.postCaptionUpdatedAt != null ? range.postCaptionUpdatedAt : (existing && existing.postCaptionUpdatedAt)) || 0,
+    fileName: range.fileName || (existing && existing.fileName) || '',
+    filePath: range.filePath || (existing && existing.filePath) || '',
+    displayPath: range.displayPath || (existing && existing.displayPath) || '',
+    postThumbnailDataUrl: range.postThumbnailDataUrl || (existing && existing.postThumbnailDataUrl) || ''
   };
 
   var idx = -1;
@@ -264,8 +374,7 @@ function upsertClipRange(range) {
     if (state.clipRanges[i].id === next.id) { idx = i; break; }
   }
   if (idx >= 0) {
-    next.createdAt = state.clipRanges[idx].createdAt || next.createdAt;
-    state.clipRanges[idx] = next;
+    state.clipRanges[idx] = Object.assign({}, state.clipRanges[idx], next);
   } else {
     state.clipRanges.push(next);
   }
@@ -284,14 +393,72 @@ function upsertClipRange(range) {
   return next;
 }
 
+function removeClipRange(rangeId) {
+  var id = String(rangeId || '').trim();
+  if (!id) return false;
+  var before = state.clipRanges.length;
+  state.clipRanges = state.clipRanges.filter(function (r) { return String(r.id || '') !== id; });
+  if (before === state.clipRanges.length) return false;
+  emit();
+  if (state.lobby && window.clipper && window.clipper.collabRemoveRange) {
+    window.clipper.collabRemoveRange({
+      code: state.lobby.code,
+      rangeId: id
+    }).then(function (res) {
+      if (res && res.success) applyLobby(res.lobby);
+      else if (res && res.error) setStatus(res.error);
+    });
+  }
+  return true;
+}
+
+function updateClipRangeCaption(rangeId, value) {
+  var id = String(rangeId || '').trim();
+  if (!id) return null;
+  var existing = null;
+  for (var i = 0; i < state.clipRanges.length; i++) {
+    if (state.clipRanges[i].id === id) { existing = state.clipRanges[i]; break; }
+  }
+  if (!existing) return null;
+  return upsertClipRange({
+    id: id,
+    inTime: existing.inTime,
+    outTime: existing.outTime,
+    postCaption: String(value == null ? '' : value),
+    postCaptionUpdatedAt: Date.now()
+  });
+}
+
+function updateClipRangeMetadata(rangeId, patch) {
+  var id = String(rangeId || '').trim();
+  if (!id || !patch) return null;
+  var existing = null;
+  for (var i = 0; i < state.clipRanges.length; i++) {
+    if (state.clipRanges[i].id === id) { existing = state.clipRanges[i]; break; }
+  }
+  if (!existing) return null;
+  var pick = {};
+  ['fileName', 'filePath', 'displayPath', 'postThumbnailDataUrl', 'status'].forEach(function (k) {
+    if (patch[k] != null) pick[k] = patch[k];
+  });
+  return upsertClipRange(Object.assign({
+    id: id, inTime: existing.inTime, outTime: existing.outTime
+  }, pick));
+}
+
 function getIndicatorAtTime(timeSec) {
+  if (utils && utils.buildIndicatorAtTime) {
+    return utils.buildIndicatorAtTime(state.clipRanges, timeSec);
+  }
   if (!isFinite(timeSec)) return null;
   var names = [];
   for (var i = 0; i < state.clipRanges.length; i++) {
     var r = state.clipRanges[i];
-    if (timeSec >= r.inTime && timeSec <= r.outTime) {
-      if (names.indexOf(r.userName) === -1) names.push(r.userName);
-    }
+    if (!r) continue;
+    if (timeSec < r.inTime || timeSec > r.outTime) continue;
+    var label = (r.clipperName || r.userName || 'Editor');
+    if (r.helperName) label += ' (' + r.helperName + ')';
+    if (names.indexOf(label) === -1) names.push(label);
   }
   if (!names.length) return null;
   return {
@@ -355,10 +522,16 @@ function renderSession() {
   var members = document.getElementById('collabMembersList');
   var codeInput = document.getElementById('collabLobbyCodeInput');
   var profileInput = document.getElementById('collabProfileNameInput');
+  var roleInput = document.getElementById('collabRoleSelect');
+  var assistInput = document.getElementById('collabAssistSelect');
+  syncAssistTarget();
   if (status) {
-    if (statusText) status.textContent = statusText;
-    else if (state.lobby) status.textContent = state.lobby.name + ' · code ' + state.lobby.code;
-    else status.textContent = 'No active lobby';
+    var roleText = state.assignment.role === 'helper'
+      ? ('Helper' + (state.assignment.assistUserName ? ' -> ' + state.assignment.assistUserName : ''))
+      : 'Clipper';
+    if (statusText) status.textContent = statusText + ' - role ' + roleText;
+    else if (state.lobby) status.textContent = state.lobby.name + ' - code ' + state.lobby.code + ' - role ' + roleText;
+    else status.textContent = 'No active lobby - role ' + roleText;
   }
   if (profileInput && document.activeElement !== profileInput) {
     profileInput.value = state.me.name;
@@ -366,6 +539,18 @@ function renderSession() {
   if (codeInput) {
     if (state.lobby && state.lobby.code) codeInput.value = state.lobby.code;
     else if (state.lastCode && !codeInput.value) codeInput.value = state.lastCode;
+  }
+  if (roleInput) roleInput.value = state.assignment.role;
+  if (assistInput) {
+    var html = ['<option value="">None</option>'];
+    for (var i = 0; i < state.members.length; i++) {
+      var member = state.members[i];
+      if (!member || member.id === state.me.id) continue;
+      var selected = member.id === state.assignment.assistUserId ? ' selected' : '';
+      html.push('<option value="' + esc(member.id) + '"' + selected + '>' + esc(member.name) + '</option>');
+    }
+    assistInput.innerHTML = html.join('');
+    assistInput.disabled = state.assignment.role !== 'helper';
   }
   renderMembers(members);
 }
@@ -404,8 +589,22 @@ function renderActivity() {
     return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
   });
   list.innerHTML = sorted.map(function (r) {
-    var color = getUserColor(r.userId, r.userName);
-    return '<div class="collab-list-item"><span><span class="collab-name" style="color:' + color + '">' + esc(r.userName) + '</span> · ' + esc(r.status) + '</span><small>' + fmtTime(r.inTime) + ' - ' + fmtTime(r.outTime) + '</small></div>';
+    var label = utils && utils.getDisplayActor ? utils.getDisplayActor(r) : (r.userName || 'Editor');
+    var color = getUserColor(r.clipperId || r.userId, label);
+    var verb = utils && utils.getActivityVerb ? utils.getActivityVerb(r.status) : (r.status || 'updated');
+    var outMissing = !!r.pendingOut;
+    var inTime = Number(r.inTime);
+    var outTime = Number(r.outTime);
+    var inHtml = isFinite(inTime)
+      ? '<button class="collab-time-link" data-time="' + String(inTime) + '">' + fmtTime(inTime) + '</button>'
+      : '<span class="collab-time-link missing">--:--:--</span>';
+    var outHtml = (!outMissing && isFinite(outTime))
+      ? '<button class="collab-time-link" data-time="' + String(outTime) + '">' + fmtTime(outTime) + '</button>'
+      : '<span class="collab-time-link missing">...</span>';
+    return '<div class="collab-list-item">' +
+      '<span><span class="collab-name" style="color:' + color + '">' + esc(label) + '</span> - ' + esc(verb) + '</span>' +
+      '<small class="collab-activity-meta">(in: ' + inHtml + ') (out: ' + outHtml + ')</small>' +
+      '</div>';
   }).join('');
 }
 
@@ -424,6 +623,9 @@ function bindUi() {
   var sendBtn = document.getElementById('collabChatSend');
   var chatInput = document.getElementById('collabChatInput');
   var profileInput = document.getElementById('collabProfileNameInput');
+  var roleInput = document.getElementById('collabRoleSelect');
+  var assistInput = document.getElementById('collabAssistSelect');
+  var activityList = document.getElementById('collabActivityList');
 
   if (profileInput) {
     profileInput.value = state.me.name;
@@ -431,6 +633,17 @@ function bindUi() {
       var clean = normalizeName(profileInput.value);
       if (clean) updateMeName(clean);
       renderSession();
+    });
+  }
+  if (roleInput) {
+    roleInput.value = state.assignment.role;
+    roleInput.addEventListener('change', function () {
+      setRole(roleInput.value);
+    });
+  }
+  if (assistInput) {
+    assistInput.addEventListener('change', function () {
+      setAssistUserId(assistInput.value || '');
     });
   }
 
@@ -487,17 +700,32 @@ function bindUi() {
       if (e.key === 'Enter') sendChat();
     });
   }
+  if (activityList) {
+    activityList.addEventListener('click', function (e) {
+      var btn = e.target.closest('.collab-time-link[data-time]');
+      if (!btn) return;
+      var time = Number(btn.getAttribute('data-time'));
+      if (!isFinite(time)) return;
+      if (window._panelBus && window._panelBus.emit) {
+        window._panelBus.emit('collab:jump-to-time', { time: time });
+      }
+    });
+  }
 }
 
 function setState(nextState) {
   state = {
     me: nextState.me || state.me,
+    assignment: nextState.assignment || state.assignment,
     lobby: nextState.lobby || null,
     members: Array.isArray(nextState.members) ? nextState.members : [],
     chat: Array.isArray(nextState.chat) ? nextState.chat : [],
     clipRanges: Array.isArray(nextState.clipRanges) ? nextState.clipRanges : [],
     lastCode: nextState.lastCode || state.lastCode
   };
+  state.assignment.role = normalizeRole(state.assignment.role);
+  state.assignment.assistUserId = String(state.assignment.assistUserId || '').trim();
+  syncAssistTarget();
   emit();
 }
 
@@ -510,11 +738,17 @@ window.CollabUI = {
   refreshLobby: refreshLobby,
   addChat: addChat,
   upsertClipRange: upsertClipRange,
+  removeClipRange: removeClipRange,
   getClipRanges: getClipRanges,
   getIndicatorAtTime: getIndicatorAtTime,
+  getMarkContext: getMarkContext,
+  setRole: setRole,
+  setAssistUserId: setAssistUserId,
   getUserColor: getUserColor,
   subscribe: subscribe,
-  simulate: simulate
+  simulate: simulate,
+  updateClipRangeCaption: updateClipRangeCaption,
+  updateClipRangeMetadata: updateClipRangeMetadata
 };
 
 if (document.readyState === 'loading') {
