@@ -11,3 +11,8 @@ installerplans/
 build/ffmpeg/
 resources/whisper/
 fix-starttime.bat
+
+# scratch / local experiments
+/unblur/
+/test.html
+*.lnk
