@@ -178,19 +178,334 @@ html, body {
 .completed-card {
   padding: 8px 14px; border-bottom: 1px solid var(--b2);
   cursor: grab; transition: background 0.1s;
-  display: flex; align-items: center; gap: 10px; animation: fadeIn 0.15s ease;
+  display: block; animation: fadeIn 0.15s ease;
+  container-type: inline-size;
 }
 .completed-card:hover { background: rgba(61,142,240,0.04); }
 .completed-card:active { cursor: grabbing; }
-.completed-card-icon { font-size: 16px; flex-shrink: 0; opacity: 0.6; }
+.completed-card-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.completed-card-header { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.completed-card-icon { font-size: 16px; flex-shrink: 0; opacity: 0.6; margin-top: 1px; }
 .completed-card-info { flex: 1; min-width: 0; }
-.completed-card-name { font-size: 12px; font-weight: 500; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.completed-card-meta { font-family: 'Consolas', monospace; font-size: 10px; color: var(--muted); }
-.completed-card-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.completed-card-name { font-size: 12px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.completed-card-summary {
+  margin-top: 1px;
+  font-size: 10px; color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.completed-card-summary.empty { color: var(--muted); font-style: italic; }
+.completed-card-file {
+  margin-top: 1px;
+  font-family: 'Consolas', monospace;
+  font-size: 9px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.completed-card-actions-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.completed-open-btn {
+  font-size: 10px !important;
+  padding: 3px 8px !important;
+}
+.completed-actions-menu { position: relative; }
+.completed-actions-menu > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+.completed-actions-menu > summary::-webkit-details-marker { display: none; }
+.completed-actions-menu[open] > summary {
+  border-color: rgba(90, 160, 245, 0.45) !important;
+  color: #d7ecff !important;
+}
+.completed-actions-popover {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  z-index: 40;
+  min-width: 140px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  background: #151b25;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+}
+.completed-action-item {
+  width: 100%;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #d7deea;
+  font-size: 11px;
+  text-align: left;
+  padding: 5px 7px;
+  cursor: pointer;
+}
+.completed-action-item:hover { background: rgba(61, 142, 240, 0.18); }
+.completed-action-item.action-x { color: #9ecfff; font-weight: 600; }
+.completed-action-item.action-restage { color: var(--accent-l); }
+.completed-action-item.action-log { color: #d9a2a2; }
 .restage-btn { color: var(--accent-l) !important; }
 .restage-btn:hover { background: rgba(61,142,240,0.15) !important; border-color: rgba(61,142,240,0.3) !important; }
 .clear-btn { color: var(--muted) !important; }
 .clear-btn:hover { color: var(--red) !important; }
+.post-caption-btn {
+  color: #9ecfff !important;
+  border-color: rgba(90, 160, 245, 0.45) !important;
+  background: rgba(61, 142, 240, 0.18) !important;
+  min-width: 28px !important;
+  width: 28px !important;
+  height: 24px !important;
+  padding: 0 !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+  letter-spacing: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.post-caption-btn:hover {
+  color: #d7ecff !important;
+  border-color: rgba(120, 190, 255, 0.55) !important;
+  background: rgba(61, 142, 240, 0.3) !important;
+}
+
+/* Post Captioning modal */
+.wm-modal.postcap-modal {
+  width: min(1280px, 96vw);
+  max-width: 96vw;
+  min-width: min(980px, 94vw);
+  max-height: 92vh;
+}
+.postcap-modal-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.postcap-close-x {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+  color: var(--dim);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+}
+.postcap-close-x:hover {
+  color: #fff;
+  border-color: var(--dim);
+  background: rgba(255,255,255,0.1);
+}
+.postcap-subtitle {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--b2);
+  color: var(--dim);
+  font-size: 11px;
+}
+.postcap-layout {
+  display: grid !important;
+  grid-template-columns: minmax(280px, 1fr) minmax(360px, 1.2fr);
+  gap: 0 !important;
+  padding: 0 !important;
+  min-height: 480px;
+  overflow: hidden;
+}
+.postcap-editor-pane {
+  padding: 14px;
+  border-right: 1px solid var(--b2);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.postcap-editor-input {
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--s2);
+  color: #f0f2f5;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  outline: none;
+}
+.postcap-editor-input:focus { border-color: var(--accent); }
+.postcap-counter {
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  color: var(--dim);
+}
+.postcap-counter.over { color: #ff8f8f; }
+.postcap-note {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.postcap-preview-pane {
+  background: #000;
+  padding: 0;
+  overflow-y: auto;
+}
+.x-mock-timeline {
+  min-height: 100%;
+  background: #000;
+}
+.x-mock-post {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #2f3336;
+}
+.x-mock-post.focus {
+  background: rgba(255,255,255,0.015);
+}
+.x-mock-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: linear-gradient(145deg, #2b2f37, #1e2127);
+  border: 1px solid #38414a;
+}
+.x-mock-avatar.focus {
+  background: linear-gradient(145deg, #1d9bf0, #0d5f96);
+}
+.x-mock-main {
+  min-width: 0;
+  flex: 1;
+}
+.x-mock-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 3px;
+}
+.x-mock-name {
+  font-size: 13px;
+  color: #e7e9ea;
+  font-weight: 700;
+}
+.x-mock-handle {
+  font-size: 12px;
+  color: #71767b;
+}
+.x-mock-text {
+  color: #e7e9ea;
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.x-mock-text.placeholder {
+  color: #71767b;
+}
+.x-show-more {
+  margin-top: 2px;
+  border: none;
+  background: transparent;
+  color: #1d9bf0;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+}
+.x-show-more:hover { text-decoration: underline; }
+.x-video-card {
+  margin-top: 10px;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+  border: 1px solid #2f3336;
+  background: linear-gradient(140deg, #1f2933, #121b24);
+  background-size: cover;
+  background-position: center center;
+  position: relative;
+  overflow: hidden;
+}
+.x-video-card::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 38%;
+  background: linear-gradient(to top, rgba(0,0,0,0.65), rgba(0,0,0,0));
+}
+.x-video-card.no-thumb::before {
+  content: 'Video preview';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: rgba(231, 233, 234, 0.65);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.x-video-play {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.62);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+}
+.x-video-duration {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 2;
+  font-size: 11px;
+  color: #fff;
+  background: rgba(0,0,0,0.66);
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-family: 'Consolas', monospace;
+}
+.x-engagement-row {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: #71767b;
+  font-size: 12px;
+}
+@media (max-width: 980px) {
+  .postcap-layout {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+  .postcap-editor-pane {
+    border-right: none;
+    border-bottom: 1px solid var(--b2);
+  }
+}
+@container (max-width: 560px) {
+  .completed-card-actions-row {
+    justify-content: flex-start;
+  }
+  .completed-actions-menu {
+    margin-left: auto;
+  }
+  .completed-open-btn {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
 .ffmpeg-log-btn { font-size: 11px; opacity: 0.5; transition: opacity 0.15s, color 0.15s; }
 .ffmpeg-log-btn:hover { opacity: 1; color: var(--red) !important; }
 
@@ -332,7 +647,7 @@ html, body {
   <div class="hub-group">
     <div class="hub-group-title">
       <span>&#10003; Completed</span>
-      <button class="btn btn-ghost btn-xs clear-btn" id="clearCompleted">Clear</button>
+      <button class="btn btn-ghost btn-xs clear-btn" id="clearCompleted" title="Clear downloaded clips list">Clear Downloads</button>
     </div>
     <div class="clip-list" id="completedClipList">
       <div class="empty-state"><small>Downloaded clips appear here</small></div>
@@ -369,6 +684,92 @@ function fmtSize(b) {
 }
 function escH(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+const X_PREVIEW_CHAR_LIMIT = 280;
+const clipFrameThumbCache = new Map();
+
+function toFileUrl(filePath) {
+  if (!filePath) return '';
+  if (/^file:\/\//i.test(filePath)) return filePath;
+  let normalized = String(filePath).replace(/\\/g, '/');
+  if (/^[a-zA-Z]:\//.test(normalized)) normalized = '/' + normalized;
+  return encodeURI('file://' + normalized);
+}
+
+function getClipStartFrameDataUrl(filePath) {
+  if (!filePath) return Promise.resolve(null);
+  if (clipFrameThumbCache.has(filePath)) return Promise.resolve(clipFrameThumbCache.get(filePath) || null);
+  const captureFromVideo = () => new Promise(resolve => {
+    let settled = false;
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.muted = true;
+    video.playsInline = true;
+
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      try {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+      } catch (_) {}
+    };
+    const finish = (dataUrl) => {
+      if (settled) return;
+      settled = true;
+      clipFrameThumbCache.set(filePath, dataUrl || '');
+      cleanup();
+      resolve(dataUrl || null);
+    };
+    const capture = () => {
+      if (!video.videoWidth || !video.videoHeight) {
+        finish(null);
+        return;
+      }
+      const maxWidth = 1280;
+      const scale = Math.min(1, maxWidth / video.videoWidth);
+      const width = Math.round(video.videoWidth * scale);
+      const height = Math.round(video.videoHeight * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        finish(null);
+        return;
+      }
+      ctx.drawImage(video, 0, 0, width, height);
+      let dataUrl = null;
+      try {
+        dataUrl = canvas.toDataURL('image/jpeg', 0.86);
+      } catch (_) {
+        dataUrl = null;
+      }
+      finish(dataUrl);
+    };
+
+    const timeoutId = setTimeout(() => finish(null), 7000);
+    video.addEventListener('loadeddata', capture, { once: true });
+    video.addEventListener('error', () => finish(null), { once: true });
+    try {
+      video.src = toFileUrl(filePath);
+      video.load();
+    } catch (_) {
+      finish(null);
+    }
+  });
+
+  if (hubBridge && hubBridge.extractClipFirstFrame) {
+    return hubBridge.extractClipFirstFrame(filePath).then((res) => {
+      if (res && res.success && res.dataUrl) {
+        clipFrameThumbCache.set(filePath, res.dataUrl);
+        return res.dataUrl;
+      }
+      return captureFromVideo();
+    }).catch(() => captureFromVideo());
+  }
+
+  return captureFromVideo();
+}
 
 let state = { pendingClips: [], downloadingClips: [], completedClips: [], config: { buttons: {}, devFeatures: {} } };
 
@@ -879,15 +1280,27 @@ function renderCompleted() {
 
   list.innerHTML = state.completedClips.map((clip, idx) => `
     <div class="completed-card" draggable="true" data-path="${escAttr(clip.displayPath || clip.filePath)}">
-      <span class="completed-card-icon">&#127916;</span>
-      <div class="completed-card-info">
-        <div class="completed-card-name">${escH(clip.name)}</div>
-        <div class="completed-card-meta">${escH(clip.fileName)} \u00B7 ${fmtSize(clip.fileSize)}</div>
-      </div>
-      <div class="completed-card-actions">
-        ${clip.m3u8Url ? '<button class="btn btn-ghost btn-xs restage-btn" data-action="restage" data-idx="' + idx + '" title="Send back to Pending">Re-Stage</button>' : ''}
-        ${showFfmpegLog ? '<button class="btn btn-ghost btn-xs ffmpeg-log-btn" data-action="ffmpeglog" data-idx="' + idx + '" title="View FFMPEG Log">&#128220;</button>' : ''}
-        <button class="btn btn-ghost btn-xs" data-action="show" data-idx="${idx}" title="Open folder">&#128193;</button>
+      <div class="completed-card-main">
+        <div class="completed-card-header">
+          <span class="completed-card-icon">&#127916;</span>
+          <div class="completed-card-info">
+            <div class="completed-card-name" title="${escAttr(clip.name)}">${escH(clip.name)}</div>
+            <div class="completed-card-summary${(clip.caption || '').trim() ? '' : ' empty'}" title="${escAttr((clip.caption || '').trim() || 'No caption/summary set')}">${escH((clip.caption || '').trim() || 'No caption/summary set')}</div>
+            <div class="completed-card-file" title="${escAttr(clip.fileName || '')}">${escH(clip.fileName || '')}${clip.fileSize ? ' \u00B7 ' + fmtSize(clip.fileSize) : ''}</div>
+          </div>
+        </div>
+        <div class="completed-card-actions-row">
+          <button class="btn btn-ghost btn-xs completed-open-btn" data-action="show" data-idx="${idx}" title="Open in folder">Open Folder</button>
+          <button class="btn btn-ghost btn-xs completed-open-btn" data-action="copycaption" data-idx="${idx}" title="Copy post caption">Copy Caption</button>
+          <details class="completed-actions-menu">
+            <summary class="btn btn-ghost btn-xs completed-actions-trigger" title="More actions">More ▾</summary>
+            <div class="completed-actions-popover">
+              <button class="completed-action-item action-x" data-action="postcaption" data-idx="${idx}" title="Open X post caption editor">&#120143; Caption</button>
+              ${clip.m3u8Url ? '<button class="completed-action-item action-restage" data-action="restage" data-idx="' + idx + '" title="Send back to Pending">Re-Stage</button>' : ''}
+              ${showFfmpegLog ? '<button class="completed-action-item action-log" data-action="ffmpeglog" data-idx="' + idx + '" title="View FFMPEG Log">FFMPEG Log</button>' : ''}
+            </div>
+          </details>
+        </div>
       </div>
     </div>
   `).join('');
@@ -904,7 +1317,18 @@ function renderCompleted() {
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
     const idx = parseInt(btn.dataset.idx);
+    const menu = btn.closest('.completed-actions-menu');
+    if (menu && menu.hasAttribute('open')) menu.removeAttribute('open');
+    if (btn.dataset.action === 'postcaption') {
+      hubBridge.sendAction({ type: 'openPostCaption', idx });
+      return;
+    }
     if (btn.dataset.action === 'show') hubBridge.showInFolder(state.completedClips[idx]?.filePath);
+    if (btn.dataset.action === 'copycaption') {
+      const clip = state.completedClips[idx];
+      const text = clip ? (clip.postCaption || clip.caption || '').trim() : '';
+      if (text) hubBridge.copyText(text);
+    }
     if (btn.dataset.action === 'ffmpeglog') hubBridge.sendAction({ type: 'ffmpeglog', idx });
     if (btn.dataset.action === 'restage') showRestageConfirmation(idx);
   };
@@ -913,6 +1337,167 @@ function renderCompleted() {
 /* ═══════════════════════════════════════════════════════════
    ── Re-Stage Confirmation Modal
    ═══════════════════════════════════════════════════════════ */
+function showPostCaptionModal(idx) {
+  const initialClip = state.completedClips[idx];
+  if (!initialClip) return;
+  const clipId = initialClip.id;
+  const old = document.querySelector('.postcap-modal-overlay');
+  if (old) old.remove();
+
+  const clipDuration = fmtDur(Math.max(0, (initialClip.outTime || 0) - (initialClip.inTime || 0)));
+  const overlay = document.createElement('div');
+  overlay.className = 'wm-modal-overlay postcap-modal-overlay';
+  overlay.innerHTML = `
+    <div class="wm-modal postcap-modal">
+      <div class="wm-modal-title postcap-modal-title"><span>Post Captioning</span><button class="postcap-close-x" id="postCaptionCloseX" type="button" aria-label="Close">X</button></div>
+      <div class="postcap-subtitle">Editing caption for ${escH(initialClip.name)}</div>
+      <div class="wm-modal-body postcap-layout">
+        <div class="postcap-editor-pane">
+          <label class="wm-label">X Post Caption</label>
+          <textarea id="postCaptionInput" class="postcap-editor-input" spellcheck="false" placeholder="Write your post caption here..."></textarea>
+          <div class="postcap-counter" id="postCaptionCounter"><span id="postCaptionCount">0</span> / ${X_PREVIEW_CHAR_LIMIT} preview chars</div>
+          <div class="postcap-note">Preview follows X behavior: 280 character limit on the timeline preview.</div>
+        </div>
+        <div class="postcap-preview-pane">
+          <div class="x-mock-timeline">
+            <article class="x-mock-post">
+              <div class="x-mock-avatar"></div>
+              <div class="x-mock-main">
+                <div class="x-mock-header"><span class="x-mock-name">Template Account</span><span class="x-mock-handle">@templatefeed - 2m</span></div>
+                <div class="x-mock-text">Earlier post in the timeline for context.</div>
+              </div>
+            </article>
+            <article class="x-mock-post focus">
+              <div class="x-mock-avatar focus"></div>
+              <div class="x-mock-main">
+                <div class="x-mock-header"><span class="x-mock-name">Your Clip</span><span class="x-mock-handle">@clipstudiopost - now</span></div>
+                <div class="x-mock-text placeholder" id="postCaptionPreviewText">Enter Post Caption...</div>
+                <button class="x-show-more" id="postCaptionShowMore" type="button" style="display:none;">Show more</button>
+                <div class="x-video-card" id="postCaptionThumb">
+                  <span class="x-video-play">&#9658;</span>
+                  <span class="x-video-duration">${escH(clipDuration)}</span>
+                </div>
+                <div class="x-engagement-row">
+                  <span>2 Replies</span><span>2 Reposts</span><span>78 Likes</span><span>910 Views</span>
+                </div>
+              </div>
+            </article>
+            <article class="x-mock-post">
+              <div class="x-mock-avatar"></div>
+              <div class="x-mock-main">
+                <div class="x-mock-header"><span class="x-mock-name">Template Account</span><span class="x-mock-handle">@templatefeed - 4m</span></div>
+                <div class="x-mock-text">Another post below so the focused post sits in a realistic feed.</div>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
+      <div class="wm-modal-actions">
+        <button class="btn btn-ghost btn-sm" id="postCaptionClose">Close</button>
+        <button class="btn btn-primary btn-sm" id="postCaptionDone">Done</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const getClip = () => {
+    for (let i = 0; i < state.completedClips.length; i++) {
+      if (state.completedClips[i].id === clipId) return state.completedClips[i];
+    }
+    return state.completedClips[idx] || null;
+  };
+  const input = overlay.querySelector('#postCaptionInput');
+  const previewText = overlay.querySelector('#postCaptionPreviewText');
+  const showMoreBtn = overlay.querySelector('#postCaptionShowMore');
+  const thumb = overlay.querySelector('#postCaptionThumb');
+  const counter = overlay.querySelector('#postCaptionCounter');
+  const countEl = overlay.querySelector('#postCaptionCount');
+
+  let expanded = false;
+  const autoSizeInput = () => {
+    input.style.height = 'auto';
+    const maxHeight = 360;
+    input.style.height = Math.min(maxHeight, Math.max(140, input.scrollHeight)) + 'px';
+  };
+  const applyPreviewText = (caption) => {
+    const raw = caption || '';
+    countEl.textContent = String(raw.length);
+    counter.classList.toggle('over', raw.length > X_PREVIEW_CHAR_LIMIT);
+    if (!raw.length) {
+      previewText.textContent = 'Enter Post Caption...';
+      previewText.classList.add('placeholder');
+      showMoreBtn.style.display = 'none';
+      expanded = false;
+      return;
+    }
+    previewText.classList.remove('placeholder');
+    const isOverflow = raw.length > X_PREVIEW_CHAR_LIMIT;
+    if (!isOverflow) expanded = false;
+    previewText.textContent = (isOverflow && !expanded)
+      ? (raw.slice(0, X_PREVIEW_CHAR_LIMIT).trimEnd() + '...')
+      : raw;
+    showMoreBtn.style.display = isOverflow ? 'inline-flex' : 'none';
+    showMoreBtn.textContent = expanded ? 'Show less' : 'Show more';
+  };
+  const closeModal = () => {
+    document.removeEventListener('keydown', onEscClose);
+    overlay.remove();
+  };
+  const onEscClose = (e) => {
+    if (e.key === 'Escape') closeModal();
+  };
+  document.addEventListener('keydown', onEscClose);
+
+  input.addEventListener('input', () => {
+    const clip = getClip();
+    if (!clip) { closeModal(); return; }
+    clip.postCaption = input.value;
+    applyPreviewText(clip.postCaption);
+    autoSizeInput();
+    debouncedAction(
+      'postcaption-' + clipId,
+      { type: 'editPostCaption', idx, value: clip.postCaption },
+      120
+    );
+  });
+  showMoreBtn.addEventListener('click', () => {
+    expanded = !expanded;
+    applyPreviewText(input.value || '');
+  });
+  overlay.querySelector('#postCaptionClose').onclick = closeModal;
+  overlay.querySelector('#postCaptionCloseX').onclick = closeModal;
+  overlay.querySelector('#postCaptionDone').onclick = closeModal;
+
+  input.value = initialClip.postCaption || '';
+  applyPreviewText(input.value);
+  autoSizeInput();
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+
+  const applyThumb = (dataUrl) => {
+    if (!dataUrl) {
+      thumb.classList.add('no-thumb');
+      return;
+    }
+    thumb.classList.remove('no-thumb');
+    thumb.classList.add('has-thumb');
+    thumb.style.backgroundImage = 'url(' + JSON.stringify(dataUrl) + ')';
+  };
+  if (initialClip.postThumbnailDataUrl) {
+    applyThumb(initialClip.postThumbnailDataUrl);
+  } else {
+    getClipStartFrameDataUrl(initialClip.filePath).then(dataUrl => {
+      if (!document.body.contains(overlay)) return;
+      const latestClip = getClip();
+      if (!latestClip) return;
+      if (dataUrl) {
+        latestClip.postThumbnailDataUrl = dataUrl;
+      }
+      applyThumb(dataUrl);
+    });
+  }
+}
+
 function showRestageConfirmation(idx) {
   const clip = state.completedClips[idx];
   if (!clip || !clip.m3u8Url) return;

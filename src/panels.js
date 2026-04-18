@@ -459,6 +459,9 @@ function rebuildViewMenu() {
 }
 
 var LAYOUT_KEY = 'ch_split_layout';
+var LEGACY_LAYOUTS_KEY = 'ch_saved_layouts';
+var LEGACY_ACTIVE_KEY = 'ch_active_workspace';
+var activeWorkspaceKey = 'default';
 
 function normalizeTree(node) {
   if (!node) return;
@@ -503,21 +506,53 @@ function resetLayout() {
   SL.render();
   updateViewChecks();
   toast('Layout reset to <span class="accent">default</span>');
-  try { localStorage.removeItem(LAYOUT_KEY); } catch (e) {}
+  autoSaveLayout();
 }
 
 function autoSaveLayout() {
-  try {
-    var layout = captureLayout();
-    if (layout) localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
-  } catch (e) {}
+  var layout = captureLayout();
+  if (!layout) return;
+  var activeKey = activeWorkspaceKey || 'default';
+  var existing = builtinLayouts[activeKey] || userLayouts[activeKey];
+  var name = (existing && existing.name) ? existing.name : activeKey;
+  layout.name = name;
+
+  if (window.clipper && window.clipper.savePanelLayout) {
+    window.clipper.savePanelLayout({ key: activeKey, name: name, layout: layout }).then(function (result) {
+      if (!result || !result.success || !result.layout) return;
+      if (builtinLayouts[activeKey]) builtinLayouts[activeKey] = result.layout;
+      else userLayouts[activeKey] = result.layout;
+    }).catch(function () {});
+    if (window.clipper.savePanelLayoutState) {
+      window.clipper.savePanelLayoutState({ activeWorkspace: activeKey }).catch(function () {});
+    }
+    return;
+  }
+
+  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch (e) {}
+  try { localStorage.setItem(LEGACY_ACTIVE_KEY, activeKey); } catch (e2) {}
 }
 
 function autoRestoreLayout() {
+  if (window.clipper && window.clipper.loadPanelLayoutState) {
+    return window.clipper.loadPanelLayoutState().then(function (state) {
+      var wanted = (state && state.activeWorkspace) ? state.activeWorkspace : 'default';
+      var layout = builtinLayouts[wanted] || userLayouts[wanted] || builtinLayouts.default || userLayouts.default;
+      activeWorkspaceKey = layout ? (layout._filename || wanted) : 'default';
+      if (layout) applyLayout(layout);
+      rebuildWorkspaceTabs(activeWorkspaceKey);
+    }).catch(function () {
+      rebuildWorkspaceTabs(activeWorkspaceKey);
+    });
+  }
+
   try {
     var saved = localStorage.getItem(LAYOUT_KEY);
+    activeWorkspaceKey = localStorage.getItem(LEGACY_ACTIVE_KEY) || 'default';
     if (saved) applyLayout(JSON.parse(saved));
   } catch (e) {}
+  rebuildWorkspaceTabs(activeWorkspaceKey);
+  return Promise.resolve();
 }
 
 function migrateAndApplyOldLayout(old) {
@@ -541,10 +576,30 @@ function migrateAndApplyOldLayout(old) {
 }
 
 function getSavedLayouts() {
-  try { return JSON.parse(localStorage.getItem('ch_saved_layouts') || '{}'); } catch (e) { return {}; }
+  return userLayouts;
 }
+
 function setSavedLayouts(obj) {
-  try { localStorage.setItem('ch_saved_layouts', JSON.stringify(obj)); } catch (e) {}
+  userLayouts = obj || {};
+}
+
+function refreshLayoutCaches() {
+  if (!window.clipper || !window.clipper.listPanelLayouts) {
+    builtinLayouts = builtinLayouts || {};
+    try { userLayouts = JSON.parse(localStorage.getItem(LEGACY_LAYOUTS_KEY) || '{}'); } catch (e) { userLayouts = {}; }
+    return Promise.resolve();
+  }
+  return window.clipper.listPanelLayouts().then(function (layouts) {
+    builtinLayouts = {};
+    userLayouts = {};
+    for (var i = 0; i < layouts.length; i++) {
+      var layout = layouts[i];
+      var key = layout._filename || layout.key || (layout.name || '').toLowerCase();
+      if (!key) continue;
+      if (layout._isDefault || layout.isDefault) builtinLayouts[key] = layout;
+      else userLayouts[key] = layout;
+    }
+  }).catch(function () {});
 }
 
 function openSaveModal() {
@@ -559,9 +614,35 @@ function closeSaveModal() {
 function saveLayout() {
   var name = document.getElementById('layoutNameInput').value.trim();
   if (!name) return;
+  var layout = captureLayout();
+  if (!layout) return;
+
+  if (window.clipper && window.clipper.savePanelLayout) {
+    window.clipper.savePanelLayout({ name: name, layout: layout }).then(function (result) {
+      if (!result || !result.success || !result.layout) {
+        toast('Failed to save layout');
+        return;
+      }
+      var key = result.key || result.layout._filename || name;
+      userLayouts[key] = result.layout;
+      activeWorkspaceKey = key;
+      closeSaveModal();
+      buildSavedLayoutsMenu();
+      rebuildWorkspaceTabs(key);
+      if (window.clipper && window.clipper.savePanelLayoutState) {
+        window.clipper.savePanelLayoutState({ activeWorkspace: key }).catch(function () {});
+      }
+      toast('Layout <span class="accent">' + (result.layout.name || name) + '</span> saved');
+    }).catch(function () {
+      toast('Failed to save layout');
+    });
+    return;
+  }
+
   var layouts = getSavedLayouts();
-  layouts[name] = captureLayout();
+  layouts[name] = layout;
   setSavedLayouts(layouts);
+  try { localStorage.setItem(LEGACY_LAYOUTS_KEY, JSON.stringify(layouts)); } catch (e) {}
   closeSaveModal();
   buildSavedLayoutsMenu();
   rebuildWorkspaceTabs(name);
@@ -571,16 +652,43 @@ function saveLayout() {
 function loadSavedLayout(name) {
   var layouts = getSavedLayouts();
   if (layouts[name]) {
+    activeWorkspaceKey = name;
     applyLayout(layouts[name]);
+    if (window.clipper && window.clipper.savePanelLayoutState) {
+      window.clipper.savePanelLayoutState({ activeWorkspace: name }).catch(function () {});
+    }
     toast('Layout <span class="accent">' + name + '</span> loaded');
   }
   closeAllMenus();
 }
 
 function deleteSavedLayout(name) {
+  if (window.clipper && window.clipper.deletePanelLayout) {
+    window.clipper.deletePanelLayout(name).then(function (result) {
+      if (result && result.success) {
+        delete userLayouts[name];
+        if (activeWorkspaceKey === name) {
+          activeWorkspaceKey = 'default';
+          if (window.clipper && window.clipper.savePanelLayoutState) {
+            window.clipper.savePanelLayoutState({ activeWorkspace: activeWorkspaceKey }).catch(function () {});
+          }
+        }
+        buildSavedLayoutsMenu();
+        rebuildWorkspaceTabs(activeWorkspaceKey);
+        toast('Layout <span class="accent">' + name + '</span> deleted');
+      } else {
+        toast('Layout delete blocked');
+      }
+    }).catch(function () {
+      toast('Failed to delete layout');
+    });
+    return;
+  }
+
   var layouts = getSavedLayouts();
   delete layouts[name];
   setSavedLayouts(layouts);
+  try { localStorage.setItem(LEGACY_LAYOUTS_KEY, JSON.stringify(layouts)); } catch (e) {}
   buildSavedLayoutsMenu();
   toast('Layout <span class="accent">' + name + '</span> deleted');
 }
@@ -594,11 +702,13 @@ function buildSavedLayoutsMenu() {
     container.innerHTML = '<div class="dd-item disabled" style="font-style:italic;">No saved layouts</div>';
     return;
   }
-  container.innerHTML = names.map(function (n) {
-    var safe = n.replace(/'/g, "\\'").replace(/</g, '&lt;');
-    return '<div class="dd-item" onclick="window._panels.loadSavedLayout(\'' + safe + '\'); event.stopPropagation();">' +
-      '<span>' + safe + '</span>' +
-      '<span class="dd-shortcut" style="cursor:pointer;color:var(--accent-red);" onclick="event.stopPropagation(); window._panels.deleteSavedLayout(\'' + safe + '\'); closeAllMenus();">\u2715</span>' +
+  container.innerHTML = names.map(function (key) {
+    var layoutName = layouts[key].name || key;
+    var safeKey = key.replace(/'/g, "\\'").replace(/</g, '&lt;');
+    var safeLabel = layoutName.replace(/'/g, "\\'").replace(/</g, '&lt;');
+    return '<div class="dd-item" onclick="window._panels.loadSavedLayout(\'' + safeKey + '\'); event.stopPropagation();">' +
+      '<span>' + safeLabel + '</span>' +
+      '<span class="dd-shortcut" style="cursor:pointer;color:var(--accent-red);" onclick="event.stopPropagation(); window._panels.deleteSavedLayout(\'' + safeKey + '\'); closeAllMenus();">\u2715</span>' +
       '</div>';
   }).join('');
 }
@@ -607,25 +717,24 @@ var builtinLayouts = {};
 var userLayouts = {};
 
 function loadBuiltinLayouts() {
-  if (!window.clipper || !window.clipper.getBuiltinLayouts) {
+  if (!window.clipper || !window.clipper.listPanelLayouts) {
     // Fallback: use DEFAULT_TREE for 'default' only
     var ST = window._splitTree;
     if (ST) builtinLayouts['default'] = { name: 'Default', version: 1, tree: ST.DEFAULT_TREE };
-    return Promise.resolve();
+    return refreshLayoutCaches();
   }
-  return window.clipper.getBuiltinLayouts().then(function (layouts) {
-    for (var i = 0; i < layouts.length; i++) {
-      var key = layouts[i]._filename || layouts[i].name.toLowerCase();
-      builtinLayouts[key] = layouts[i];
-    }
-  }).catch(function () {});
+  return refreshLayoutCaches();
 }
 
 function loadWorkspace(name) {
   var layout = builtinLayouts[name] || userLayouts[name];
   if (!layout) return;
+  activeWorkspaceKey = name;
   applyLayout(layout);
   rebuildWorkspaceTabs(name);
+  if (window.clipper && window.clipper.savePanelLayoutState) {
+    window.clipper.savePanelLayoutState({ activeWorkspace: name }).catch(function () {});
+  }
   autoSaveLayout();
   toast('Layout <span class="accent">' + (layout.name || name) + '</span> loaded');
 }
@@ -649,7 +758,6 @@ function rebuildWorkspaceTabs(activeName) {
     container.appendChild(bTab);
   }
 
-  userLayouts = getSavedLayouts();
   var userKeys = Object.keys(userLayouts);
   if (userKeys.length > 0 && builtinKeys.length > 0) {
     var sep = document.createElement('div');
@@ -662,7 +770,7 @@ function rebuildWorkspaceTabs(activeName) {
     var uTab = document.createElement('div');
     uTab.className = 'ws-tab ws-tab-user' + (uk === activeName ? ' active' : '');
     uTab.dataset.ws = uk;
-    uTab.textContent = uk;
+    uTab.textContent = (userLayouts[uk] && userLayouts[uk].name) ? userLayouts[uk].name : uk;
     var closeBtn = document.createElement('span');
     closeBtn.className = 'ws-tab-close';
     closeBtn.innerHTML = '&times;';
@@ -917,14 +1025,15 @@ function startFloatDockDrag(floatId, info) {
   document.addEventListener('mouseup', onUp);
 }
 
-buildSavedLayoutsMenu();
 rebuildViewMenu();
 updateViewChecks();
 
 loadBuiltinLayouts().then(function () {
-  rebuildWorkspaceTabs('default');
-  autoRestoreLayout();
-});
+  buildSavedLayoutsMenu();
+  return autoRestoreLayout();
+}).then(function () {
+  buildSavedLayoutsMenu();
+}).catch(function () {});
 
 window._panels = {
   closePanel: closePanel,

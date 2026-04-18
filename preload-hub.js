@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('hubBridge', {
   chooseWatermarkImage: () => ipcRenderer.invoke('choose-watermark-image'),
   chooseClipsDir: () => ipcRenderer.invoke('choose-clips-dir'),
   showInFolder: (p) => ipcRenderer.invoke('show-in-folder', p),
+  copyText: (text) => ipcRenderer.invoke('copy-text', text),
   openClipFfmpegLog: (clipName) => ipcRenderer.invoke('open-clip-ffmpeg-log', clipName),
   deleteClipFile: (filePath) => ipcRenderer.invoke('delete-clip-file', { filePath }),
+  extractClipFirstFrame: (filePath) => ipcRenderer.invoke('extract-clip-first-frame', { filePath }),
 });
