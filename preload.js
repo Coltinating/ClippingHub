@@ -4,6 +4,17 @@ contextBridge.exposeInMainWorld('clipper', {
   getProxyPort: () => ipcRenderer.invoke('get-proxy-port'),
   getChannelConfig: () => ipcRenderer.invoke('get-channel-config'),
 
+  // App meta + auto-update
+  getAppVersion:      () => ipcRenderer.invoke('app:getVersion'),
+  checkForUpdate:     () => ipcRenderer.invoke('update:check'),
+  downloadUpdate:     () => ipcRenderer.invoke('update:download'),
+  installUpdate:      () => ipcRenderer.invoke('update:install'),
+  onUpdateAvailable:  (cb) => ipcRenderer.on('update:available', (_, d) => cb(d)),
+  onUpdateNone:       (cb) => ipcRenderer.on('update:none', () => cb()),
+  onUpdateProgress:   (cb) => ipcRenderer.on('update:progress', (_, d) => cb(d)),
+  onUpdateDownloaded: (cb) => ipcRenderer.on('update:downloaded', () => cb()),
+  onUpdateError:      (cb) => ipcRenderer.on('update:error', (_, msg) => cb(msg)),
+
   // M3U8 extraction (Electron-native hidden window)
   extractM3U8: (opts) => ipcRenderer.invoke('extract-m3u8', opts),
 

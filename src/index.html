@@ -47,6 +47,16 @@
 
 <div class="app">
 
+  <!-- ── Update popup (top-left, hidden unless update available) ── -->
+  <div id="update-popup" class="update-popup" hidden>
+    <div class="update-popup-title">Update available</div>
+    <div class="update-popup-msg" id="update-popup-msg">A new version is ready.</div>
+    <div class="update-popup-actions">
+      <button class="btn btn-primary btn-xs" id="update-popup-apply">Update</button>
+      <button class="btn btn-xs" id="update-popup-dismiss">Dismiss</button>
+    </div>
+  </div>
+
   <!-- ── Menu Bar ──────────────────────────────────────────── -->
   <div class="menubar">
     <div class="logo">CLIPPING<span>HUB</span></div>
@@ -60,6 +70,11 @@
         <div class="dd-item" onclick="closeAllMenus()">Save As&hellip; <span class="dd-shortcut">Ctrl+Shift+S</span></div>
         <div class="dd-sep"></div>
         <div class="dd-item" onclick="closeAllMenus()">Exit</div>
+        <div class="dd-sep" id="menu-file-update-sep" style="display:none;"></div>
+        <div class="dd-item" id="menu-file-update" style="display:none;"
+             onclick="window._update && window._update.applyFromMenu(); closeAllMenus();">
+          Update ClippingHub
+        </div>
       </div>
     </div>
     <div class="menu-item" data-menu="edit">Edit

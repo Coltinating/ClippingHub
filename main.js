@@ -2229,7 +2229,7 @@ function createWindow() {
     width: 1400, height: 860,
     minWidth: 1000, minHeight: 600,
     backgroundColor: '#0a0a0b',
-    title: 'Clipper Hub',
+    title: `ClippingHub v${app.getVersion()}`,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -2274,38 +2274,31 @@ function setupAutoUpdater() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
 
+  const send = (channel, payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(channel, payload);
+    }
+  };
+
   autoUpdater.on('update-available', (info) => {
-    dialog.showMessageBox(mainWindow, {
-      type: 'info',
-      title: 'Update Available',
-      message: `ClippingHub v${info.version} is available. Would you like to download and install it?`,
-      buttons: ['Update', 'No'],
-      defaultId: 0,
-      cancelId: 1
-    }).then(({ response }) => {
-      if (response === 0) {
-        autoUpdater.downloadUpdate();
-      }
-    });
+    send('update:available', { version: info.version });
   });
+  autoUpdater.on('update-not-available', () => send('update:none'));
+  autoUpdater.on('error', (err) => send('update:error', String(err && err.message || err)));
+  autoUpdater.on('download-progress', (p) =>
+    send('update:progress', { percent: Math.round(p.percent || 0) })
+  );
+  autoUpdater.on('update-downloaded', () => send('update:downloaded'));
 
-  autoUpdater.on('update-downloaded', () => {
-    dialog.showMessageBox(mainWindow, {
-      type: 'info',
-      title: 'Update Ready',
-      message: 'Update downloaded. The app will restart to install it.',
-      buttons: ['Restart Now', 'Later'],
-      defaultId: 0,
-      cancelId: 1
-    }).then(({ response }) => {
-      if (response === 0) {
-        autoUpdater.quitAndInstall();
-      }
-    });
+  mainWindow.webContents.once('did-finish-load', () => {
+    autoUpdater.checkForUpdates().catch(() => {});
   });
-
-  autoUpdater.checkForUpdates().catch(() => {});
 }
+
+ipcMain.handle('update:check', () => autoUpdater.checkForUpdates().catch(() => null));
+ipcMain.handle('update:download', () => autoUpdater.downloadUpdate().catch(() => null));
+ipcMain.handle('update:install', () => autoUpdater.quitAndInstall());
+ipcMain.handle('app:getVersion', () => app.getVersion());
 
 // ── Layout config files ────────────────────────────────────────────
 ipcMain.handle('layouts:get-builtins', async () => {

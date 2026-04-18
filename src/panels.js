@@ -1061,3 +1061,61 @@ window._panels = {
 };
 
 })();
+
+// ── Auto-update UI wiring ─────────────────────────────────────────
+(function initUpdateUI() {
+  var api = window.clipper;
+  if (!api || !api.onUpdateAvailable) return;
+
+  var popup      = document.getElementById('update-popup');
+  var popupMsg   = document.getElementById('update-popup-msg');
+  var applyBtn   = document.getElementById('update-popup-apply');
+  var dismissBtn = document.getElementById('update-popup-dismiss');
+  var menuSep    = document.getElementById('menu-file-update-sep');
+  var menuItem   = document.getElementById('menu-file-update');
+
+  var pending = null;
+  var downloading = false;
+
+  function say(msg) {
+    if (window._panels && typeof window._panels.toast === 'function') {
+      window._panels.toast(msg);
+    }
+  }
+  function showPopup() { if (popup) popup.hidden = false; }
+  function hidePopup() { if (popup) popup.hidden = true; }
+  function showMenuItem() {
+    if (menuItem) menuItem.style.display = '';
+    if (menuSep)  menuSep.style.display  = '';
+  }
+  function startDownload() {
+    if (!pending || downloading) return;
+    downloading = true;
+    say('Downloading update&hellip;');
+    api.downloadUpdate();
+  }
+
+  api.onUpdateAvailable(function (info) {
+    pending = info;
+    if (popupMsg) popupMsg.textContent = 'ClippingHub v' + info.version + ' is available.';
+    showPopup();
+  });
+  api.onUpdateProgress(function (p) {
+    say('Downloading update&hellip; ' + p.percent + '%');
+  });
+  api.onUpdateDownloaded(function () {
+    say('Update ready \u2014 restarting\u2026');
+    setTimeout(function () { api.installUpdate(); }, 800);
+  });
+  api.onUpdateError(function (msg) {
+    downloading = false;
+    say('Update failed: ' + msg);
+  });
+
+  if (applyBtn)   applyBtn.addEventListener('click', function () { hidePopup(); startDownload(); });
+  if (dismissBtn) dismissBtn.addEventListener('click', function () { hidePopup(); showMenuItem(); });
+
+  window._update = {
+    applyFromMenu: function () { hidePopup(); startDownload(); }
+  };
+})();

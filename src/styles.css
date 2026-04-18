@@ -2383,3 +2383,23 @@ svg { display: block; }
   background: #13202e; color: #9cbbd6; border-radius: 999px;
   font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
 }
+
+/* ── Update popup ─────────────────────────────────────────── */
+.update-popup {
+  position: fixed;
+  top: 40px;
+  left: 12px;
+  z-index: 9999;
+  background: var(--panel, #1a1a1c);
+  border: 1px solid var(--accent, #3d7eff);
+  border-radius: 6px;
+  padding: 10px 12px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55);
+  min-width: 220px;
+  font-size: 12px;
+  color: var(--text, #e8e8ea);
+}
+.update-popup[hidden] { display: none; }
+.update-popup-title { font-weight: 600; margin-bottom: 4px; }
+.update-popup-msg { opacity: 0.85; margin-bottom: 8px; }
+.update-popup-actions { display: flex; gap: 6px; }
