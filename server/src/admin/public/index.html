@@ -17,15 +17,15 @@
       <span class="topbar-label">Admin name</span>
       <input id="adminName" type="text" placeholder="Mark" autocomplete="off">
     </label>
-    <span id="connStatus" class="conn-pill" data-state="offline">● Offline</span>
-    <button id="connectBtn" class="btn btn-primary btn-sm">Connect</button>
+    <span id="connStatus" class="conn-pill" data-state="offline" role="status" aria-live="polite">● Offline</span>
+    <button id="connectBtn" class="btn btn-primary btn-sm" aria-label="Toggle server connection">Connect</button>
   </header>
 
   <main class="layout">
     <aside class="sidebar">
       <div class="sidebar-head">
         <span>Lobbies</span>
-        <button id="refreshBtn" class="btn btn-ghost btn-xs" title="Refresh">⟳</button>
+        <button id="refreshBtn" class="btn btn-ghost btn-xs" title="Refresh lobby list" aria-label="Refresh lobby list">⟳</button>
       </div>
       <ul id="lobbyList" class="lobby-list">
         <li class="lobby-empty">Connect to load lobbies.</li>
@@ -34,7 +34,7 @@
 
     <section class="detail">
       <div id="detailEmpty" class="detail-empty">
-        Select a lobby on the left to view it.
+        <span>Select a lobby on the left to view it.</span>
       </div>
 
       <div id="detailContent" class="detail-content" hidden>
