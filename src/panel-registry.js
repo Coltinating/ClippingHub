@@ -62,39 +62,15 @@ var PANEL_DEFINITIONS = {
     multiInstance: false,
     lifecycle: null
   },
-  collabSession: {
-    key: 'collabSession',
+  collab: {
+    key: 'collab',
     group: 'collab',
-    title: 'Collab Session',
-    menuLabel: 'Collab Session',
-    emptyLabel: 'Collab Session',
-    viewCheckId: 'chk-collab-session',
-    elId: 'panel-collab-session',
+    title: 'Collab',
+    menuLabel: 'Collab',
+    emptyLabel: 'Collab',
+    viewCheckId: 'chk-collab',
+    elId: 'panel-collab',
     icon: '<svg viewBox="0 0 12 12" fill="currentColor"><circle cx="4" cy="4" r="2"/><circle cx="8.5" cy="4.5" r="1.5"/><path d="M1.5 10c0-2 1.8-3 3.5-3s3.5 1 3.5 3v1h-7z"/><path d="M7.3 11v-1c0-1.2.9-1.9 2.1-1.9s2.1.7 2.1 1.9v1z"/></svg>',
-    multiInstance: false,
-    lifecycle: null
-  },
-  collabChat: {
-    key: 'collabChat',
-    group: 'collab',
-    title: 'Collab Chat',
-    menuLabel: 'Collab Chat',
-    emptyLabel: 'Collab Chat',
-    viewCheckId: 'chk-collab-chat',
-    elId: 'panel-collab-chat',
-    icon: '<svg viewBox="0 0 12 12" fill="currentColor"><path d="M1 2.5A1.5 1.5 0 012.5 1h7A1.5 1.5 0 0111 2.5v5A1.5 1.5 0 019.5 9H5l-2.8 2v-2H2.5A1.5 1.5 0 011 7.5z"/></svg>',
-    multiInstance: false,
-    lifecycle: null
-  },
-  collabActivity: {
-    key: 'collabActivity',
-    group: 'collab',
-    title: 'Clip Activity',
-    menuLabel: 'Clip Activity',
-    emptyLabel: 'Clip Activity',
-    viewCheckId: 'chk-collab-activity',
-    elId: 'panel-collab-activity',
-    icon: '<svg viewBox="0 0 12 12" fill="currentColor"><path d="M1 6h2l1.2-2.5L6.5 9l1.6-3H11v1H7.5L6.3 9.4 4.2 4.2 3.6 6H1z"/></svg>',
     multiInstance: false,
     lifecycle: null
   },

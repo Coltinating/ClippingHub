@@ -186,8 +186,11 @@ function serialize(root) {
   return JSON.parse(JSON.stringify(root));
 }
 
+var LEGACY_COLLAB_KEYS = { collabSession: 1, collabChat: 1, collabActivity: 1 };
+
 function normalizePanelType(panelType) {
   if (panelType === 'preview') return 'clipper';
+  if (LEGACY_COLLAB_KEYS[panelType]) return 'empty';
   return panelType || 'empty';
 }
 

@@ -2403,3 +2403,29 @@ svg { display: block; }
 .update-popup-title { font-weight: 600; margin-bottom: 4px; }
 .update-popup-msg { opacity: 0.85; margin-bottom: 8px; }
 .update-popup-actions { display: flex; gap: 6px; }
+
+/* Unified collab panel */
+.collab-conn-status { font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-left: 8px; }
+.collab-conn-status[data-state="offline"]    { color: var(--text-secondary, #a8a8b0); }
+.collab-conn-status[data-state="connecting"] { color: #c8a45a; }
+.collab-conn-status[data-state="online"]     { color: #5ec27a; }
+
+.collab-conn-bar { padding: 8px 10px; border-bottom: 1px solid var(--border, #2a2a30); display: flex; flex-direction: column; gap: 6px; }
+.collab-conn-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.collab-tabs { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--border, #2a2a30); }
+.collab-tab  { background: transparent; color: var(--text-secondary, #a8a8b0); border: 0; padding: 6px 10px; cursor: pointer; font: inherit; border-radius: 6px 6px 0 0; }
+.collab-tab.active { color: var(--text, #e8e8ea); background: var(--surface, #1a1a1f); border: 1px solid var(--border, #2a2a30); border-bottom: 0; }
+.collab-tab-count  { display: inline-block; margin-left: 4px; font-size: 10px; opacity: .7; }
+.collab-tab-panel  { padding: 8px 10px; }
+
+.collab-disconnect-row { justify-content: flex-end; margin-top: 8px; }
+
+.transcribe-controls { display: flex; flex-direction: column; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--border, #2a2a30); }
+.transcribe-status   { font-size: 11px; padding: 1px 6px; border-radius: 999px; }
+.transcribe-status[data-state="idle"]    { color: var(--text-secondary, #a8a8b0); }
+.transcribe-status[data-state="running"] { color: #5ec27a; }
+.transcribe-status[data-state="stopped"] { color: var(--text-secondary, #a8a8b0); }
+.transcribe-status[data-state="error"]   { color: #d97474; }
+.transcribe-log { max-height: 240px; overflow-y: auto; margin-top: 8px; font-family: Consolas, monospace; font-size: 12px; }
+.transcribe-row { padding: 2px 0; color: var(--text-secondary, #a8a8b0); }

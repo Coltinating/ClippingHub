@@ -14,11 +14,9 @@ describe('panel-registry', () => {
     expect(all).toContain('clips');
   });
 
-  it('contains collaboration panel types', () => {
+  it('contains collaboration panel type', () => {
     const all = registry.getPanelTypes();
-    expect(all).toContain('collabSession');
-    expect(all).toContain('collabChat');
-    expect(all).toContain('collabActivity');
+    expect(all).toContain('collab');
   });
 
   it('returns grouped dropdown options with players then core then collaboration', () => {
@@ -27,7 +25,7 @@ describe('panel-registry', () => {
     expect(groups[0].options.some(o => o.type === 'clipper')).toBe(true);
     expect(groups[0].options.some(o => o.type === 'viewer')).toBe(true);
     expect(groups[1].options.some(o => o.type === 'timeline')).toBe(true);
-    expect(groups[2].options.some(o => o.type === 'collabChat')).toBe(true);
+    expect(groups[2].options.some(o => o.type === 'collab')).toBe(true);
   });
 
   it('knows valid and invalid panel types', () => {
