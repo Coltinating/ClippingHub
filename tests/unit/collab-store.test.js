@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { CollabStore } from '../../src/lib/collab-store.js';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const { CollabStore } = require('../../src/lib/collab-store.js');
 
 describe('CollabStore', () => {
   it('applies lobby:state then member:joined', () => {

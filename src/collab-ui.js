@@ -2,9 +2,7 @@
 'use strict';
 
 var STORAGE_KEY = 'ch_collab_ui_v3';
-var POLL_MS = 1200;
 var listeners = [];
-var pollTimer = null;
 var statusText = '';
 
 var NAME_COLORS = [
@@ -12,6 +10,10 @@ var NAME_COLORS = [
   '#7ee3ff', '#ff9e7d', '#7be08b', '#ffd16e', '#c8a0ff'
 ];
 var utils = window.CollabUtils || null;
+
+var client = null;
+var store = null;
+var connStage = 'offline'; // offline | connecting | no-lobby | in-lobby
 
 function nowIso() {
   return new Date().toISOString();
@@ -110,7 +112,6 @@ function updateLocalProfile(partial) {
   }
   savePrefs();
   emit();
-  if (state.lobby) refreshLobby();
 }
 
 function mePayload() {
@@ -154,6 +155,7 @@ function setRole(role) {
 function setAssistUserId(userId) {
   state.assignment.assistUserId = String(userId || '').trim();
   syncAssistTarget();
+  if (client && state.lobby) client.setAssist(state.assignment.assistUserId || null);
   emit();
 }
 
@@ -195,8 +197,8 @@ function getMarkContext() {
 
 function getMemberColorMap() {
   var list = state.members.slice().sort(function (a, b) {
-    var aj = a.joinedAt || '';
-    var bj = b.joinedAt || '';
+    var aj = a.joinedAt || 0;
+    var bj = b.joinedAt || 0;
     if (aj < bj) return -1;
     if (aj > bj) return 1;
     var ai = a.id || '';
@@ -228,17 +230,40 @@ function emit() {
 
 function setStatus(msg) {
   statusText = msg || '';
-  renderSession();
+  renderStatus();
 }
 
-function applyLobby(lobby) {
+function setStage(next) {
+  connStage = next;
+  var off = document.getElementById('collabStageOffline');
+  var noLob = document.getElementById('collabStageNoLobby');
+  var inLob = document.getElementById('collabStageInLobby');
+  if (off) off.hidden = (next !== 'offline');
+  if (noLob) noLob.hidden = (next !== 'no-lobby');
+  if (inLob) inLob.hidden = (next !== 'in-lobby');
+  var pill = document.getElementById('collabConnStatus');
+  if (pill) {
+    if (next === 'offline') {
+      pill.dataset.state = 'offline';
+      pill.textContent = '● Offline';
+    } else if (next === 'connecting') {
+      pill.dataset.state = 'connecting';
+      pill.textContent = '● Connecting…';
+    } else {
+      pill.dataset.state = 'online';
+      pill.textContent = '● Online';
+    }
+  }
+}
+
+function applyLobbySnapshot(lobby) {
   if (!lobby) {
     state.lobby = null;
     state.members = [];
     state.chat = [];
     state.clipRanges = [];
     state.me.role = state.assignment.role === 'helper' ? 'helper' : 'clipper';
-    stopPolling();
+    setStage(client && client.connected ? 'no-lobby' : 'offline');
     emit();
     return;
   }
@@ -246,7 +271,6 @@ function applyLobby(lobby) {
     id: lobby.id || null,
     code: safeCode(lobby.code || ''),
     name: String(lobby.name || 'Collab Lobby'),
-    password: String(lobby.password || ''),
     hostId: lobby.hostId || null,
     createdAt: lobby.createdAt || nowIso()
   };
@@ -254,7 +278,7 @@ function applyLobby(lobby) {
   state.members = Array.isArray(lobby.members) ? lobby.members.slice() : [];
   state.chat = Array.isArray(lobby.chat) ? lobby.chat.slice() : [];
   state.clipRanges = Array.isArray(lobby.clipRanges) ? lobby.clipRanges.slice() : [];
-  // Derive my role from the lobby's member record (authoritative).
+
   var myMember = state.members.find(function (m) { return m.id === state.me.id; }) || null;
   var normalize = (window.RolePermissions && window.RolePermissions.normalizeRole) || function (r) { return r || 'viewer'; };
   state.me.role = myMember ? normalize(myMember.role) : 'viewer';
@@ -271,8 +295,129 @@ function applyLobby(lobby) {
     state.assignment.assistUserId = '';
   }
   syncAssistTarget();
-  startPolling();
+  setStage('in-lobby');
   emit();
+}
+
+function attachClientHandlers() {
+  if (!client || !store) return;
+  client.on('lobby:state', function (m) { store.apply(m); applyLobbySnapshot(store.state); });
+  client.on('lobby:closed', function (m) { store.apply(m); applyLobbySnapshot(null); });
+  client.on('member:joined', function (m) { store.apply(m); applyLobbySnapshot(store.state); });
+  client.on('member:left',   function (m) { store.apply(m); applyLobbySnapshot(store.state); });
+  client.on('member:updated', function (m) { store.apply(m); applyLobbySnapshot(store.state); });
+  client.on('chat:message',  function (m) { store.apply(m); applyLobbySnapshot(store.state); });
+  client.on('clip:range-upserted', function (m) { store.apply(m); applyLobbySnapshot(store.state); });
+  client.on('clip:range-removed',  function (m) { store.apply(m); applyLobbySnapshot(store.state); });
+  client.on('clip:delivery', function (m) {
+    if (window._panelBus && window._panelBus.emit) {
+      window._panelBus.emit('collab:delivery', m.delivery);
+    }
+  });
+  client.on('transcript:status', function (m) {
+    var statusEl = document.getElementById('transcribeStatus');
+    var startBtn = document.getElementById('transcribeStartBtn');
+    var stopBtn = document.getElementById('transcribeStopBtn');
+    if (statusEl) {
+      statusEl.dataset.state = m.status;
+      statusEl.textContent = m.error ? ('error: ' + m.error) : m.status;
+    }
+    if (startBtn) startBtn.disabled = m.status === 'running';
+    if (stopBtn) stopBtn.disabled = m.status !== 'running';
+  });
+  client.on('transcript:chunk', function (m) {
+    var logEl = document.getElementById('transcribeLog');
+    if (!logEl) return;
+    var row = document.createElement('div');
+    row.className = 'transcribe-row';
+    row.textContent = '[' + m.chunk.tStart.toFixed(1) + '–' + m.chunk.tEnd.toFixed(1) + '] ' + m.chunk.text;
+    logEl.appendChild(row);
+    logEl.scrollTop = logEl.scrollHeight;
+  });
+  client.on('disconnected', function () {
+    setStage('offline');
+    state.lobby = null;
+    emit();
+  });
+}
+
+async function connect(url, opts) {
+  if (!window.CollabClient || !window.CollabStore) {
+    setStatus('Collab client not loaded');
+    return;
+  }
+  var clean = String(url || '').trim();
+  if (!clean) { setStatus('Enter a server URL'); return; }
+  if (window.clipper && window.clipper.serverSetConfig) {
+    try {
+      var cfg = (window.clipper.serverGetConfig ? await window.clipper.serverGetConfig() : {}) || {};
+      cfg.url = clean;
+      if (opts && opts.autoConnect != null) cfg.autoConnect = !!opts.autoConnect;
+      await window.clipper.serverSetConfig(cfg);
+    } catch (_) {}
+  }
+  setStage('connecting');
+  setStatus('');
+  if (client) { try { client.disconnect(); } catch (_) {} }
+  client = new window.CollabClient({ url: clean, user: mePayload() });
+  store = new window.CollabStore();
+  attachClientHandlers();
+  try {
+    await client.connect();
+    setStage('no-lobby');
+  } catch (e) {
+    setStage('offline');
+    setStatus('Could not connect: ' + (e && e.message ? e.message : 'error'));
+  }
+}
+
+function disconnect() {
+  if (client) { try { client.disconnect(); } catch (_) {} }
+  client = null;
+  store = null;
+  state.lobby = null;
+  state.members = [];
+  state.chat = [];
+  state.clipRanges = [];
+  setStage('offline');
+  emit();
+}
+
+async function createLobby(name, password, code) {
+  if (!client || !client.connected) { setStatus('Not connected'); return null; }
+  try {
+    var lobby = await client.createLobby({ name: name, password: password || '', code: safeCode(code || '') });
+    setStatus('Joined Lobby - code ' + (lobby ? lobby.code : ''));
+    return lobby;
+  } catch (e) {
+    setStatus(e && e.message ? e.message : 'Create failed');
+    return null;
+  }
+}
+
+async function joinLobby(code, password) {
+  if (!client || !client.connected) { setStatus('Not connected'); return null; }
+  var cleanCode = safeCode(code);
+  if (!cleanCode) { setStatus('Enter join code'); return null; }
+  try {
+    var lobby = await client.joinLobby({ code: cleanCode, password: password || '' });
+    setStatus('Joined Lobby - code ' + (lobby ? lobby.code : ''));
+    return lobby;
+  } catch (e) {
+    setStatus(e && e.message ? e.message : 'Join failed');
+    return null;
+  }
+}
+
+async function leaveLobby() {
+  if (!state.lobby || !client) return;
+  try { client.leaveLobby(); } catch (_) {}
+  applyLobbySnapshot(null);
+  setStatus('No active lobby');
+}
+
+async function refreshLobby() {
+  return state.lobby; // server pushes; nothing to fetch
 }
 
 function updateMeName(name) {
@@ -283,99 +428,12 @@ function updateMeName(name) {
   return true;
 }
 
-async function createLobby(name, password, code) {
-  if (!window.clipper || !window.clipper.collabCreateLobby) {
-    setStatus('Collab backend missing');
-    return null;
-  }
-  var res = await window.clipper.collabCreateLobby({
-    name: name,
-    password: password || '',
-    code: safeCode(code || ''),
-    user: mePayload()
-  });
-  if (!res || !res.success) {
-    setStatus((res && res.error) ? res.error : 'Create failed');
-    return null;
-  }
-  applyLobby(res.lobby);
-  setStatus('Joined Lobby - code ' + state.lobby.code);
-  return state.lobby;
-}
-
-async function joinLobby(code, password) {
-  if (!window.clipper || !window.clipper.collabJoinLobby) {
-    setStatus('Collab backend missing');
-    return null;
-  }
-  var cleanCode = safeCode(code);
-  if (!cleanCode) {
-    setStatus('Enter join code');
-    return null;
-  }
-  var res = await window.clipper.collabJoinLobby({
-    code: cleanCode,
-    password: password || '',
-    user: mePayload()
-  });
-  if (!res || !res.success) {
-    setStatus((res && res.error) ? res.error : 'Join failed');
-    return null;
-  }
-  applyLobby(res.lobby);
-  setStatus('Joined Lobby - code ' + state.lobby.code);
-  return state.lobby;
-}
-
-async function leaveLobby() {
-  if (!state.lobby) return;
-  if (window.clipper && window.clipper.collabLeaveLobby) {
-    await window.clipper.collabLeaveLobby({
-      code: state.lobby.code,
-      userId: state.me.id
-    });
-  }
-  applyLobby(null);
-  setStatus('No active lobby');
-}
-
-async function refreshLobby() {
-  if (!state.lobby || !window.clipper || !window.clipper.collabGetLobby) return null;
-  var res = await window.clipper.collabGetLobby({
-    code: state.lobby.code,
-    user: mePayload()
-  });
-  if (!res || !res.success) return null;
-  applyLobby(res.lobby);
-  return res.lobby;
-}
-
-function startPolling() {
-  if (pollTimer) return;
-  pollTimer = setInterval(function () {
-    refreshLobby();
-  }, POLL_MS);
-}
-
-function stopPolling() {
-  if (!pollTimer) return;
-  clearInterval(pollTimer);
-  pollTimer = null;
-}
-
 async function addChat(text, userName) {
   var msg = String(text || '').trim();
-  if (!msg || !state.lobby) return null;
+  if (!msg || !state.lobby || !client) return null;
   if (!updateMeName(userName || state.me.name)) return null;
-  if (!window.clipper || !window.clipper.collabAddChat) return null;
-  var res = await window.clipper.collabAddChat({
-    code: state.lobby.code,
-    text: msg,
-    user: mePayload()
-  });
-  if (res && res.success) applyLobby(res.lobby);
-  else if (res && res.error) setStatus(res.error);
-  return res && res.success ? res.lobby : null;
+  client.sendChat(msg);
+  return null;
 }
 
 function upsertClipRange(range) {
@@ -419,8 +477,8 @@ function upsertClipRange(range) {
   };
 
   var idx = -1;
-  for (var i = 0; i < state.clipRanges.length; i++) {
-    if (state.clipRanges[i].id === next.id) { idx = i; break; }
+  for (var j = 0; j < state.clipRanges.length; j++) {
+    if (state.clipRanges[j].id === next.id) { idx = j; break; }
   }
   if (idx >= 0) {
     state.clipRanges[idx] = Object.assign({}, state.clipRanges[idx], next);
@@ -429,16 +487,7 @@ function upsertClipRange(range) {
   }
   emit();
 
-  if (state.lobby && window.clipper && window.clipper.collabUpsertRange) {
-    window.clipper.collabUpsertRange({
-      code: state.lobby.code,
-      range: next,
-      user: mePayload()
-    }).then(function (res) {
-      if (res && res.success) applyLobby(res.lobby);
-      else if (res && res.error) setStatus(res.error);
-    });
-  }
+  if (state.lobby && client) client.upsertRange(next);
   return next;
 }
 
@@ -449,27 +498,18 @@ function removeClipRange(rangeId) {
   state.clipRanges = state.clipRanges.filter(function (r) { return String(r.id || '') !== id; });
   if (before === state.clipRanges.length) return false;
   emit();
-  if (state.lobby && window.clipper && window.clipper.collabRemoveRange) {
-    window.clipper.collabRemoveRange({
-      code: state.lobby.code,
-      rangeId: id
-    }).then(function (res) {
-      if (res && res.success) applyLobby(res.lobby);
-      else if (res && res.error) setStatus(res.error);
-    });
-  }
+  if (state.lobby && client) client.removeRange(id);
   return true;
 }
 
 function sendClipDelivery(clip) {
-  if (!state.lobby || !window.clipper || !window.clipper.collabCreateDelivery) return null;
+  if (!state.lobby || !client) return null;
   if (!clip || !clip.id) return null;
   var target = state.assignment.assistUserId || '';
   if (!target) { setStatus('Pick an assigned Clipper first'); return null; }
   var payload = window.Delivery ? window.Delivery.buildClipDeliveryPayload(clip) : {};
   var payloadJson = JSON.stringify(payload);
-  return window.clipper.collabCreateDelivery({
-    code: state.lobby.code,
+  client.createDelivery({
     fromUserId: state.me.id,
     fromUserName: state.me.name || '',
     fromUserColor: state.me.color || '',
@@ -477,26 +517,20 @@ function sendClipDelivery(clip) {
     type: 'clip',
     rangeId: clip.id,
     payload: payload
-  }).then(function (res) {
-    if (res && res.success) {
-      applyLobby(res.lobby);
-      clip._lastSentPayloadJson = payloadJson;
-    } else if (res && res.error) setStatus(res.error);
-    return res;
   });
+  clip._lastSentPayloadJson = payloadJson;
+  return Promise.resolve({ success: true });
 }
 
 function resendClipDelivery(clip) {
-  if (!state.lobby || !window.clipper || !window.clipper.collabCreateDelivery) return null;
+  if (!state.lobby || !client) return null;
   if (!clip || !clip.id) return null;
   var target = state.assignment.assistUserId || '';
   if (!target) return null;
   var payload = window.Delivery ? window.Delivery.buildClipDeliveryPayload(clip) : {};
   var payloadJson = JSON.stringify(payload);
-  // Change-diff gate: skip if payload is identical to last-sent snapshot.
   if (clip._lastSentPayloadJson === payloadJson) return Promise.resolve({ success: true, skipped: true });
-  return window.clipper.collabCreateDelivery({
-    code: state.lobby.code,
+  client.createDelivery({
     fromUserId: state.me.id,
     fromUserName: state.me.name || '',
     fromUserColor: state.me.color || '',
@@ -504,22 +538,17 @@ function resendClipDelivery(clip) {
     type: 'clipUpdate',
     rangeId: clip.id,
     payload: payload
-  }).then(function (res) {
-    if (res && res.success) {
-      applyLobby(res.lobby);
-      clip._lastSentPayloadJson = payloadJson;
-    }
-    return res;
   });
+  clip._lastSentPayloadJson = payloadJson;
+  return Promise.resolve({ success: true });
 }
 
 function unsendClipDelivery(clip) {
-  if (!state.lobby || !window.clipper || !window.clipper.collabCreateDelivery) return null;
+  if (!state.lobby || !client) return null;
   if (!clip || !clip.id) return null;
   var target = state.assignment.assistUserId || '';
   if (!target) return null;
-  return window.clipper.collabCreateDelivery({
-    code: state.lobby.code,
+  client.createDelivery({
     fromUserId: state.me.id,
     fromUserName: state.me.name || '',
     fromUserColor: state.me.color || '',
@@ -527,32 +556,20 @@ function unsendClipDelivery(clip) {
     type: 'clipUnsend',
     rangeId: clip.id,
     payload: null
-  }).then(function (res) { if (res && res.success) applyLobby(res.lobby); return res; });
+  });
+  return Promise.resolve({ success: true });
 }
 
 function consumeMyDeliveries() {
-  if (!state.lobby || !window.clipper || !window.clipper.collabConsumeDeliveries) return Promise.resolve([]);
-  return window.clipper.collabConsumeDeliveries({
-    code: state.lobby.code,
-    userId: state.me.id
-  }).then(function (res) {
-    return (res && res.success && Array.isArray(res.deliveries)) ? res.deliveries : [];
-  });
+  // Server pushes deliveries via 'clip:delivery' event; nothing to pull.
+  return Promise.resolve([]);
 }
 
 function setMemberRole(targetId, role, opts) {
-  if (!state.lobby || !window.clipper || !window.clipper.collabSetMemberRole) return null;
-  return window.clipper.collabSetMemberRole({
-    code: state.lobby.code,
-    actorId: state.me.id,
-    targetId: targetId,
-    role: role,
-    assistUserId: (opts && opts.assistUserId) || ''
-  }).then(function (res) {
-    if (res && res.success) applyLobby(res.lobby);
-    else if (res && res.error) setStatus(res.error);
-    return res;
-  });
+  if (!state.lobby || !client) return null;
+  client.setRole(targetId, role);
+  if (opts && opts.assistUserId) client.setAssist(opts.assistUserId);
+  return Promise.resolve({ success: true });
 }
 
 function getIndicatorAtTime(timeSec) {
@@ -669,7 +686,6 @@ function openProfilePopover(userId, anchorEl) {
     });
   }
 
-  // Role-assignment buttons (only if self is clipper and target is not self)
   var iAmClipper = (state.me.role === 'clipper') && m.id !== state.me.id;
   if (iAmClipper) {
     var actions = document.createElement('div');
@@ -717,28 +733,19 @@ function renderMemberChips() {
   }).join('');
 }
 
-function renderSession() {
-  var inactive = document.getElementById('lobbyInactiveState');
-  var active = document.getElementById('lobbyActiveState');
+function renderStatus() {
   var status = document.getElementById('collabSessionStatus');
+  if (status) status.textContent = statusText || '';
+  var connMsg = document.getElementById('collabConnStatusMsg');
+  if (connMsg && connStage === 'offline') connMsg.textContent = statusText || '';
+  else if (connMsg) connMsg.textContent = '';
+}
+
+function renderSession() {
   var members = document.getElementById('collabMembersList');
-  var codeInput = document.getElementById('collabLobbyCodeInput');
   var assistInput = document.getElementById('collabAssistSelect');
   syncAssistTarget();
-
-  // Status line (inactive-state only, for error/success)
-  if (status) {
-    status.textContent = statusText || '';
-    status.className = 'lobby-status' + (statusText ? ' ' + (status.dataset.tone || '') : '');
-  }
-
-  // Toggle inactive vs active state
-  if (inactive) inactive.hidden = !!state.lobby;
-  if (active) active.hidden = !state.lobby;
-
-  if (codeInput && !state.lobby && state.lastCode && !codeInput.value) {
-    codeInput.value = state.lastCode;
-  }
+  renderStatus();
 
   if (state.lobby) {
     var nameEl = document.getElementById('lobbyActiveName');
@@ -766,6 +773,9 @@ function renderSession() {
       assistInput.innerHTML = html.join('');
       assistInput.disabled = state.assignment.role !== 'helper';
     }
+
+    var transcribeTab = document.getElementById('collabTabTranscribe');
+    if (transcribeTab) transcribeTab.hidden = state.me.role !== 'clipper';
   }
 
   renderMembers(members);
@@ -907,6 +917,32 @@ function renderAll() {
   renderAccountCard();
 }
 
+function bindCollabTabs() {
+  var tabs = document.querySelectorAll('.collab-tab[data-tab]');
+  tabs.forEach(function (tabBtn) {
+    tabBtn.addEventListener('click', function () {
+      var key = tabBtn.dataset.tab;
+      tabs.forEach(function (t) { t.classList.toggle('active', t === tabBtn); });
+      document.querySelectorAll('.collab-tab-panel[data-tab-panel]').forEach(function (panel) {
+        panel.hidden = panel.dataset.tabPanel !== key;
+      });
+    });
+  });
+}
+
+function bindStageTabs() {
+  var tabs = document.querySelectorAll('.lobby-tab[data-stage-tab]');
+  tabs.forEach(function (tabBtn) {
+    tabBtn.addEventListener('click', function () {
+      var key = tabBtn.dataset.stageTab;
+      tabs.forEach(function (t) { t.classList.toggle('active', t === tabBtn); });
+      document.querySelectorAll('.lobby-tab-panel[data-stage-panel]').forEach(function (panel) {
+        panel.hidden = panel.dataset.stagePanel !== key;
+      });
+    });
+  });
+}
+
 function bindUi() {
   var createBtn = document.getElementById('collabCreateBtn');
   var joinBtn = document.getElementById('collabJoinBtn');
@@ -915,24 +951,36 @@ function bindUi() {
   var chatInput = document.getElementById('collabChatInput');
   var assistInput = document.getElementById('collabAssistSelect');
   var activityList = document.getElementById('collabActivityList');
+  var connectBtn = document.getElementById('collabConnectBtn');
+  var disconnectBtn = document.getElementById('collabDisconnectBtn');
+  var resetBtn = document.getElementById('collabResetUrlBtn');
+  var serverUrlInput = document.getElementById('collabServerUrl');
 
-  // Tab switching
-  var tabCreate = document.getElementById('lobbyTabCreate');
-  var tabJoin = document.getElementById('lobbyTabJoin');
-  var panelCreate = document.getElementById('lobbyPanelCreate');
-  var panelJoin = document.getElementById('lobbyPanelJoin');
-  if (tabCreate && tabJoin && panelCreate && panelJoin) {
-    tabCreate.addEventListener('click', function () {
-      tabCreate.classList.add('active'); tabJoin.classList.remove('active');
-      panelCreate.hidden = false; panelJoin.hidden = true;
-    });
-    tabJoin.addEventListener('click', function () {
-      tabJoin.classList.add('active'); tabCreate.classList.remove('active');
-      panelJoin.hidden = false; panelCreate.hidden = true;
+  bindStageTabs();
+  bindCollabTabs();
+  bindTranscribeUi();
+
+  // Prefill server URL
+  if (serverUrlInput && window.clipper && window.clipper.serverGetConfig) {
+    window.clipper.serverGetConfig().then(function (cfg) {
+      if (cfg && cfg.url && !serverUrlInput.value) serverUrlInput.value = cfg.url;
+      if (cfg && cfg.autoConnect && cfg.url) {
+        connect(cfg.url, { autoConnect: true });
+      }
     });
   }
 
-  // Copy join code
+  if (connectBtn) {
+    connectBtn.onclick = function () {
+      var url = serverUrlInput ? serverUrlInput.value.trim() : '';
+      connect(url, { autoConnect: true });
+    };
+  }
+  if (resetBtn && serverUrlInput) {
+    resetBtn.onclick = function () { serverUrlInput.value = 'ws://localhost:3535/ws'; };
+  }
+  if (disconnectBtn) disconnectBtn.onclick = function () { disconnect(); };
+
   var copyBtn = document.getElementById('lobbyCopyCodeBtn');
   if (copyBtn) copyBtn.addEventListener('click', function () {
     if (state.lobby && state.lobby.code && navigator.clipboard) {
@@ -941,7 +989,6 @@ function bindUi() {
     }
   });
 
-  // Role toggle buttons
   document.querySelectorAll('.lobby-role-opt').forEach(function (btn) {
     btn.addEventListener('click', function () { setRole(btn.dataset.role); });
   });
@@ -1014,6 +1061,30 @@ function bindUi() {
   }
 }
 
+function bindTranscribeUi() {
+  var startBtn = document.getElementById('transcribeStartBtn');
+  var stopBtn = document.getElementById('transcribeStopBtn');
+  var channelInput = document.getElementById('transcribeChannelId');
+
+  if (channelInput && window.clipper && window.clipper.getChannelConfig) {
+    window.clipper.getChannelConfig().then(function (cfg) {
+      if (channelInput && !channelInput.value) channelInput.value = (cfg && cfg.channel_id) || '';
+    }).catch(function () {});
+  }
+
+  if (startBtn) startBtn.addEventListener('click', function () {
+    if (!client || !state.lobby) { setStatus('Join a lobby first'); return; }
+    var channelId = channelInput ? channelInput.value.trim() : '';
+    var videoUrl = (document.getElementById('transcribeVideoUrl') || {}).value;
+    videoUrl = String(videoUrl || '').trim();
+    if (!channelId || !videoUrl) return;
+    client.startTranscript({ channelId: channelId, videoUrl: videoUrl });
+  });
+  if (stopBtn) stopBtn.addEventListener('click', function () {
+    if (client) client.stopTranscript();
+  });
+}
+
 function setState(nextState) {
   state = {
     me: nextState.me || state.me,
@@ -1035,6 +1106,8 @@ window.CollabUI = {
   setState: setState,
   updateLocalProfile: updateLocalProfile,
   mePayload: mePayload,
+  connect: connect,
+  disconnect: disconnect,
   createLobby: createLobby,
   joinLobby: joinLobby,
   leaveLobby: leaveLobby,
@@ -1061,21 +1134,19 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', function () {
     bindUi();
     bindProfileUi();
+    setStage('offline');
     renderAll();
   });
 } else {
   bindUi();
   bindProfileUi();
+  setStage('offline');
   renderAll();
 }
 
-// ── Lifecycle hooks ─────────────────────────────────────────────────
 if (window._panelRegistry && window._panelRegistry.registerLifecycle) {
-  window._panelRegistry.registerLifecycle('collabSession', {
-    mount: function () { renderSession(); }
-  });
-  window._panelRegistry.registerLifecycle('collabChat', {
-    mount: function () { renderChat(); },
+  window._panelRegistry.registerLifecycle('collab', {
+    mount: function () { renderAll(); },
     saveState: function () {
       var input = document.getElementById('collabChatInput');
       return { draftText: input ? input.value : '' };
@@ -1085,9 +1156,6 @@ if (window._panelRegistry && window._panelRegistry.registerLifecycle) {
       var input = document.getElementById('collabChatInput');
       if (input && s.draftText) input.value = s.draftText;
     }
-  });
-  window._panelRegistry.registerLifecycle('collabActivity', {
-    mount: function () { renderActivity(); }
   });
 }
 

@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { CollabClient } from '../../src/lib/collab-client.js';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const { CollabClient } = require('../../src/lib/collab-client.js');
 
 class FakeWS {
   constructor() {
