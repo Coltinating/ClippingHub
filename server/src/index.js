@@ -1,6 +1,7 @@
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { createServer } from 'node:http';
+import { pathToFileURL } from 'node:url';
 import { openDb } from './db.js';
 import { loadConfig } from './config.js';
 import { LobbyStore } from './lobby-store.js';
@@ -62,6 +63,6 @@ export async function startServer(overrides = {}) {
   };
 }
 
-if (import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   startServer().then(h => console.log(`listening on :${h.port}`));
 }
