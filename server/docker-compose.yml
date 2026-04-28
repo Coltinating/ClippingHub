@@ -1,0 +1,16 @@
+services:
+  clippinghub-server:
+    build: .
+    image: clippinghub-server:0.1.0
+    container_name: clippinghub-server
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${PORT:-3535}:3535"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3535/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
