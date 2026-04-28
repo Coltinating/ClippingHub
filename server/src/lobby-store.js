@@ -14,12 +14,12 @@ export class LobbyStore {
       bumpLobby:   this.db.prepare('UPDATE lobbies SET updated_at=? WHERE code=?'),
       setHost:     this.db.prepare('UPDATE lobbies SET host_id=?, updated_at=? WHERE code=?'),
       upsertMember: this.db.prepare(`
-        INSERT INTO members(lobby_code,id,name,role,joined_at,last_seen_at,x_handle,color,pfp_data_url,assist_user_id)
-        VALUES (@lobby_code,@id,@name,@role,@joined_at,@last_seen_at,@x_handle,@color,@pfp_data_url,@assist_user_id)
+        INSERT INTO members(lobby_code,id,name,role,joined_at,last_seen_at,x_handle,color,pfp_data_url,assist_user_id,is_admin)
+        VALUES (@lobby_code,@id,@name,@role,@joined_at,@last_seen_at,@x_handle,@color,@pfp_data_url,@assist_user_id,@is_admin)
         ON CONFLICT(lobby_code,id) DO UPDATE SET
           name=excluded.name, role=excluded.role, last_seen_at=excluded.last_seen_at,
           x_handle=excluded.x_handle, color=excluded.color, pfp_data_url=excluded.pfp_data_url,
-          assist_user_id=excluded.assist_user_id`),
+          assist_user_id=excluded.assist_user_id, is_admin=excluded.is_admin`),
       updateMemberRole: this.db.prepare(`UPDATE members SET role=?, last_seen_at=? WHERE lobby_code=? AND id=?`),
       updateMemberAssist: this.db.prepare(`UPDATE members SET assist_user_id=?, last_seen_at=? WHERE lobby_code=? AND id=?`),
       memberById: this.db.prepare('SELECT * FROM members WHERE lobby_code=? AND id=?'),
@@ -44,33 +44,43 @@ export class LobbyStore {
       pendingFor: this.db.prepare(`
         SELECT * FROM deliveries WHERE lobby_code=? AND to_user_id=? AND delivered=0
         ORDER BY created_at ASC`),
-      markDelivered: this.db.prepare(`UPDATE deliveries SET delivered=1, delivered_at=? WHERE id=?`)
+      markDelivered: this.db.prepare(`UPDATE deliveries SET delivered=1, delivered_at=? WHERE id=?`),
+      allLobbiesSummary: this.db.prepare(`
+        SELECT
+          l.*,
+          (SELECT COUNT(*) FROM members WHERE lobby_code = l.code) AS member_count,
+          (SELECT COUNT(*) FROM chat WHERE lobby_code = l.code) AS chat_count,
+          (SELECT COUNT(*) FROM clip_ranges WHERE lobby_code = l.code) AS range_count
+        FROM lobbies l
+        ORDER BY l.updated_at DESC`)
     };
   }
 
-  createLobby({ name, password = '', user, code: requested }) {
+  createLobby({ name, password = '', user, code: requested, isAdmin = false }) {
     const code = sanitizeCode(requested) || generateLobbyCode();
     if (this.q.lobbyByCode.get(code)) throw new Error('Lobby code already exists');
     const now = Date.now();
     const id = makeId('lobby');
     this.q.insertLobby.run(code, id, name || 'Collab Lobby', password, user.id, now, now);
-    this._writeMember(code, user, 'clipper', now);
+    this._writeMember(code, user, 'clipper', now, isAdmin);
     return this.getLobby(code);
   }
 
-  joinLobby({ code, password = '', user }) {
+  joinLobby({ code, password = '', user, isAdmin = false }) {
     const c = sanitizeCode(code);
     const lobby = this.q.lobbyByCode.get(c);
     if (!lobby) throw new Error('Lobby not found');
-    if ((lobby.password || '') !== password) throw new Error('Wrong password');
+    if (!isAdmin && (lobby.password || '') !== password) throw new Error('Wrong password');
     const existing = this.q.memberById.get(c, user.id);
     const now = Date.now();
     if (existing) {
-      this._writeMember(c, user, existing.role, now);
+      this._writeMember(c, user, existing.role, now, isAdmin || !!existing.is_admin);
     } else {
-      const role = lobby.host_id ? 'viewer' : 'clipper';
-      this._writeMember(c, user, role, now);
-      if (!lobby.host_id) this.q.setHost.run(user.id, now, c);
+      // Admins always join as clipper-equivalent. Regular new joins are viewer
+      // unless the lobby is unhosted, in which case they become the host/clipper.
+      const role = isAdmin ? 'clipper' : (lobby.host_id ? 'viewer' : 'clipper');
+      this._writeMember(c, user, role, now, isAdmin);
+      if (!isAdmin && !lobby.host_id) this.q.setHost.run(user.id, now, c);
     }
     this.q.bumpLobby.run(now, c);
     return this.getLobby(c);
@@ -180,7 +190,7 @@ export class LobbyStore {
     };
   }
 
-  _writeMember(code, user, role, now) {
+  _writeMember(code, user, role, now, isAdmin = false) {
     this.q.upsertMember.run({
       lobby_code: code,
       id: user.id,
@@ -191,7 +201,8 @@ export class LobbyStore {
       x_handle: user.xHandle || null,
       color: user.color || null,
       pfp_data_url: user.pfpDataUrl || null,
-      assist_user_id: null
+      assist_user_id: null,
+      is_admin: isAdmin ? 1 : 0
     });
   }
 
@@ -205,7 +216,21 @@ export class LobbyStore {
       xHandle: r.x_handle,
       color: r.color,
       pfpDataUrl: r.pfp_data_url,
-      assistUserId: r.assist_user_id
+      assistUserId: r.assist_user_id,
+      isAdmin: !!r.is_admin
     };
+  }
+
+  listAllLobbies() {
+    return this.q.allLobbiesSummary.all().map(r => ({
+      code: r.code,
+      name: r.name,
+      hostId: r.host_id || null,
+      memberCount: r.member_count,
+      chatCount: r.chat_count,
+      rangeCount: r.range_count,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at
+    }));
   }
 }

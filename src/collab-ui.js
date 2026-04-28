@@ -618,6 +618,14 @@ function esc(v) {
   return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function escName(v) {
+  var s = String(v == null ? '' : v);
+  if (s.indexOf('[DEV] ') === 0) {
+    return '<span class="dev-tag">[DEV]</span> ' + esc(s.slice(6));
+  }
+  return esc(s);
+}
+
 function renderMembers(listEl) {
   if (!listEl) return;
   if (!state.members.length) {
@@ -631,7 +639,7 @@ function renderMembers(listEl) {
     return '<div class="collab-member-row" data-user-id="' + esc(m.id) + '">' +
       '<div class="collab-member-avatar" style="' + avatarStyle + '"></div>' +
       '<div class="collab-member-meta">' +
-        '<div class="collab-member-name" style="color:' + color + '">' + esc(m.name) +
+        '<div class="collab-member-name" style="color:' + color + '">' + escName(m.name) +
           '<span class="collab-member-role-badge ' + esc(m.role || 'viewer') + '">' + esc(m.role || 'viewer') + '</span>' +
         '</div>' +
         handle +
@@ -790,7 +798,7 @@ function renderChat() {
   }
   chatList.innerHTML = state.chat.slice(-150).map(function (msg) {
     var color = getUserColor(msg.userId, msg.userName);
-    return '<div class="collab-chat-item"><b class="collab-name" style="color:' + color + '">' + esc(msg.userName) + ':</b> ' + esc(msg.text) + '</div>';
+    return '<div class="collab-chat-item"><b class="collab-name" style="color:' + color + '">' + escName(msg.userName) + ':</b> ' + esc(msg.text) + '</div>';
   }).join('');
   chatList.scrollTop = chatList.scrollHeight;
 }
@@ -828,7 +836,7 @@ function renderActivity() {
       ? '<button class="collab-time-link" data-time="' + String(outTime) + '">' + fmtTime(outTime) + '</button>'
       : '<span class="collab-time-link missing">...</span>';
     return '<div class="collab-list-item">' +
-      '<span><span class="collab-name" style="color:' + color + '">' + esc(label) + '</span> - ' + esc(verb) + '</span>' +
+      '<span><span class="collab-name" style="color:' + color + '">' + escName(label) + '</span> - ' + esc(verb) + '</span>' +
       '<small class="collab-activity-meta">(in: ' + inHtml + ') (out: ' + outHtml + ')</small>' +
       '</div>';
   }).join('');

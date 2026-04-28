@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS members (
   color TEXT,
   pfp_data_url TEXT,
   assist_user_id TEXT,
+  is_admin INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (lobby_code, id)
 );
 CREATE TABLE IF NOT EXISTS chat (

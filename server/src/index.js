@@ -1,7 +1,8 @@
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { createServer } from 'node:http';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { openDb } from './db.js';
 import { loadConfig } from './config.js';
 import { LobbyStore } from './lobby-store.js';
@@ -13,6 +14,9 @@ import * as chat from './handlers/chat.js';
 import * as roles from './handlers/roles.js';
 import * as clips from './handlers/clips.js';
 import * as transcription from './handlers/transcription.js';
+import * as admin from './handlers/admin.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 export async function startServer(overrides = {}) {
   const cfg = { ...loadConfig(process.env), ...overrides };
@@ -36,6 +40,8 @@ export async function startServer(overrides = {}) {
     'clip:delivery-consume': clips.deliveryConsume,
     'transcript:start': transcription.start,
     'transcript:stop':  transcription.stop,
+    'admin:list-lobbies': admin.listLobbies,
+    'admin:send-chat':    admin.sendChat,
     'ping': ({ ws, send }) => send(ws, { type: 'pong' })
   };
   const router = makeRouter({ store, presence, handlers, logger });
@@ -43,6 +49,9 @@ export async function startServer(overrides = {}) {
   const app = express();
   app.use(express.json({ limit: '256kb' }));
   app.get('/health', (_req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
+
+  // Admin web panel — static files served from src/admin/public.
+  app.use('/admin', express.static(join(here, 'admin', 'public')));
 
   const http = createServer(app);
   const wss = new WebSocketServer({ server: http, path: '/ws' });

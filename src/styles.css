@@ -2429,3 +2429,6 @@ svg { display: block; }
 .transcribe-status[data-state="error"]   { color: #d97474; }
 .transcribe-log { max-height: 240px; overflow-y: auto; margin-top: 8px; font-family: Consolas, monospace; font-size: 12px; }
 .transcribe-row { padding: 2px 0; color: var(--text-secondary, #a8a8b0); }
+
+/* Admin [DEV] tag — used wherever an admin's display name is rendered. */
+.dev-tag { color: #ff3333; font-weight: 800; letter-spacing: 0.02em; }

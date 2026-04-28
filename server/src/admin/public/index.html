@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ClippingHub Admin</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dev-tag">[DEV]</span>
+      <span class="brand-title">ClippingHub Admin</span>
+    </div>
+    <div class="topbar-spacer"></div>
+    <label class="topbar-field">
+      <span class="topbar-label">Admin name</span>
+      <input id="adminName" type="text" placeholder="Mark" autocomplete="off">
+    </label>
+    <span id="connStatus" class="conn-pill" data-state="offline">● Offline</span>
+    <button id="connectBtn" class="btn btn-primary btn-sm">Connect</button>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <span>Lobbies</span>
+        <button id="refreshBtn" class="btn btn-ghost btn-xs" title="Refresh">⟳</button>
+      </div>
+      <ul id="lobbyList" class="lobby-list">
+        <li class="lobby-empty">Connect to load lobbies.</li>
+      </ul>
+    </aside>
+
+    <section class="detail">
+      <div id="detailEmpty" class="detail-empty">
+        Select a lobby on the left to view it.
+      </div>
+
+      <div id="detailContent" class="detail-content" hidden>
+        <div class="detail-head">
+          <div>
+            <h2 id="lobbyName">—</h2>
+            <div class="lobby-meta">
+              <span class="lobby-code-pill" id="lobbyCode">------</span>
+              <span class="muted" id="lobbyMembersText">0 members</span>
+              <span class="muted" id="lobbyChatText">0 messages</span>
+              <span class="muted" id="lobbyRangesText">0 ranges</span>
+            </div>
+          </div>
+          <div class="detail-actions">
+            <button id="joinBtn" class="btn btn-primary btn-sm">Join as [DEV]</button>
+            <button id="leaveBtn" class="btn btn-ghost btn-sm" hidden>Leave</button>
+          </div>
+        </div>
+
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="members">Members</button>
+          <button class="tab" data-tab="chat">Chat</button>
+          <button class="tab" data-tab="ranges">Ranges</button>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="members">
+          <ul id="memberList" class="member-list"></ul>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="chat" hidden>
+          <div id="chatList" class="chat-list"></div>
+          <div class="chat-compose">
+            <input id="chatInput" type="text" placeholder="Send to this lobby (you don't have to be joined)">
+            <button id="chatSendBtn" class="btn btn-primary btn-sm">Send</button>
+          </div>
+        </div>
+
+        <div class="tab-panel" data-tab-panel="ranges" hidden>
+          <ul id="rangeList" class="range-list"></ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

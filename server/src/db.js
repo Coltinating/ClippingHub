@@ -14,5 +14,7 @@ export function openDb(filename) {
   db.pragma('foreign_keys = ON');
   const sql = readFileSync(join(here, 'schema.sql'), 'utf8');
   db.exec(sql);
+  // Idempotent migrations for older on-disk DBs.
+  try { db.exec('ALTER TABLE members ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0'); } catch {}
   return db;
 }

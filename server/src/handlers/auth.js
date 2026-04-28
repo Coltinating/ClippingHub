@@ -1,5 +1,15 @@
+import { verifyAdminToken, adminPrefixedName } from '../admin/auth.js';
+
 export function hello({ ws, msg, send, presence }) {
-  presence.attach(ws, msg.user);
+  let user = msg.user;
+  let isAdmin = false;
+  if (msg.admin && verifyAdminToken(msg.admin.token)) {
+    isAdmin = true;
+    user = { ...user, name: adminPrefixedName(msg.admin.name) };
+  }
+  presence.attach(ws, user);
+  const ent = presence.who(ws);
+  if (ent) ent.isAdmin = isAdmin;
   send(ws, { type: 'hello:ack', serverVersion: '0.1.0' });
 }
 
@@ -10,7 +20,8 @@ export function lobbyCreate({ ws, msg, send, presence, store }) {
     name: msg.name,
     password: msg.password,
     user: { id: who.userId, name: who.userName, ...(who.user || {}) },
-    code: msg.code
+    code: msg.code,
+    isAdmin: !!who.isAdmin
   });
   presence.bind(ws, lobby.code);
   send(ws, { type: 'lobby:state', lobby });
@@ -22,7 +33,8 @@ export function lobbyJoin({ ws, msg, send, broadcast, presence, store }) {
   const lobby = store.joinLobby({
     code: msg.code,
     password: msg.password,
-    user: { id: who.userId, name: who.userName, ...(who.user || {}) }
+    user: { id: who.userId, name: who.userName, ...(who.user || {}) },
+    isAdmin: !!who.isAdmin
   });
   presence.bind(ws, lobby.code);
   send(ws, { type: 'lobby:state', lobby });
