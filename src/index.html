@@ -471,25 +471,39 @@
       </div>
     </div>
 
-    <!-- Collaboration Session panel -->
-    <div class="panel" id="panel-collab-session">
+    <!-- Unified Collab panel -->
+    <div class="panel" id="panel-collab">
       <div class="panel-header">
-        <span class="panel-title">Collab Session</span>
+        <span class="panel-title">Collab</span>
+        <span class="collab-conn-status" id="collabConnStatus" data-state="offline">● Offline</span>
         <div class="panel-actions">
-          <button class="panel-btn close" title="Close panel" onclick="window._panels.closePanel('collabSession')">
+          <button class="panel-btn close" title="Close panel" onclick="window._panels.closePanel('collab')">
             <svg viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M2 2l6 6M8 2l-6 6"/></svg>
           </button>
         </div>
       </div>
       <div class="panel-body collab-panel-body">
-        <!-- Inactive-lobby state -->
-        <div class="lobby-card" id="lobbyInactiveState">
-          <div class="lobby-tabs" role="tablist">
-            <button class="lobby-tab active" id="lobbyTabCreate" role="tab" type="button">Create</button>
-            <button class="lobby-tab" id="lobbyTabJoin" role="tab" type="button">Join</button>
-          </div>
 
-          <div class="lobby-tab-panel" id="lobbyPanelCreate">
+        <!-- Stage A: not connected -->
+        <div class="collab-stage" id="collabStageOffline">
+          <label class="lobby-field">
+            <span class="lobby-label">Server URL</span>
+            <input id="collabServerUrl" type="text" placeholder="ws://localhost:3535/ws">
+          </label>
+          <div class="lobby-row">
+            <button class="btn btn-primary" id="collabConnectBtn">Go Online</button>
+            <button class="btn btn-ghost btn-xs" id="collabResetUrlBtn" type="button">Reset</button>
+          </div>
+          <div class="lobby-status" id="collabConnStatusMsg" aria-live="polite"></div>
+        </div>
+
+        <!-- Stage B: connected, no lobby -->
+        <div class="collab-stage" id="collabStageNoLobby" hidden>
+          <div class="lobby-tabs" role="tablist">
+            <button class="lobby-tab active" id="lobbyTabCreate" data-stage-tab="create" role="tab" type="button">Create</button>
+            <button class="lobby-tab" id="lobbyTabJoin" data-stage-tab="join" role="tab" type="button">Join</button>
+          </div>
+          <div class="lobby-tab-panel" id="lobbyPanelCreate" data-stage-panel="create">
             <label class="lobby-field">
               <span class="lobby-label">Lobby Name</span>
               <input id="collabLobbyNameInput" type="text" placeholder="Night Shift Clips">
@@ -500,8 +514,7 @@
             </label>
             <button class="btn btn-primary lobby-primary" id="collabCreateBtn" type="button">Create Lobby</button>
           </div>
-
-          <div class="lobby-tab-panel" id="lobbyPanelJoin" hidden>
+          <div class="lobby-tab-panel" id="lobbyPanelJoin" data-stage-panel="join" hidden>
             <label class="lobby-field">
               <span class="lobby-label">Join Code</span>
               <input id="collabLobbyCodeInput" type="text" maxlength="8" placeholder="AB12CD" autocomplete="off">
@@ -512,80 +525,75 @@
             </label>
             <button class="btn btn-primary lobby-primary" id="collabJoinBtn" type="button">Join Lobby</button>
           </div>
-
           <div class="lobby-status" id="collabSessionStatus" aria-live="polite"></div>
+          <div class="lobby-row collab-disconnect-row">
+            <button class="btn btn-ghost btn-xs" id="collabDisconnectBtn" type="button">Disconnect</button>
+          </div>
         </div>
 
-        <!-- Active-lobby state -->
-        <div class="lobby-card" id="lobbyActiveState" hidden>
-          <div class="lobby-header">
-            <div class="lobby-title-row">
-              <div class="lobby-title" id="lobbyActiveName">Lobby</div>
-              <button class="btn btn-ghost btn-xs" id="collabLeaveBtn" type="button">Leave</button>
-            </div>
-            <div class="lobby-code-row">
-              <span class="lobby-code-label">Code</span>
+        <!-- Stage C: in lobby -->
+        <div class="collab-stage" id="collabStageInLobby" hidden>
+          <div class="collab-conn-bar">
+            <div class="collab-conn-row">
+              <span class="lobby-title" id="lobbyActiveName">Lobby</span>
               <span class="lobby-code" id="lobbyActiveCode">------</span>
               <button class="btn btn-ghost btn-xs" id="lobbyCopyCodeBtn" type="button" title="Copy code">Copy</button>
+              <button class="btn btn-ghost btn-xs" id="collabLeaveBtn" type="button">Leave</button>
+            </div>
+            <div class="collab-conn-row">
+              <div class="lobby-role-toggle" role="radiogroup">
+                <button class="lobby-role-opt" data-role="clipper" type="button">Clipper</button>
+                <button class="lobby-role-opt" data-role="helper" type="button">Helper</button>
+              </div>
+              <label class="lobby-field lobby-assist" id="lobbyAssistWrap" hidden>
+                <span class="lobby-label">Assisting</span>
+                <select id="collabAssistSelect">
+                  <option value="">Select Clipper</option>
+                </select>
+              </label>
             </div>
           </div>
 
-          <div class="lobby-role-row">
-            <div class="lobby-role-toggle" role="radiogroup">
-              <button class="lobby-role-opt" data-role="clipper" type="button">Clipper</button>
-              <button class="lobby-role-opt" data-role="helper" type="button">Helper</button>
-            </div>
-            <label class="lobby-field lobby-assist" id="lobbyAssistWrap" hidden>
-              <span class="lobby-label">Assisting</span>
-              <select id="collabAssistSelect">
-                <option value="">Select Clipper</option>
-              </select>
-            </label>
+          <div class="collab-tabs" role="tablist">
+            <button class="collab-tab active" data-tab="members" type="button">Members <span class="collab-tab-count" id="lobbyMemberCount">0</span></button>
+            <button class="collab-tab" data-tab="chat" type="button">Chat</button>
+            <button class="collab-tab" data-tab="activity" type="button">Activity</button>
+            <button class="collab-tab collab-tab-admin" data-tab="transcribe" id="collabTabTranscribe" type="button" hidden>Transcribe</button>
           </div>
 
-          <div class="lobby-members">
-            <div class="lobby-section-title">
-              <span>Editors</span>
-              <span class="lobby-member-count" id="lobbyMemberCount">0</span>
-            </div>
+          <div class="collab-tab-panel" data-tab-panel="members">
             <div class="lobby-member-list" id="collabMembersList"></div>
           </div>
+          <div class="collab-tab-panel" data-tab-panel="chat" hidden>
+            <div class="collab-chat-list" id="collabChatList"></div>
+            <div class="collab-chat-row">
+              <input id="collabChatInput" type="text" placeholder="Send to lobby chat...">
+              <button class="btn btn-primary btn-xs" id="collabChatSend">Send</button>
+            </div>
+          </div>
+          <div class="collab-tab-panel" data-tab-panel="activity" hidden>
+            <div class="collab-list" id="collabActivityList"></div>
+          </div>
+          <div class="collab-tab-panel" data-tab-panel="transcribe" hidden>
+            <div class="transcribe-controls">
+              <label class="lobby-field">
+                <span class="lobby-label">Channel ID</span>
+                <input id="transcribeChannelId" type="text" placeholder="nickjfuentes">
+              </label>
+              <label class="lobby-field">
+                <span class="lobby-label">Video URL</span>
+                <input id="transcribeVideoUrl" type="text" placeholder="https://rumble.com/v…">
+              </label>
+              <div class="lobby-row">
+                <button class="btn btn-primary" id="transcribeStartBtn" type="button">Start</button>
+                <button class="btn btn-ghost btn-xs" id="transcribeStopBtn" type="button" disabled>Stop</button>
+                <span class="transcribe-status" id="transcribeStatus" data-state="idle">idle</span>
+              </div>
+            </div>
+            <div class="transcribe-log" id="transcribeLog"></div>
+          </div>
         </div>
-      </div>
-    </div>
 
-    <!-- Collaboration Chat panel -->
-    <div class="panel" id="panel-collab-chat">
-      <div class="panel-header">
-        <span class="panel-title">Collab Chat</span>
-        <div class="panel-actions">
-          <button class="panel-btn close" title="Close panel" onclick="window._panels.closePanel('collabChat')">
-            <svg viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M2 2l6 6M8 2l-6 6"/></svg>
-          </button>
-        </div>
-      </div>
-      <div class="panel-body collab-panel-body">
-        <div class="collab-chat-list" id="collabChatList"></div>
-        <div class="collab-chat-row">
-          <input id="collabChatInput" type="text" placeholder="Send to lobby chat...">
-          <button class="btn btn-primary btn-xs" id="collabChatSend">Send</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Collaboration Clip Activity panel -->
-    <div class="panel" id="panel-collab-activity">
-      <div class="panel-header">
-        <span class="panel-title">Clip Activity</span>
-        <div class="panel-actions">
-          <button class="panel-btn close" title="Close panel" onclick="window._panels.closePanel('collabActivity')">
-            <svg viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M2 2l6 6M8 2l-6 6"/></svg>
-          </button>
-        </div>
-      </div>
-      <div class="panel-body collab-panel-body">
-        <div class="collab-subtitle">Clip Points</div>
-        <div class="collab-list" id="collabActivityList"></div>
       </div>
     </div>
 
