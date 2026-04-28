@@ -929,22 +929,31 @@ function renderPendingClips() {
     if (btn.dataset.action === 'repickOut') { enterRepickMode(idx, 'outTime'); }
     if (btn.dataset.action === 'send-delivery') {
       const c = pendingClips[idx];
+      dbg('ACTION', 'Send to Clipper clicked', { idx, clipId: c?.id, name: c?.name });
       if (c && window.CollabUI && window.CollabUI.sendClipDelivery) {
         window.CollabUI.sendClipDelivery(c).then(res => {
           if (res && res.success) {
             c.sentByRangeId = c.id;
             renderPendingClips();
+          } else if (res) {
+            dbg('ERROR', 'sendClipDelivery failed', { reason: res.reason, message: res.message, clipId: c.id });
+            try { alert(res.message || 'Could not send clip'); } catch (_) {}
           }
         });
       }
     }
     if (btn.dataset.action === 'unsend-delivery') {
       const c = pendingClips[idx];
+      dbg('ACTION', 'Unsend Clip clicked', { idx, clipId: c?.id });
       if (c && window.CollabUI && window.CollabUI.unsendClipDelivery) {
-        window.CollabUI.unsendClipDelivery(c).then(() => {
-          c.sentByRangeId = '';
-          delete c._lastSentPayloadJson;
-          renderPendingClips();
+        window.CollabUI.unsendClipDelivery(c).then(res => {
+          if (res && res.success) {
+            c.sentByRangeId = '';
+            delete c._lastSentPayloadJson;
+            renderPendingClips();
+          } else if (res) {
+            dbg('ERROR', 'unsendClipDelivery failed', { reason: res.reason, clipId: c.id });
+          }
         });
       }
     }

@@ -29,6 +29,8 @@ export const Inbound = z.discriminatedUnion('type', [
   z.object({ type: z.literal('transcript:stop') }),
   z.object({ type: z.literal('admin:list-lobbies') }),
   z.object({ type: z.literal('admin:send-chat'), code: z.string(), text: z.string().min(1).max(2000) }),
+  z.object({ type: z.literal('admin:subscribe-events') }),
+  z.object({ type: z.literal('admin:unsubscribe-events') }),
   z.object({ type: z.literal('ping') })
 ]);
 
@@ -73,9 +75,12 @@ export const Outbound = z.discriminatedUnion('type', [
   z.object({ type: z.literal('clip:range-upserted'), range: z.record(z.any()) }),
   z.object({ type: z.literal('clip:range-removed'),  id: z.string() }),
   z.object({ type: z.literal('clip:delivery'),       delivery: z.record(z.any()) }),
+  z.object({ type: z.literal('clip:delivery-pending'), deliveries: z.array(z.record(z.any())) }),
   z.object({ type: z.literal('transcript:status'), status: z.enum(['idle', 'running', 'stopped', 'error']), error: z.string().optional() }),
   z.object({ type: z.literal('transcript:chunk'),  chunk: z.object({ tStart: z.number(), tEnd: z.number(), text: z.string() }) }),
   z.object({ type: z.literal('admin:lobbies'), lobbies: z.array(LobbySummary) }),
   z.object({ type: z.literal('admin:ack'), action: z.string(), code: z.string().optional() }),
+  z.object({ type: z.literal('admin:event'), event: z.record(z.any()) }),
+  z.object({ type: z.literal('admin:event-batch'), events: z.array(z.record(z.any())) }),
   z.object({ type: z.literal('pong') })
 ]);

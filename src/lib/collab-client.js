@@ -72,11 +72,42 @@ CollabClient.prototype.disconnect = function () {
   try { if (this.ws) this.ws.close(); } catch (_) {}
 };
 
+function _safeDbg(category, message, data) {
+  try {
+    if (typeof window !== 'undefined' && window.dbg) window.dbg(category, message, data);
+  } catch (_) {}
+}
+
+function _summarizeOutbound(msg) {
+  if (!msg) return msg;
+  // For chunky payloads, log a thin summary instead of full body to keep logs readable.
+  if (msg.type === 'clip:delivery-create') {
+    return { type: msg.type, toUserId: msg.delivery && msg.delivery.toUserId, rangeId: msg.delivery && msg.delivery.rangeId, dtype: msg.delivery && msg.delivery.type };
+  }
+  return msg;
+}
+
+function _summarizeInbound(msg) {
+  if (!msg) return msg;
+  if (msg.type === 'lobby:state' && msg.lobby) {
+    return { type: msg.type, code: msg.lobby.code, members: (msg.lobby.members || []).length, chat: (msg.lobby.chat || []).length, ranges: (msg.lobby.clipRanges || []).length };
+  }
+  if (msg.type === 'clip:delivery-pending' && Array.isArray(msg.deliveries)) {
+    return { type: msg.type, count: msg.deliveries.length };
+  }
+  if (msg.type === 'transcript:chunk' && msg.chunk) {
+    return { type: msg.type, tStart: msg.chunk.tStart, tEnd: msg.chunk.tEnd, len: (msg.chunk.text || '').length };
+  }
+  return msg;
+}
+
 CollabClient.prototype._send = function (msg) {
+  _safeDbg('COLLAB:SEND', (msg && msg.type) || '?', _summarizeOutbound(msg));
   if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(msg));
 };
 
 CollabClient.prototype._dispatch = function (msg) {
+  _safeDbg('COLLAB:RECV', (msg && msg.type) || '?', _summarizeInbound(msg));
   for (var i = 0; i < this.pending.length; i++) {
     var p = this.pending[i];
     if (p.matchType === msg.type || (msg.type === 'error' && p.matchType !== 'error')) {

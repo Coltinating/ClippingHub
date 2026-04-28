@@ -1,6 +1,6 @@
 import { verifyAdminToken, adminPrefixedName } from '../admin/auth.js';
 
-export function hello({ ws, msg, send, presence }) {
+export function hello({ ws, msg, send, presence, logger }) {
   let user = msg.user;
   let isAdmin = false;
   if (msg.admin && verifyAdminToken(msg.admin.token)) {
@@ -10,10 +10,18 @@ export function hello({ ws, msg, send, presence }) {
   presence.attach(ws, user);
   const ent = presence.who(ws);
   if (ent) ent.isAdmin = isAdmin;
+  logger?.info?.({ evt: 'handler:hello', userId: user?.id, name: user?.name, isAdmin });
   send(ws, { type: 'hello:ack', serverVersion: '0.1.0' });
 }
 
-export function lobbyCreate({ ws, msg, send, presence, store }) {
+function sendPendingDeliveries({ ws, send, store, code, userId }) {
+  try {
+    const pending = store.pendingDeliveriesFor(code, userId) || [];
+    if (pending.length) send(ws, { type: 'clip:delivery-pending', deliveries: pending });
+  } catch (_) { /* ignore */ }
+}
+
+export function lobbyCreate({ ws, msg, send, presence, store, logger }) {
   const who = presence.who(ws);
   if (!who) return send(ws, { type: 'error', code: 'no_session', message: 'hello first' });
   const lobby = store.createLobby({
@@ -24,10 +32,12 @@ export function lobbyCreate({ ws, msg, send, presence, store }) {
     isAdmin: !!who.isAdmin
   });
   presence.bind(ws, lobby.code);
+  logger?.info?.({ evt: 'handler:lobby:create', code: lobby.code, hostId: who.userId });
   send(ws, { type: 'lobby:state', lobby });
+  sendPendingDeliveries({ ws, send, store, code: lobby.code, userId: who.userId });
 }
 
-export function lobbyJoin({ ws, msg, send, broadcast, presence, store }) {
+export function lobbyJoin({ ws, msg, send, broadcast, presence, store, logger }) {
   const who = presence.who(ws);
   if (!who) return send(ws, { type: 'error', code: 'no_session', message: 'hello first' });
   const lobby = store.joinLobby({
@@ -37,15 +47,18 @@ export function lobbyJoin({ ws, msg, send, broadcast, presence, store }) {
     isAdmin: !!who.isAdmin
   });
   presence.bind(ws, lobby.code);
+  logger?.info?.({ evt: 'handler:lobby:join', code: lobby.code, userId: who.userId, members: lobby.members.length });
   send(ws, { type: 'lobby:state', lobby });
+  sendPendingDeliveries({ ws, send, store, code: lobby.code, userId: who.userId });
   const me = lobby.members.find(m => m.id === who.userId);
   if (me) broadcast(lobby.code, { type: 'member:joined', member: me }, ws);
 }
 
-export function lobbyLeave({ ws, broadcast, presence, store }) {
+export function lobbyLeave({ ws, broadcast, presence, store, logger }) {
   const who = presence.who(ws);
   const code = presence.unbind(ws);
   if (code && who) {
+    logger?.info?.({ evt: 'handler:lobby:leave', code, userId: who.userId });
     try { store.leaveLobby(code, who.userId); } catch {}
     broadcast(code, { type: 'member:left', memberId: who.userId });
   }

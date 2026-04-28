@@ -11,6 +11,14 @@ var selectedCode = null;
 var lobbyDetails = {};     // code -> full snapshot from lobby:state
 var joinedCode = null;     // currently ghost-joined lobby
 var refreshTimer = null;
+var currentView = 'lobbies'; // 'lobbies' | 'events'
+
+// Events view state
+var EVENT_CAP = 5000;
+var eventEntries = [];
+var eventEnabled = new Set(['ws:in', 'ws:out', 'ws:broadcast', 'handler', 'ws:close', 'ws:error', 'other']);
+var eventSearch = '';
+var eventAutoscroll = true;
 
 function $(id) { return document.getElementById(id); }
 function esc(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -106,8 +114,15 @@ function handleMsg(m) {
       setStatus('online');
       $('connectBtn').textContent = 'Disconnect';
       send({ type: 'admin:list-lobbies' });
+      send({ type: 'admin:subscribe-events' });
       if (refreshTimer) clearInterval(refreshTimer);
       refreshTimer = setInterval(function () { send({ type: 'admin:list-lobbies' }); }, 3000);
+      break;
+    case 'admin:event':
+      if (m.event) addEvent(m.event);
+      break;
+    case 'admin:event-batch':
+      if (Array.isArray(m.events)) for (var i = 0; i < m.events.length; i++) addEvent(m.events[i]);
       break;
     case 'admin:lobbies':
       lobbies = m.lobbies || [];
@@ -286,6 +301,122 @@ function sendChat() {
   $('chatInput').value = '';
 }
 
+// ── Events view ──────────────────────────────────────────
+function bucketOf(evt) {
+  var e = String(evt && evt.evt || '');
+  if (e === 'ws:in') return 'ws:in';
+  if (e === 'ws:out') return 'ws:out';
+  if (e === 'ws:broadcast') return 'ws:broadcast';
+  if (e === 'ws:close') return 'ws:close';
+  if (e === 'ws:error') return 'ws:error';
+  if (e.indexOf('handler') === 0) return 'handler';
+  return 'other';
+}
+
+function addEvent(evt) {
+  if (!evt || typeof evt !== 'object') return;
+  evt._bucket = bucketOf(evt);
+  eventEntries.push(evt);
+  if (eventEntries.length > EVENT_CAP) eventEntries.shift();
+  if (currentView === 'events') {
+    renderEventsAppend(evt);
+    updateEventsCount();
+  }
+}
+
+function eventLineText(e) {
+  var time = new Date(e.ts || Date.now()).toISOString().slice(11, 23);
+  var lvl = (e.level || 'info').toUpperCase();
+  var name = e.evt || e.message || '';
+  // Build a compact context blob from non-internal keys.
+  var skip = { ts: 1, level: 1, evt: 1, message: 1, _bucket: 1 };
+  var parts = [];
+  for (var k in e) {
+    if (skip[k]) continue;
+    if (e[k] === undefined || e[k] === null) continue;
+    parts.push(k + '=' + (typeof e[k] === 'object' ? JSON.stringify(e[k]) : e[k]));
+  }
+  return '[' + time + '] ' + lvl + ' ' + name + (parts.length ? ' · ' + parts.join(' ') : '');
+}
+
+function eventPasses(e) {
+  if (!eventEnabled.has(e._bucket)) return false;
+  if (eventSearch) {
+    var hay = eventLineText(e).toLowerCase();
+    if (hay.indexOf(eventSearch) < 0) return false;
+  }
+  return true;
+}
+
+function renderEventsAppend(e) {
+  var list = $('eventsList');
+  if (!list) return;
+  if (!eventPasses(e)) return;
+  var div = document.createElement('div');
+  div.className = 'event-line bucket-' + e._bucket + (e.level === 'warn' || e.level === 'error' ? ' warn' : '');
+  div.textContent = eventLineText(e);
+  list.appendChild(div);
+  if (eventAutoscroll) list.scrollTop = list.scrollHeight;
+}
+
+function rerenderEvents() {
+  var list = $('eventsList');
+  if (!list) return;
+  list.innerHTML = '';
+  for (var i = 0; i < eventEntries.length; i++) renderEventsAppend(eventEntries[i]);
+  updateEventsCount();
+}
+
+function updateEventsCount() {
+  var el = $('eventsCount');
+  if (el) el.textContent = eventEntries.length + ' events';
+}
+
+function showView(name) {
+  currentView = name;
+  document.querySelectorAll('.topnav-tab').forEach(function (t) {
+    t.classList.toggle('active', t.dataset.view === name);
+  });
+  document.querySelectorAll('[data-view]').forEach(function (el) {
+    if (el.classList.contains('topnav-tab')) return;
+    el.hidden = (el.dataset.view !== name);
+  });
+  if (name === 'events') rerenderEvents();
+}
+
+function bindEventsUi() {
+  document.querySelectorAll('.topnav-tab').forEach(function (tab) {
+    tab.addEventListener('click', function () { showView(tab.dataset.view); });
+  });
+  var filters = $('eventsFilters');
+  if (filters) {
+    filters.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-evt]');
+      if (!btn) return;
+      var k = btn.dataset.evt;
+      if (eventEnabled.has(k)) { eventEnabled.delete(k); btn.classList.remove('active'); }
+      else { eventEnabled.add(k); btn.classList.add('active'); }
+      rerenderEvents();
+    });
+  }
+  var search = $('eventsSearch');
+  if (search) {
+    search.addEventListener('input', function () {
+      eventSearch = search.value.trim().toLowerCase();
+      rerenderEvents();
+    });
+  }
+  var auto = $('eventsAutoscroll');
+  if (auto) auto.addEventListener('change', function () { eventAutoscroll = !!auto.checked; });
+  var clearBtn = $('eventsClearBtn');
+  if (clearBtn) clearBtn.addEventListener('click', function () {
+    eventEntries.length = 0;
+    var list = $('eventsList');
+    if (list) list.innerHTML = '';
+    updateEventsCount();
+  });
+}
+
 function bindUi() {
   $('adminName').value = prefs.adminName || '';
   $('adminName').addEventListener('change', function () {
@@ -318,5 +449,6 @@ function bindUi() {
 }
 
 bindUi();
+bindEventsUi();
 
 })();

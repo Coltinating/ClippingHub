@@ -2,7 +2,7 @@ import { startStub } from '../transcribe-stub.js';
 
 const sessionsByLobby = new Map();
 
-export function start({ ws, msg, send, broadcast, presence }) {
+export function start({ ws, msg, send, broadcast, presence, logger }) {
   const ent = presence.who(ws);
   if (!ent?.code) return send(ws, { type: 'error', code: 'no_lobby', message: 'join a lobby first' });
   if (sessionsByLobby.has(ent.code)) {
@@ -15,15 +15,17 @@ export function start({ ws, msg, send, broadcast, presence }) {
     onError: (e) => broadcast(ent.code, { type: 'transcript:status', status: 'error', error: e.message })
   });
   sessionsByLobby.set(ent.code, { stop, channelId: msg.channelId, videoUrl: msg.videoUrl });
+  logger?.info?.({ evt: 'handler:transcript:start', code: ent.code, channelId: msg.channelId });
   broadcast(ent.code, { type: 'transcript:status', status: 'running' });
 }
 
-export function stop({ ws, presence, broadcast }) {
+export function stop({ ws, presence, broadcast, logger }) {
   const ent = presence.who(ws);
   if (!ent?.code) return;
   const session = sessionsByLobby.get(ent.code);
   if (!session) return;
   session.stop();
   sessionsByLobby.delete(ent.code);
+  logger?.info?.({ evt: 'handler:transcript:stop', code: ent.code });
   broadcast(ent.code, { type: 'transcript:status', status: 'stopped' });
 }

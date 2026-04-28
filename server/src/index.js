@@ -40,8 +40,10 @@ export async function startServer(overrides = {}) {
     'clip:delivery-consume': clips.deliveryConsume,
     'transcript:start': transcription.start,
     'transcript:stop':  transcription.stop,
-    'admin:list-lobbies': admin.listLobbies,
-    'admin:send-chat':    admin.sendChat,
+    'admin:list-lobbies':       admin.listLobbies,
+    'admin:send-chat':          admin.sendChat,
+    'admin:subscribe-events':   admin.subscribeEventsHandler,
+    'admin:unsubscribe-events': admin.unsubscribeEventsHandler,
     'ping': ({ ws, send }) => send(ws, { type: 'pong' })
   };
   const router = makeRouter({ store, presence, handlers, logger });
@@ -57,8 +59,8 @@ export async function startServer(overrides = {}) {
   const wss = new WebSocketServer({ server: http, path: '/ws' });
   wss.on('connection', (ws) => {
     ws.on('message', (raw) => router.onMessage(ws, raw));
-    ws.on('close',   () => router.onClose(ws));
-    ws.on('error',   (e) => logger.warn({ err: e.message }, 'ws error'));
+    ws.on('close',   () => { admin.detachAdminSubscription(ws); router.onClose(ws); });
+    ws.on('error',   (e) => logger.warn({ evt: 'ws:error', err: e.message }));
   });
 
   await new Promise((r) => http.listen(cfg.port, r));

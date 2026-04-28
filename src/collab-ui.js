@@ -15,6 +15,15 @@ var client = null;
 var store = null;
 var connStage = 'offline'; // offline | connecting | no-lobby | in-lobby
 
+// Inbound deliveries addressed to me. Pushed on `clip:delivery` WS event,
+// drained by consumeMyDeliveries() (called from renderer.js).
+var _inboundDeliveries = [];
+var _seenDeliveryIds = new Set();
+
+function dlog(cat, msg, data) {
+  try { if (window.dbg) window.dbg(cat, msg, data); } catch (_) {}
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -142,7 +151,9 @@ function syncAssistTarget() {
 }
 
 function setRole(role) {
+  var prev = state.assignment.role;
   state.assignment.role = normalizeRole(role);
+  dlog('ACTION', 'setRole', { from: prev, to: state.assignment.role });
   if (state.assignment.role !== 'helper') {
     state.assignment.assistUserId = '';
     state.assignment.assistUserName = '';
@@ -153,8 +164,10 @@ function setRole(role) {
 }
 
 function setAssistUserId(userId) {
+  var prev = state.assignment.assistUserId;
   state.assignment.assistUserId = String(userId || '').trim();
   syncAssistTarget();
+  dlog('ACTION', 'setAssistUserId', { from: prev, to: state.assignment.assistUserId });
   if (client && state.lobby) client.setAssist(state.assignment.assistUserId || null);
   emit();
 }
@@ -223,6 +236,15 @@ function getUserColor(userId, userName) {
 }
 
 function emit() {
+  // Log a thin summary so we can trace state changes without flooding.
+  dlog('COLLAB:STATE', 'emit', {
+    role: state.assignment.role,
+    meRole: state.me && state.me.role,
+    assistUserId: state.assignment.assistUserId || '',
+    lobby: state.lobby ? state.lobby.code : null,
+    members: state.members.length,
+    inboundDeliveries: _inboundDeliveries.length
+  });
   renderAll();
   savePrefs();
   for (var i = 0; i < listeners.length; i++) listeners[i](state);
@@ -310,9 +332,33 @@ function attachClientHandlers() {
   client.on('clip:range-upserted', function (m) { store.apply(m); applyLobbySnapshot(store.state); });
   client.on('clip:range-removed',  function (m) { store.apply(m); applyLobbySnapshot(store.state); });
   client.on('clip:delivery', function (m) {
+    var d = m && m.delivery;
+    if (!d || !d.id) { dlog('COLLAB:RECV', 'clip:delivery (malformed)', m); return; }
+    dlog('COLLAB:RECV', 'clip:delivery', { id: d.id, type: d.type, toUserId: d.toUserId, fromUserId: d.fromUserId, rangeId: d.rangeId });
+    // Only consume deliveries addressed to me (server may broadcast to whole lobby).
+    if (d.toUserId && d.toUserId !== state.me.id) return;
+    if (_seenDeliveryIds.has(d.id)) return;
+    _seenDeliveryIds.add(d.id);
+    _inboundDeliveries.push(d);
     if (window._panelBus && window._panelBus.emit) {
-      window._panelBus.emit('collab:delivery', m.delivery);
+      window._panelBus.emit('collab:delivery', d);
     }
+    emit();
+  });
+  client.on('clip:delivery-pending', function (m) {
+    var list = (m && Array.isArray(m.deliveries)) ? m.deliveries : [];
+    dlog('COLLAB:RECV', 'clip:delivery-pending (backfill)', { count: list.length });
+    var added = 0;
+    for (var i = 0; i < list.length; i++) {
+      var d = list[i];
+      if (!d || !d.id) continue;
+      if (d.toUserId && d.toUserId !== state.me.id) continue;
+      if (_seenDeliveryIds.has(d.id)) continue;
+      _seenDeliveryIds.add(d.id);
+      _inboundDeliveries.push(d);
+      added++;
+    }
+    if (added) emit();
   });
   client.on('transcript:status', function (m) {
     var statusEl = document.getElementById('transcribeStatus');
@@ -335,6 +381,9 @@ function attachClientHandlers() {
     logEl.scrollTop = logEl.scrollHeight;
   });
   client.on('disconnected', function () {
+    dlog('COLLAB:RECV', 'disconnected');
+    _inboundDeliveries.length = 0;
+    _seenDeliveryIds.clear();
     setStage('offline');
     state.lobby = null;
     emit();
@@ -372,6 +421,7 @@ async function connect(url, opts) {
 }
 
 function disconnect() {
+  dlog('ACTION', 'collab disconnect');
   if (client) { try { client.disconnect(); } catch (_) {} }
   client = null;
   store = null;
@@ -379,23 +429,28 @@ function disconnect() {
   state.members = [];
   state.chat = [];
   state.clipRanges = [];
+  _inboundDeliveries.length = 0;
+  _seenDeliveryIds.clear();
   setStage('offline');
   emit();
 }
 
 async function createLobby(name, password, code) {
+  dlog('ACTION', 'createLobby', { name: name, hasPass: !!password, code: code });
   if (!client || !client.connected) { setStatus('Not connected'); return null; }
   try {
     var lobby = await client.createLobby({ name: name, password: password || '', code: safeCode(code || '') });
     setStatus('Joined Lobby - code ' + (lobby ? lobby.code : ''));
     return lobby;
   } catch (e) {
+    dlog('ERROR', 'createLobby failed', { message: e && e.message });
     setStatus(e && e.message ? e.message : 'Create failed');
     return null;
   }
 }
 
 async function joinLobby(code, password) {
+  dlog('ACTION', 'joinLobby', { code: code, hasPass: !!password });
   if (!client || !client.connected) { setStatus('Not connected'); return null; }
   var cleanCode = safeCode(code);
   if (!cleanCode) { setStatus('Enter join code'); return null; }
@@ -404,6 +459,7 @@ async function joinLobby(code, password) {
     setStatus('Joined Lobby - code ' + (lobby ? lobby.code : ''));
     return lobby;
   } catch (e) {
+    dlog('ERROR', 'joinLobby failed', { message: e && e.message });
     setStatus(e && e.message ? e.message : 'Join failed');
     return null;
   }
@@ -411,7 +467,10 @@ async function joinLobby(code, password) {
 
 async function leaveLobby() {
   if (!state.lobby || !client) return;
+  dlog('ACTION', 'leaveLobby', { code: state.lobby.code });
   try { client.leaveLobby(); } catch (_) {}
+  _inboundDeliveries.length = 0;
+  _seenDeliveryIds.clear();
   applyLobbySnapshot(null);
   setStatus('No active lobby');
 }
@@ -432,6 +491,7 @@ async function addChat(text, userName) {
   var msg = String(text || '').trim();
   if (!msg || !state.lobby || !client) return null;
   if (!updateMeName(userName || state.me.name)) return null;
+  dlog('ACTION', 'sendChat', { len: msg.length });
   client.sendChat(msg);
   return null;
 }
@@ -502,18 +562,31 @@ function removeClipRange(rangeId) {
   return true;
 }
 
-function sendClipDelivery(clip) {
-  if (!state.lobby || !client) return null;
-  if (!clip || !clip.id) return null;
+function _deliveryPrecheck(clip) {
+  if (!state.lobby) return { ok: false, reason: 'no-lobby', message: 'Join a lobby first' };
+  if (!client) return { ok: false, reason: 'no-client', message: 'Not connected to server' };
+  if (state.assignment.role !== 'helper') return { ok: false, reason: 'not-helper', message: 'Switch role to Helper first' };
+  if (!clip || !clip.id) return { ok: false, reason: 'no-clip', message: 'Clip is missing or invalid' };
   var target = state.assignment.assistUserId || '';
-  if (!target) { setStatus('Pick an assigned Clipper first'); return null; }
+  if (!target) return { ok: false, reason: 'no-target', message: 'Pick an assigned Clipper first' };
+  return { ok: true, target: target };
+}
+
+function sendClipDelivery(clip) {
+  var pre = _deliveryPrecheck(clip);
+  if (!pre.ok) {
+    setStatus(pre.message);
+    dlog('COLLAB:SEND', 'sendClipDelivery blocked', { reason: pre.reason, clipId: clip && clip.id });
+    return Promise.resolve({ success: false, reason: pre.reason, message: pre.message });
+  }
   var payload = window.Delivery ? window.Delivery.buildClipDeliveryPayload(clip) : {};
   var payloadJson = JSON.stringify(payload);
+  dlog('COLLAB:SEND', 'sendClipDelivery', { clipId: clip.id, toUserId: pre.target, name: clip.name });
   client.createDelivery({
     fromUserId: state.me.id,
     fromUserName: state.me.name || '',
     fromUserColor: state.me.color || '',
-    toUserId: target,
+    toUserId: pre.target,
     type: 'clip',
     rangeId: clip.id,
     payload: payload
@@ -523,18 +596,20 @@ function sendClipDelivery(clip) {
 }
 
 function resendClipDelivery(clip) {
-  if (!state.lobby || !client) return null;
-  if (!clip || !clip.id) return null;
-  var target = state.assignment.assistUserId || '';
-  if (!target) return null;
+  var pre = _deliveryPrecheck(clip);
+  if (!pre.ok) {
+    dlog('COLLAB:SEND', 'resendClipDelivery blocked', { reason: pre.reason, clipId: clip && clip.id });
+    return Promise.resolve({ success: false, reason: pre.reason, message: pre.message });
+  }
   var payload = window.Delivery ? window.Delivery.buildClipDeliveryPayload(clip) : {};
   var payloadJson = JSON.stringify(payload);
   if (clip._lastSentPayloadJson === payloadJson) return Promise.resolve({ success: true, skipped: true });
+  dlog('COLLAB:SEND', 'resendClipDelivery', { clipId: clip.id, toUserId: pre.target });
   client.createDelivery({
     fromUserId: state.me.id,
     fromUserName: state.me.name || '',
     fromUserColor: state.me.color || '',
-    toUserId: target,
+    toUserId: pre.target,
     type: 'clipUpdate',
     rangeId: clip.id,
     payload: payload
@@ -544,15 +619,17 @@ function resendClipDelivery(clip) {
 }
 
 function unsendClipDelivery(clip) {
-  if (!state.lobby || !client) return null;
-  if (!clip || !clip.id) return null;
-  var target = state.assignment.assistUserId || '';
-  if (!target) return null;
+  var pre = _deliveryPrecheck(clip);
+  if (!pre.ok) {
+    dlog('COLLAB:SEND', 'unsendClipDelivery blocked', { reason: pre.reason, clipId: clip && clip.id });
+    return Promise.resolve({ success: false, reason: pre.reason, message: pre.message });
+  }
+  dlog('COLLAB:SEND', 'unsendClipDelivery', { clipId: clip.id, toUserId: pre.target });
   client.createDelivery({
     fromUserId: state.me.id,
     fromUserName: state.me.name || '',
     fromUserColor: state.me.color || '',
-    toUserId: target,
+    toUserId: pre.target,
     type: 'clipUnsend',
     rangeId: clip.id,
     payload: null
@@ -561,12 +638,21 @@ function unsendClipDelivery(clip) {
 }
 
 function consumeMyDeliveries() {
-  // Server pushes deliveries via 'clip:delivery' event; nothing to pull.
-  return Promise.resolve([]);
+  if (!_inboundDeliveries.length) return Promise.resolve([]);
+  var batch = _inboundDeliveries.splice(0, _inboundDeliveries.length);
+  // Ack server so the row flips to delivered=1 in SQLite.
+  var ids = [];
+  for (var i = 0; i < batch.length; i++) if (batch[i] && batch[i].id) ids.push(batch[i].id);
+  if (ids.length && client && client.consumeDeliveries) {
+    try { client.consumeDeliveries(ids); } catch (_) {}
+  }
+  dlog('COLLAB:RECV', 'consumeMyDeliveries drained', { count: batch.length });
+  return Promise.resolve(batch);
 }
 
 function setMemberRole(targetId, role, opts) {
   if (!state.lobby || !client) return null;
+  dlog('ACTION', 'setMemberRole', { targetId: targetId, role: role, assistUserId: opts && opts.assistUserId });
   client.setRole(targetId, role);
   if (opts && opts.assistUserId) client.setAssist(opts.assistUserId);
   return Promise.resolve({ success: true });
@@ -1086,10 +1172,13 @@ function bindTranscribeUi() {
     var videoUrl = (document.getElementById('transcribeVideoUrl') || {}).value;
     videoUrl = String(videoUrl || '').trim();
     if (!channelId || !videoUrl) return;
+    dlog('ACTION', 'transcript:start', { channelId: channelId });
     client.startTranscript({ channelId: channelId, videoUrl: videoUrl });
   });
   if (stopBtn) stopBtn.addEventListener('click', function () {
-    if (client) client.stopTranscript();
+    if (!client) return;
+    dlog('ACTION', 'transcript:stop');
+    client.stopTranscript();
   });
 }
 

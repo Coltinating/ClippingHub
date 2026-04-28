@@ -14,13 +14,27 @@ let allEntries = [];
 let colorsOn = false;
 let currentSearch = '';
 let autoScroll = true;
-const MAX_ENTRIES = 5000;
+
+// Per-category cap. With 14 cats * 2000 = up to 28k entries in memory, but
+// hot streams (HLS/STREAM/FFMPEG) can no longer evict cold buckets (ACTION/SESSION).
+const PER_CATEGORY_CAP = 2000;
 
 // ── Filter state (set of enabled categories) ─────────────
-const ALL_CATEGORIES = ['ACTION', 'SESSION', 'STREAM', 'HLS', 'MARK', 'CLIP', 'FFMPEG', 'PROXY', 'UI', 'ERROR'];
+const ALL_CATEGORIES = [
+  'ACTION', 'SESSION',
+  'COLLAB:SEND', 'COLLAB:RECV', 'COLLAB:STATE', 'SERVER',
+  'STREAM', 'HLS', 'MARK', 'CLIP', 'FFMPEG', 'PROXY', 'UI', 'ERROR'
+];
 const enabledFilters = new Set(ALL_CATEGORIES); // all on by default
 const categoryCounts = {};
-ALL_CATEGORIES.forEach(c => { categoryCounts[c] = 0; });
+const categoryEvicted = {};
+ALL_CATEGORIES.forEach(c => { categoryCounts[c] = 0; categoryEvicted[c] = 0; });
+
+// Flood guard: per-category sliding-window rate (entries in last 2s).
+const FLOOD_WINDOW_MS = 2000;
+const FLOOD_RATE_THRESHOLD = 100; // entries within window → "hot"
+const categoryRateWindow = {}; // cat → [timestamps]
+const hotCategories = new Set();
 
 // ── Escaping ──────────────────────────────────────────────
 function esc(s) {
@@ -63,23 +77,48 @@ function createLogLine(entry) {
   return div;
 }
 
+// ── Evict oldest entry of a category (per-category ring) ──
+function evictOldestOfCategory(cat) {
+  // Walk allEntries (and DOM) to find the first entry with this category, remove it.
+  for (let i = 0; i < allEntries.length; i++) {
+    if (allEntries[i].category === cat) {
+      const node = logOutput.children[i];
+      if (node) logOutput.removeChild(node);
+      allEntries.splice(i, 1);
+      categoryEvicted[cat] = (categoryEvicted[cat] || 0) + 1;
+      return true;
+    }
+  }
+  return false;
+}
+
+// ── Update per-category sliding-window flood detection ───
+function noteFloodSample(cat) {
+  const now = Date.now();
+  if (!categoryRateWindow[cat]) categoryRateWindow[cat] = [];
+  const w = categoryRateWindow[cat];
+  w.push(now);
+  // Drop samples older than FLOOD_WINDOW_MS
+  while (w.length && (now - w[0]) > FLOOD_WINDOW_MS) w.shift();
+  const wasHot = hotCategories.has(cat);
+  const isHot = w.length >= FLOOD_RATE_THRESHOLD;
+  if (isHot && !wasHot) { hotCategories.add(cat); updateFilterCounts(); }
+  else if (!isHot && wasHot) { hotCategories.delete(cat); updateFilterCounts(); }
+}
+
 // ── Add entry ─────────────────────────────────────────────
 function addEntry(entry) {
   allEntries.push(entry);
-  if (allEntries.length > MAX_ENTRIES) {
-    const removed = allEntries.shift();
-    if (removed && categoryCounts[removed.category] !== undefined) {
-      categoryCounts[removed.category]--;
-    }
-    if (logOutput.firstChild) logOutput.removeChild(logOutput.firstChild);
+
+  // Per-category cap: if THIS category exceeds cap, drop oldest of THIS category only.
+  const cat = entry.category;
+  if (categoryCounts[cat] === undefined) categoryCounts[cat] = 0;
+  categoryCounts[cat]++;
+  if (categoryCounts[cat] > PER_CATEGORY_CAP) {
+    if (evictOldestOfCategory(cat)) categoryCounts[cat]--;
   }
 
-  // Track count
-  if (categoryCounts[entry.category] !== undefined) {
-    categoryCounts[entry.category]++;
-  } else {
-    categoryCounts[entry.category] = 1;
-  }
+  noteFloodSample(cat);
 
   const div = createLogLine(entry);
   logOutput.appendChild(div);
@@ -127,19 +166,22 @@ function updateFilterCounts() {
     const countEl = btn.querySelector('.filter-count');
     if (countEl && categoryCounts[cat] !== undefined) {
       const c = categoryCounts[cat];
-      countEl.textContent = c > 0 ? ` (${c})` : '';
+      const e = categoryEvicted[cat] || 0;
+      countEl.textContent = c > 0 ? (e > 0 ? ` (${c}/+${e})` : ` (${c})`) : '';
     }
+    btn.classList.toggle('hot', hotCategories.has(cat));
   });
 }
 
 // ── Update status bar ─────────────────────────────────────
 function updateStatus() {
   const visibleLines = logOutput.querySelectorAll('.log-line:not(.hidden)').length;
-  statusLeft.textContent = `${visibleLines} / ${allEntries.length} entries`;
+  const evictTotal = Object.values(categoryEvicted).reduce((a, b) => a + b, 0);
+  statusLeft.textContent = `${visibleLines} / ${allEntries.length} entries${evictTotal ? ` (+${evictTotal} evicted)` : ''}`;
 
   const activeCount = enabledFilters.size;
   if (activeCount === ALL_CATEGORIES.length) {
-    statusRight.textContent = 'Showing: All';
+    statusRight.textContent = 'Showing: All' + (hotCategories.size ? ` · HOT: ${[...hotCategories].join(',')}` : '');
   } else if (activeCount === 0) {
     statusRight.textContent = 'Showing: None';
   } else {
@@ -245,6 +287,12 @@ document.getElementById('btnSave').addEventListener('click', async () => {
     await window.debugBridge.saveLog(text, filterName);
   }
 });
+
+// ── Reveal log file folder ────────────────────────────────
+const btnReveal = document.getElementById('btnRevealLog');
+if (btnReveal && window.debugBridge?.openLogFolder) {
+  btnReveal.addEventListener('click', () => { window.debugBridge.openLogFolder(); });
+}
 
 // ── Listen for logs from main process ─────────────────────
 if (window.debugBridge?.onLog) {

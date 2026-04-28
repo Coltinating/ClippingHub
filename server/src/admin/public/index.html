@@ -21,7 +21,12 @@
     <button id="connectBtn" class="btn btn-primary btn-sm" aria-label="Toggle server connection">Connect</button>
   </header>
 
-  <main class="layout">
+  <nav class="topnav">
+    <button class="topnav-tab active" data-view="lobbies">Lobbies</button>
+    <button class="topnav-tab" data-view="events">Events</button>
+  </nav>
+
+  <main class="layout" data-view="lobbies">
     <aside class="sidebar">
       <div class="sidebar-head">
         <span>Lobbies</span>
@@ -78,6 +83,28 @@
       </div>
     </section>
   </main>
+
+  <section class="events-view" data-view="events" hidden>
+    <div class="events-toolbar">
+      <input id="eventsSearch" class="events-search" type="text" placeholder="Search events…" spellcheck="false" autocomplete="off">
+      <span id="eventsCount" class="muted">0 events</span>
+      <span class="events-spacer"></span>
+      <label class="events-autoscroll">
+        <input id="eventsAutoscroll" type="checkbox" checked> autoscroll
+      </label>
+      <button id="eventsClearBtn" class="btn btn-ghost btn-xs">Clear</button>
+    </div>
+    <div class="events-filters" id="eventsFilters">
+      <button class="filter-chip active" data-evt="ws:in">WS In</button>
+      <button class="filter-chip active" data-evt="ws:out">WS Out</button>
+      <button class="filter-chip active" data-evt="ws:broadcast">Broadcast</button>
+      <button class="filter-chip active" data-evt="handler">Handler</button>
+      <button class="filter-chip active" data-evt="ws:close">Close</button>
+      <button class="filter-chip active" data-evt="ws:error">Error</button>
+      <button class="filter-chip active" data-evt="other">Other</button>
+    </div>
+    <div id="eventsList" class="events-list"></div>
+  </section>
 
   <script src="app.js"></script>
 </body>
