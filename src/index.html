@@ -10,16 +10,6 @@
 </head>
 <body>
 
-<!-- Account card (top-right) -->
-<div class="account-card" id="accountCard">
-  <div class="account-avatar" id="accountAvatar"></div>
-  <div class="account-meta">
-    <div class="account-name" id="accountName">Guest</div>
-    <div class="account-handle" id="accountHandle"></div>
-  </div>
-  <button class="btn btn-ghost btn-xs" id="accountEditBtn" type="button">Edit</button>
-</div>
-
 <!-- Profile edit modal -->
 <div class="profile-modal-overlay" id="profileModal" hidden>
   <div class="profile-modal">
@@ -57,126 +47,147 @@
     </div>
   </div>
 
-  <!-- ── Menu Bar ──────────────────────────────────────────── -->
-  <div class="menubar">
-    <div class="logo">CLIPPING<span>HUB</span></div>
+  <!-- ── Header (two rows) ─────────────────────────────────── -->
+  <div class="header">
 
-    <div class="menu-item" data-menu="file">File
-      <div class="dropdown" id="menu-file">
-        <div class="dd-item" onclick="closeAllMenus()">New Project <span class="dd-shortcut">Ctrl+N</span></div>
-        <div class="dd-item" onclick="closeAllMenus()">Open Project <span class="dd-shortcut">Ctrl+O</span></div>
-        <div class="dd-sep"></div>
-        <div class="dd-item" onclick="closeAllMenus()">Save <span class="dd-shortcut">Ctrl+S</span></div>
-        <div class="dd-item" onclick="closeAllMenus()">Save As&hellip; <span class="dd-shortcut">Ctrl+Shift+S</span></div>
-        <div class="dd-sep"></div>
-        <div class="dd-item" onclick="closeAllMenus()">Exit</div>
-        <div class="dd-sep" id="menu-file-update-sep" style="display:none;"></div>
-        <div class="dd-item" id="menu-file-update" style="display:none;"
-             onclick="window._update && window._update.applyFromMenu(); closeAllMenus();">
-          Update ClippingHub
+    <!-- Row 1: menus + logo + actions -->
+    <div class="menubar-row">
+      <div class="menubar">
+        <div class="menu-item" data-menu="file">File
+          <div class="dropdown" id="menu-file">
+            <div class="dd-row-with-action">
+              <span class="dd-label">Rumble Browser</span>
+              <button class="dd-action-btn muted" id="ddRumbleBtn">Rumble</button>
+            </div>
+            <div class="dd-item" id="ddSettings">Settings</div>
+            <div class="dd-row-with-action">
+              <span class="dd-label">Connect</span>
+              <button class="dd-action-btn warn" id="ddGoOnlineBtn">Go Online</button>
+            </div>
+            <div class="dd-sep"></div>
+            <div class="dd-item" id="ddExit">Exit</div>
+            <div class="dd-sep" id="menu-file-update-sep" style="display:none;"></div>
+            <div class="dd-item" id="menu-file-update" style="display:none;"
+                 onclick="window._update && window._update.applyFromMenu(); closeAllMenus();">
+              Update ClippingHub
+            </div>
+          </div>
+        </div>
+
+        <div class="menu-item" data-menu="edit">Edit
+          <div class="dropdown wide" id="menu-edit">
+            <div class="dd-section">Stream Settings</div>
+            <div class="dd-item" id="ddViewM3u8">View M3U8 URL</div>
+            <div class="dd-item" id="ddReloadStream">Reload Stream</div>
+            <div class="edit-stream-pane">
+              <div class="url-bar">
+                <span class="url-label">URL</span>
+                <input id="urlIn" type="text"
+                  placeholder="Paste Rumble URL or direct .m3u8 link..."
+                  autocomplete="off" spellcheck="false">
+              </div>
+              <button class="tool-btn primary" id="loadBtn">
+                <svg class="tool-icon" viewBox="0 0 14 14" fill="currentColor"><polygon points="3,2 11,7 3,12"/></svg>
+                Load
+              </button>
+            </div>
+            <div class="dd-sep"></div>
+            <div class="dd-section">Config</div>
+            <div class="dd-row-with-action">
+              <span class="dd-label">Import</span>
+              <button class="dd-action-btn warn" id="ddImportConfig">Load / Import Config</button>
+            </div>
+            <div class="dd-row-with-action">
+              <span class="dd-label">Export</span>
+              <button class="dd-action-btn" id="ddExportConfig">Export Config</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="menu-item" data-menu="view" data-advanced-only="true">View
+          <div class="dropdown" id="menu-view">
+            <div class="dd-section">Layouts</div>
+            <div id="builtin-layouts-menu"></div>
+            <div class="dd-sep"></div>
+            <div class="dd-item" onclick="window._panels.resetLayout(); closeAllMenus()">Reset Layout <span class="dd-shortcut">Ctrl+Shift+R</span></div>
+            <div class="dd-item" onclick="window._panels.openSaveModal(); closeAllMenus()">Save Layout&hellip; <span class="dd-shortcut">Ctrl+Shift+L</span></div>
+            <div class="dd-sep"></div>
+            <div class="dd-section">User Layouts</div>
+            <div id="saved-layouts-menu"></div>
+          </div>
+        </div>
+
+        <div class="menu-item" data-menu="help">Help
+          <div class="dropdown" id="menu-help">
+            <div class="dd-item" id="ddCheckUpdate">Check for update</div>
+            <div class="dd-item" id="ddOpenDebugger">Debugger</div>
+            <div class="dd-item" id="ddShortcuts">Keyboard Shortcuts</div>
+            <div class="dd-item" id="ddAbout">About ClippingHub</div>
+          </div>
         </div>
       </div>
-    </div>
-    <div class="menu-item" data-menu="edit">Edit
-      <div class="dropdown" id="menu-edit">
-        <div class="dd-item" onclick="closeAllMenus()">Undo <span class="dd-shortcut">Ctrl+Z</span></div>
-        <div class="dd-item" onclick="closeAllMenus()">Redo <span class="dd-shortcut">Ctrl+Y</span></div>
-        <div class="dd-sep"></div>
-        <div class="dd-item" onclick="closeAllMenus()">Cut <span class="dd-shortcut">Ctrl+X</span></div>
-        <div class="dd-item" onclick="closeAllMenus()">Copy <span class="dd-shortcut">Ctrl+C</span></div>
-        <div class="dd-item" onclick="closeAllMenus()">Paste <span class="dd-shortcut">Ctrl+V</span></div>
-      </div>
-    </div>
-    <div class="menu-item" data-menu="view">View
-      <div class="dropdown" id="menu-view">
-        <div class="dd-item disabled">Players</div>
-        <div class="dd-item" onclick="window._panels.togglePanel('clipper'); closeAllMenus()"><span class="dd-check" id="chk-clipper">&#10003;</span> Clipper</div>
-        <div class="dd-item" onclick="window._panels.openPanel('viewer'); closeAllMenus()"><span class="dd-check" id="chk-viewer"></span> Viewer</div>
-        <div class="dd-sep"></div>
-        <div class="dd-item disabled">Core</div>
-        <div class="dd-item" onclick="window._panels.togglePanel('media'); closeAllMenus()"><span class="dd-check" id="chk-media">&#10003;</span> Media Sources</div>
-        <div class="dd-item" onclick="window._panels.togglePanel('timeline'); closeAllMenus()"><span class="dd-check" id="chk-timeline">&#10003;</span> Timeline</div>
-        <div class="dd-item" onclick="window._panels.togglePanel('clips'); closeAllMenus()"><span class="dd-check" id="chk-clips">&#10003;</span> Clips Queue</div>
-        <div class="dd-sep"></div>
-        <div class="dd-item disabled">Collab</div>
-        <div class="dd-item" onclick="window._panels.togglePanel('collab'); closeAllMenus()"><span class="dd-check" id="chk-collab"></span> Collab</div>
-        <div class="dd-sep"></div>
-        <div class="dd-item" onclick="window._panels.resetLayout(); closeAllMenus()">Reset Layout <span class="dd-shortcut">Ctrl+Shift+R</span></div>
-        <div class="dd-item" onclick="window._panels.openSaveModal(); closeAllMenus()">Save Layout&hellip; <span class="dd-shortcut">Ctrl+Shift+L</span></div>
-        <div class="dd-sep"></div>
-        <div id="saved-layouts-menu"></div>
-      </div>
-    </div>
-    <div class="menu-item" data-menu="clip">Clip
-      <div class="dropdown" id="menu-clip">
-        <div class="dd-item" onclick="closeAllMenus()">Mark In <span class="dd-shortcut">I</span></div>
-        <div class="dd-item" onclick="closeAllMenus()">Mark Out <span class="dd-shortcut">O</span></div>
-        <div class="dd-sep"></div>
-        <div class="dd-item" onclick="closeAllMenus()">New Clip from In/Out <span class="dd-shortcut">Ctrl+K</span></div>
-      </div>
-    </div>
-    <div class="menu-item" data-menu="export">Export
-      <div class="dropdown" id="menu-export">
-        <div class="dd-item" onclick="closeAllMenus()">Export Selected <span class="dd-shortcut">Ctrl+E</span></div>
-        <div class="dd-item" onclick="closeAllMenus()">Export All <span class="dd-shortcut">Ctrl+Shift+E</span></div>
-        <div class="dd-sep"></div>
-        <div class="dd-item" onclick="closeAllMenus()">Export Settings&hellip;</div>
-      </div>
-    </div>
-    <div class="menu-item" data-menu="help">Help
-      <div class="dropdown" id="menu-help">
-        <div class="dd-item" onclick="closeAllMenus()">Keyboard Shortcuts</div>
-        <div class="dd-item" onclick="closeAllMenus()">About ClippingHub</div>
+
+      <div class="header-logo">CLIPPING<span>HUB</span></div>
+
+      <div class="menubar-actions">
+        <button class="header-btn" id="clipsBtn" title="Clips / Caption editor">Clips</button>
+        <button class="header-btn" id="debugBtn" title="Debug log">Debug</button>
       </div>
     </div>
 
-    <div class="workspace-tabs">
-      <!-- Tabs built dynamically by panels.js rebuildWorkspaceTabs() -->
-    </div>
+    <!-- Row 2: stream status + workspace tabs + account -->
+    <div class="statusbar-row">
+      <div class="stream-status" id="streamStatus">
+        <div class="status-dot" id="statusDot"></div>
+        <span class="status-text" id="statusText">No stream loaded</span>
+        <span class="live-badge" id="liveBadge">LIVE</span>
+        <span class="stream-info" id="streamInfo"></span>
+      </div>
 
-    <div class="menubar-right">
-      <div class="status-dot" id="statusDot"></div>
-      <span class="status-text" id="statusText">Paste a stream URL above and press Load Stream</span>
-      <div style="width:1px; height:14px; background:var(--border); margin:0 6px;"></div>
-      <span class="live-badge" id="liveBadge">&#9679; LIVE</span>
-      <span class="stream-info" id="streamInfo"></span>
-      <div style="width:1px; height:14px; background:var(--border); margin:0 6px;"></div>
-      <span class="badge ffmpeg">ffmpeg ready</span>
+      <div class="workspace-tabs">
+        <!-- Tabs built dynamically by panels.js rebuildWorkspaceTabs() -->
+      </div>
+
+      <div class="account-card" id="accountCard" title="Edit profile">
+        <span class="account-prefix">Logged in as:</span>
+        <div class="account-avatar" id="accountAvatar"></div>
+        <div class="account-meta">
+          <div class="account-name" id="accountName">Guest</div>
+          <div class="account-handle" id="accountHandle"></div>
+        </div>
+        <button class="btn btn-ghost btn-xs account-edit" id="accountEditBtn" type="button" title="Edit profile">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" width="11" height="11"><path d="M9.5 2.5l2 2L4 12H2v-2l7.5-7.5z"/></svg>
+        </button>
+      </div>
     </div>
   </div>
 
-  <!-- ── Toolbar ───────────────────────────────────────────── -->
-  <div class="toolbar">
-    <button class="tool-btn" id="backBtn" title="Back to Rumble">
-      <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-      &larr; Rumble
-    </button>
-    <div class="toolbar-sep"></div>
-
-    <div class="url-bar">
-      <span class="url-label">URL</span>
-      <input id="urlIn" type="text"
-        placeholder="Paste Rumble URL or direct .m3u8 link..."
-        autocomplete="off" spellcheck="false">
+  <!-- ── About / Keyboard Shortcuts modals (Help menu) ─────── -->
+  <div class="modal-overlay" id="aboutModal" hidden>
+    <div class="modal modal-sm">
+      <div class="modal-header">About ClippingHub<button class="modal-close" id="aboutClose">&times;</button></div>
+      <div class="modal-body">
+        <div class="about-logo">CLIPPING<span>HUB</span></div>
+        <div class="about-version">Version <span id="aboutVersion">&hellip;</span></div>
+        <div class="about-blurb">Live stream clipping & collaboration tool.</div>
+      </div>
     </div>
+  </div>
 
-    <button class="tool-btn primary" id="loadBtn">
-      <svg class="tool-icon" viewBox="0 0 14 14" fill="currentColor"><polygon points="3,2 11,7 3,12"/></svg>
-      Load Stream
-    </button>
-    <button class="tool-btn" id="postCaptionEditorBtn" title="Open Post Caption Editor (Timeline)">&#120143; Caption Editor</button>
-    <div class="toolbar-sep"></div>
-
-    <!-- <button class="tool-btn" id="navBtn" title="Browse Streams">&#127760; Browse</button> -->
-    <!-- <button class="tool-btn" id="importBtn" title="Import local file">&#128229; Import</button> -->
-    <button class="tool-btn" id="openFolderBtn" title="Open clips folder">&#128193; Clips</button>
-    <button class="tool-btn" id="settingsBtn" title="Change output folder">&#128194;</button>
-    <button class="tool-btn" id="configBtn" title="Settings">
-      <svg class="tool-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1115.6 12 3.611 3.611 0 0112 15.6z"/></svg>
-      Settings
-    </button>
-    <div class="toolbar-sep"></div>
-    <button class="tool-btn" id="debugToggleBtn" title="Open Debug Log window">Debug</button>
+  <div class="modal-overlay" id="shortcutsModal" hidden>
+    <div class="modal">
+      <div class="modal-header">Keyboard Shortcuts<button class="modal-close" id="shortcutsClose">&times;</button></div>
+      <div class="modal-body">
+        <table class="shortcuts-table">
+          <tr><td>Ctrl+Shift+R</td><td>Reset Layout</td></tr>
+          <tr><td>Ctrl+Shift+L</td><td>Save Layout&hellip;</td></tr>
+          <tr><td>Space</td><td>Play / Pause</td></tr>
+          <tr><td>&larr; / &rarr;</td><td>Seek</td></tr>
+          <tr><td>I</td><td>Mark In</td></tr>
+          <tr><td>O</td><td>Mark Out</td></tr>
+        </table>
+      </div>
+    </div>
   </div>
 
   <!-- ── Extraction Progress ─────────────────────────────── -->
@@ -417,54 +428,6 @@
           <label class="batch-field">Name <input type="text" id="batchNameScheme" value="test-clip" class="batch-input batch-input-name" placeholder="test-clip" spellcheck="false"></label>
           <button class="batch-suite-btn" id="batchSuiteBtn">Test Suite</button>
           <span class="batch-hint">IN/OUT to batch &mdash; <kbd>B</kbd> to exit</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Timeline panel content (was inside #pane-timeline .dock-pane) -->
-    <div class="panel" id="panel-timeline">
-      <div class="panel-header">
-        <span class="panel-title">Timeline</span>
-        <div class="panel-actions">
-          <button class="panel-btn close" title="Close panel" onclick="window._panels.closePanel('timeline')">
-            <svg viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.5" fill="none"><path d="M2 2l6 6M8 2l-6 6"/></svg>
-          </button>
-        </div>
-      </div>
-      <div class="panel-body">
-        <div class="timeline-section" style="height:auto; flex:1; border-top:none;">
-          <div class="timeline-header">
-            <span class="panel-title">Timeline</span>
-            <span class="timeline-collab-indicator" id="timelineCollabIndicator" style="display:none;"></span>
-            <div class="timeline-controls">
-              <button class="tl-btn">&#8722;</button>
-              <button class="tl-btn">+</button>
-              <button class="tl-btn">Fit</button>
-            </div>
-          </div>
-          <div class="timeline-body">
-            <div class="timeline-track-labels">
-              <div class="track-ruler"></div>
-              <div class="track-label">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" style="opacity:0.6"><rect x="0" y="2" width="9" height="7" rx="1"/><rect x="9" y="4" width="3" height="3"/></svg>
-                Video
-              </div>
-              <div class="track-label">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" style="opacity:0.6"><path d="M6 1v10M4 3v6M2 4v4M8 3v6M10 4v4"/></svg>
-                Audio
-              </div>
-              <div class="track-label" style="color:var(--text-muted);">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" style="opacity:0.4"><polygon points="6,1 7.5,4.5 11,5 8.5,7.5 9,11 6,9 3,11 3.5,7.5 1,5 4.5,4.5"/></svg>
-                Markers
-              </div>
-            </div>
-            <div class="timeline-tracks">
-              <div class="ruler"></div>
-              <div class="track-row"></div>
-              <div class="track-row"></div>
-              <div class="track-row"></div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -716,6 +679,7 @@
 <script src="lib/collab-client.js"></script>
 <script src="lib/collab-store.js"></script>
 <script src="collab-ui.js"></script>
+<script src="header-modals.js"></script>
 <script src="renderer.js"></script>
 <script src="batch/batch-testing.js"></script>
 <script src="split-tree.js"></script>
