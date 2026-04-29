@@ -1,4 +1,7 @@
+import bcrypt from 'bcryptjs';
 import { generateLobbyCode, sanitizeCode, makeId } from './util/codes.js';
+
+const BCRYPT_ROUNDS = 10;
 
 export class LobbyStore {
   constructor(db) {
@@ -8,8 +11,8 @@ export class LobbyStore {
 
   _prep() {
     this.q = {
-      insertLobby: this.db.prepare(`INSERT INTO lobbies(code,id,name,password,host_id,created_at,updated_at)
-                                    VALUES (?,?,?,?,?,?,?)`),
+      insertLobby: this.db.prepare(`INSERT INTO lobbies(code,id,name,password,password_hash,host_id,created_at,updated_at)
+                                    VALUES (?,?,?,?,?,?,?,?)`),
       lobbyByCode: this.db.prepare('SELECT * FROM lobbies WHERE code = ?'),
       bumpLobby:   this.db.prepare('UPDATE lobbies SET updated_at=? WHERE code=?'),
       setHost:     this.db.prepare('UPDATE lobbies SET host_id=?, updated_at=? WHERE code=?'),
@@ -52,7 +55,8 @@ export class LobbyStore {
           (SELECT COUNT(*) FROM chat WHERE lobby_code = l.code) AS chat_count,
           (SELECT COUNT(*) FROM clip_ranges WHERE lobby_code = l.code) AS range_count
         FROM lobbies l
-        ORDER BY l.updated_at DESC`)
+        ORDER BY l.updated_at DESC`),
+      deleteLobbyByCode: this.db.prepare('DELETE FROM lobbies WHERE code = ?')
     };
   }
 
@@ -61,7 +65,9 @@ export class LobbyStore {
     if (this.q.lobbyByCode.get(code)) throw new Error('Lobby code already exists');
     const now = Date.now();
     const id = makeId('lobby');
-    this.q.insertLobby.run(code, id, name || 'Collab Lobby', password, user.id, now, now);
+    const passwordHash = password ? bcrypt.hashSync(password, BCRYPT_ROUNDS) : '';
+    // password column kept empty going forward; password_hash holds bcrypt or ''.
+    this.q.insertLobby.run(code, id, name || 'Collab Lobby', '', passwordHash, user.id, now, now);
     this._writeMember(code, user, 'clipper', now, isAdmin);
     return this.getLobby(code);
   }
@@ -70,7 +76,7 @@ export class LobbyStore {
     const c = sanitizeCode(code);
     const lobby = this.q.lobbyByCode.get(c);
     if (!lobby) throw new Error('Lobby not found');
-    if (!isAdmin && (lobby.password || '') !== password) throw new Error('Wrong password');
+    if (!isAdmin && !this._checkLobbyPassword(lobby, password)) throw new Error('Wrong password');
     const existing = this.q.memberById.get(c, user.id);
     const now = Date.now();
     if (existing) {
@@ -190,6 +196,14 @@ export class LobbyStore {
     };
   }
 
+  _checkLobbyPassword(lobby, provided) {
+    const hash = lobby.password_hash || '';
+    if (!hash) return !provided; // No password set -> only empty password accepted.
+    if (typeof provided !== 'string' || !provided) return false;
+    try { return bcrypt.compareSync(provided, hash); }
+    catch { return false; }
+  }
+
   _writeMember(code, user, role, now, isAdmin = false) {
     this.q.upsertMember.run({
       lobby_code: code,
@@ -219,6 +233,12 @@ export class LobbyStore {
       assistUserId: r.assist_user_id,
       isAdmin: !!r.is_admin
     };
+  }
+
+  deleteLobby(code) {
+    const c = sanitizeCode(code);
+    const info = this.q.deleteLobbyByCode.run(c);
+    return info.changes > 0;
   }
 
   listAllLobbies() {

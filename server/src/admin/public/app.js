@@ -2,7 +2,11 @@
 (function () {
 'use strict';
 
+// localStorage holds non-secret prefs and (when "remember" is checked) the
+// admin token. sessionStorage always shadows it so an unticked session
+// doesn't persist past tab close.
 var STORAGE_KEY = 'ch_admin_v1';
+var TOKEN_KEY = 'ch_admin_token_v1';
 
 var ws = null;
 var connected = false;
@@ -12,6 +16,11 @@ var lobbyDetails = {};     // code -> full snapshot from lobby:state
 var joinedCode = null;     // currently ghost-joined lobby
 var refreshTimer = null;
 var currentView = 'lobbies'; // 'lobbies' | 'events'
+
+// Auth state
+var authedName = '';
+var authedToken = '';
+var rememberToken = false;
 
 // Events view state
 var EVENT_CAP = 5000;
@@ -38,13 +47,31 @@ function loadPrefs() {
 function savePrefs(p) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(p)); } catch (_) {}
 }
+function loadStoredToken() {
+  // sessionStorage takes precedence — survives reload but not tab close.
+  try {
+    var s = sessionStorage.getItem(TOKEN_KEY);
+    if (s) return { token: s, remembered: false };
+    var l = localStorage.getItem(TOKEN_KEY);
+    if (l) return { token: l, remembered: true };
+  } catch (_) {}
+  return { token: '', remembered: false };
+}
+function saveStoredToken(token, remember) {
+  try {
+    sessionStorage.setItem(TOKEN_KEY, token);
+    if (remember) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch (_) {}
+}
+function clearStoredToken() {
+  try {
+    sessionStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_KEY);
+  } catch (_) {}
+}
 
 var prefs = loadPrefs();
-
-function getAdminName() {
-  var v = $('adminName').value.trim();
-  return v || 'Admin';
-}
 
 function getAdminUserId() {
   if (!prefs.adminId) {
@@ -66,16 +93,103 @@ function wsUrl() {
   return proto + '//' + loc.host + '/ws';
 }
 
+// ── Sign-in flow ─────────────────────────────────────────
+function showSignin(errMsg) {
+  var overlay = $('signinOverlay');
+  if (overlay) overlay.dataset.state = 'signin';
+  if (overlay) overlay.hidden = false;
+  document.body.classList.add('signin-active');
+  var err = $('signinError');
+  if (err) {
+    if (errMsg) { err.textContent = errMsg; err.hidden = false; }
+    else { err.textContent = ''; err.hidden = true; }
+  }
+  $('topbarIdentity').hidden = true;
+  $('signoutBtn').hidden = true;
+  // Pre-fill from prefs / storage on first show.
+  var nameInput = $('signinName');
+  var tokenInput = $('signinToken');
+  var rememberInput = $('signinRemember');
+  if (nameInput && !nameInput.value) nameInput.value = prefs.adminName || '';
+  var stored = loadStoredToken();
+  if (tokenInput && !tokenInput.value && stored.token) tokenInput.value = stored.token;
+  if (rememberInput) rememberInput.checked = !!stored.remembered;
+  // Focus the empty field.
+  setTimeout(function () {
+    if (nameInput && !nameInput.value) nameInput.focus();
+    else if (tokenInput && !tokenInput.value) tokenInput.focus();
+  }, 50);
+}
+
+function hideSignin() {
+  var overlay = $('signinOverlay');
+  if (overlay) overlay.hidden = true;
+  document.body.classList.remove('signin-active');
+}
+
+function setSubmitBusy(busy) {
+  var btn = $('signinSubmit');
+  var lbl = $('signinSubmitLabel');
+  if (!btn) return;
+  btn.disabled = !!busy;
+  if (lbl) lbl.textContent = busy ? 'Signing in…' : 'Sign in';
+}
+
+function attemptSignin(e) {
+  if (e && e.preventDefault) e.preventDefault();
+  var name = $('signinName').value.trim();
+  var token = $('signinToken').value.trim();
+  var remember = $('signinRemember').checked;
+  if (!name) { showSignin('Display name required.'); return; }
+  if (!token) { showSignin('Admin token required.'); return; }
+  authedName = name;
+  authedToken = token;
+  rememberToken = remember;
+  prefs.adminName = name;
+  savePrefs(prefs);
+  setSubmitBusy(true);
+  var hideErr = $('signinError'); if (hideErr) hideErr.hidden = true;
+  connect();
+}
+
+function signOut(opts) {
+  var keepError = opts && opts.keepError;
+  authedName = '';
+  authedToken = '';
+  // Always clear stored token on explicit sign-out / auth rejection. The
+  // "remember" preference only governs auto-fill on the next sign-in.
+  clearStoredToken();
+  // Wipe the token field so a stale value can't be re-submitted; keep the
+  // name pre-filled because that's a convenience, not a credential.
+  var tokenInput = $('signinToken');
+  if (tokenInput) tokenInput.value = '';
+  if (ws) { try { ws.close(); } catch (_) {} ws = null; }
+  connected = false;
+  joinedCode = null;
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+  setStatus('offline');
+  $('topbarIdentity').hidden = true;
+  $('signoutBtn').hidden = true;
+  showSignin(keepError || '');
+}
+
+// ── Connection ──────────────────────────────────────────
 function connect() {
   if (connected || ws) return;
   setStatus('connecting');
-  var sock = new WebSocket(wsUrl());
+  var sock;
+  try { sock = new WebSocket(wsUrl()); }
+  catch (err) {
+    setSubmitBusy(false);
+    showSignin('Could not open WebSocket.');
+    return;
+  }
   ws = sock;
   sock.onopen = function () {
     sock.send(JSON.stringify({
       type: 'hello',
-      user: { id: getAdminUserId(), name: getAdminName() },
-      admin: { name: getAdminName() }
+      user: { id: getAdminUserId(), name: authedName },
+      admin: { name: authedName, token: authedToken }
     }));
   };
   sock.onmessage = function (ev) {
@@ -84,23 +198,28 @@ function connect() {
     handleMsg(m);
   };
   sock.onclose = function () {
+    var wasConnected = connected;
     connected = false;
     ws = null;
     setStatus('offline');
     if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
-    $('connectBtn').textContent = 'Connect';
+    setSubmitBusy(false);
+    // If we never authed in the first place, fall back to sign-in screen.
+    if (!wasConnected && !authedToken) showSignin();
+    else if (!wasConnected) {
+      // Connection dropped before hello:ack — likely server restart or rate-kill.
+      showSignin('Connection closed before sign-in completed.');
+    } else {
+      // Was authed and got disconnected — show sign-in for re-auth.
+      $('topbarIdentity').hidden = true;
+      $('signoutBtn').hidden = true;
+      showSignin('Connection lost.');
+    }
   };
   sock.onerror = function () {
     setStatus('offline');
+    setSubmitBusy(false);
   };
-}
-
-function disconnect() {
-  if (!ws) return;
-  try { ws.close(); } catch (_) {}
-  ws = null;
-  connected = false;
-  joinedCode = null;
 }
 
 function send(msg) {
@@ -110,9 +229,32 @@ function send(msg) {
 function handleMsg(m) {
   switch (m.type) {
     case 'hello:ack':
+      if (m.authTried && !m.isAdmin) {
+        // Token was sent but server rejected it.
+        try { ws.close(); } catch (_) {}
+        ws = null;
+        setSubmitBusy(false);
+        signOut({ keepError: 'Admin token rejected. Check the value in your server .env or console.' });
+        return;
+      }
+      if (!m.isAdmin) {
+        // Should never happen — we always send a token. Be safe.
+        try { ws.close(); } catch (_) {}
+        ws = null;
+        setSubmitBusy(false);
+        signOut({ keepError: 'Server did not grant admin access.' });
+        return;
+      }
+      // Authed.
+      saveStoredToken(authedToken, rememberToken);
       connected = true;
+      setSubmitBusy(false);
+      hideSignin();
       setStatus('online');
-      $('connectBtn').textContent = 'Disconnect';
+      var idLabel = $('topbarIdName');
+      if (idLabel) idLabel.textContent = '[DEV] ' + authedName;
+      $('topbarIdentity').hidden = false;
+      $('signoutBtn').hidden = false;
       send({ type: 'admin:list-lobbies' });
       send({ type: 'admin:subscribe-events' });
       if (refreshTimer) clearInterval(refreshTimer);
@@ -127,10 +269,6 @@ function handleMsg(m) {
     case 'admin:lobbies':
       lobbies = m.lobbies || [];
       renderLobbyList();
-      // Refresh selected lobby details when a lobby summary changed (chat count etc.)
-      if (selectedCode && joinedCode !== selectedCode) {
-        // Not joined: we don't auto-refresh details. User can click to refresh.
-      }
       break;
     case 'lobby:state':
       lobbyDetails[m.lobby.code] = m.lobby;
@@ -154,7 +292,6 @@ function handleMsg(m) {
       }
       break;
     case 'chat:message':
-      // Push into details for the joined lobby (or the currently selected one if it matches).
       var targetCode = joinedCode || selectedCode;
       if (targetCode && lobbyDetails[targetCode]) {
         lobbyDetails[targetCode].chat.push(m.message);
@@ -162,10 +299,14 @@ function handleMsg(m) {
       }
       break;
     case 'admin:ack':
-      // Optimistic; nothing else to do for now.
       break;
     case 'error':
-      alert('Server error: ' + m.message);
+      if (m.code === 'forbidden') {
+        // Mid-session privilege loss (shouldn't happen, but be defensive).
+        signOut({ keepError: 'Server denied an admin operation. Token may have changed.' });
+        return;
+      }
+      console.warn('server error', m.code, m.message);
       break;
   }
 }
@@ -252,11 +393,6 @@ function renderDetail() {
 
 function selectLobby(code) {
   selectedCode = code;
-  // We don't have a server-side admin endpoint to fetch one lobby, but
-  // listAllLobbies returns counts; the detailed view uses what we already
-  // have. To get full members/chat/ranges, the cleanest path is to ghost-join.
-  // For now we render what we have; if not joined, full chat history isn't
-  // visible but quick-chat still works.
   if (!lobbyDetails[code]) {
     var summary = lobbies.find(function (l) { return l.code === code; });
     if (summary) {
@@ -287,15 +423,28 @@ function leaveJoined() {
   setTimeout(function () { renderLobbyList(); renderDetail(); }, 50);
 }
 
+function deleteSelected() {
+  if (!selectedCode) return;
+  var d = lobbyDetails[selectedCode];
+  var label = (d && d.name) ? d.name + ' (' + selectedCode + ')' : selectedCode;
+  if (!confirm('Delete lobby "' + label + '"?\n\nThis kicks every member and cannot be undone.')) return;
+  var code = selectedCode;
+  send({ type: 'admin:delete-lobby', code: code });
+  if (joinedCode === code) joinedCode = null;
+  delete lobbyDetails[code];
+  selectedCode = null;
+  lobbies = lobbies.filter(function (l) { return l.code !== code; });
+  renderLobbyList();
+  renderDetail();
+  send({ type: 'admin:list-lobbies' });
+}
+
 function sendChat() {
   var text = $('chatInput').value.trim();
   if (!text || !selectedCode) return;
   if (joinedCode === selectedCode) {
-    // Already in the lobby — use the standard chat:send so it routes
-    // through the same path real members do.
     send({ type: 'chat:send', text: text });
   } else {
-    // Ghost chat from outside the lobby — admin-only path.
     send({ type: 'admin:send-chat', code: selectedCode, text: text });
   }
   $('chatInput').value = '';
@@ -328,7 +477,6 @@ function eventLineText(e) {
   var time = new Date(e.ts || Date.now()).toISOString().slice(11, 23);
   var lvl = (e.level || 'info').toUpperCase();
   var name = e.evt || e.message || '';
-  // Build a compact context blob from non-internal keys.
   var skip = { ts: 1, level: 1, evt: 1, message: 1, _bucket: 1 };
   var parts = [];
   for (var k in e) {
@@ -418,15 +566,16 @@ function bindEventsUi() {
 }
 
 function bindUi() {
-  $('adminName').value = prefs.adminName || '';
-  $('adminName').addEventListener('change', function () {
-    prefs.adminName = $('adminName').value.trim();
-    savePrefs(prefs);
+  $('signinForm').addEventListener('submit', attemptSignin);
+  $('signinTokenToggle').addEventListener('click', function () {
+    var input = $('signinToken');
+    var btn = $('signinTokenToggle');
+    if (!input || !btn) return;
+    var visible = input.type === 'text';
+    input.type = visible ? 'password' : 'text';
+    btn.textContent = visible ? 'show' : 'hide';
   });
-  $('connectBtn').addEventListener('click', function () {
-    if (connected) disconnect();
-    else connect();
-  });
+  $('signoutBtn').addEventListener('click', function () { signOut(); });
   $('refreshBtn').addEventListener('click', function () { send({ type: 'admin:list-lobbies' }); });
   $('lobbyList').addEventListener('click', function (e) {
     var item = e.target.closest('[data-code]');
@@ -434,6 +583,7 @@ function bindUi() {
   });
   $('joinBtn').addEventListener('click', joinSelected);
   $('leaveBtn').addEventListener('click', leaveJoined);
+  $('deleteBtn').addEventListener('click', deleteSelected);
   $('chatSendBtn').addEventListener('click', sendChat);
   $('chatInput').addEventListener('keydown', function (e) {
     if (e.key === 'Enter') sendChat();
@@ -448,7 +598,24 @@ function bindUi() {
   });
 }
 
-bindUi();
-bindEventsUi();
+function bootstrap() {
+  bindUi();
+  bindEventsUi();
+  // Try silent auto-sign-in if a token is remembered.
+  var stored = loadStoredToken();
+  if (stored.token && prefs.adminName) {
+    authedName = prefs.adminName;
+    authedToken = stored.token;
+    rememberToken = stored.remembered;
+    setSubmitBusy(true); // show busy state in case sign-in screen flashes
+    showSignin();
+    // Brief tick so the overlay paints, then attempt connect.
+    setTimeout(connect, 0);
+  } else {
+    showSignin();
+  }
+}
+
+bootstrap();
 
 })();

@@ -39,6 +39,26 @@ export function sendChat({ ws, msg, send, broadcast, presence, store, logger }) 
   send(ws, { type: 'admin:ack', action: 'send-chat', code: msg.code });
 }
 
+export function deleteLobby({ ws, msg, send, broadcast, presence, store, logger }) {
+  const ent = ensureAdmin(presence, ws, send);
+  if (!ent) return;
+  const code = msg.code;
+  const lobby = store.getLobby(code);
+  if (!lobby) return send(ws, { type: 'error', code: 'not_found', message: 'lobby not found' });
+
+  // Tell everyone in the lobby it's closed before we tear it down.
+  broadcast(code, { type: 'lobby:closed', code });
+
+  // Detach every connected member from the lobby in presence so subsequent
+  // broadcasts don't try to reach a code that no longer exists.
+  const peers = Array.from(presence.membersOf(code));
+  for (const peer of peers) presence.unbind(peer);
+
+  store.deleteLobby(code);
+  logger?.info?.({ evt: 'handler:admin:delete-lobby', code, by: ent.userId, kicked: peers.length });
+  send(ws, { type: 'admin:ack', action: 'delete-lobby', code });
+}
+
 export function subscribeEventsHandler({ ws, send, presence, logger }) {
   if (!ensureAdmin(presence, ws, send)) return;
   // If already subscribed, do nothing — idempotent.

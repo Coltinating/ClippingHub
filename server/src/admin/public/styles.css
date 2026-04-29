@@ -53,6 +53,10 @@
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --t-fast: 120ms;
   --t-med: 180ms;
+
+  /* Chrome heights — keep .layout and .events-view content area in sync */
+  --topbar-h: 52px;
+  --topnav-h: 44px;
 }
 
 * { box-sizing: border-box; }
@@ -326,6 +330,23 @@ input { font-family: inherit; }
 .btn-sm { padding: 5px 11px; font-size: 12px; }
 .btn-xs { padding: 3px 8px; font-size: 11px; }
 
+.btn-danger {
+  background: var(--dev-bg);
+  border-color: var(--dev-border);
+  color: var(--dev-soft);
+  font-weight: 600;
+}
+.btn-danger:hover {
+  background: rgba(255, 59, 48, 0.22);
+  border-color: var(--dev);
+  color: #fff;
+}
+.btn-danger:focus-visible {
+  outline: none;
+  border-color: var(--dev);
+  box-shadow: 0 0 0 3px rgba(255, 59, 48, 0.32);
+}
+
 /* ================================================================
    Layout
    ================================================================ */
@@ -333,7 +354,8 @@ input { font-family: inherit; }
 .layout {
   display: grid;
   grid-template-columns: 300px 1fr;
-  height: calc(100vh - 52px);
+  height: calc(100vh - var(--topbar-h) - var(--topnav-h));
+  min-height: 0;
 }
 
 /* ----- Sidebar ----- */
@@ -825,10 +847,13 @@ input { font-family: inherit; }
 
 .topnav {
   display: flex;
+  align-items: flex-end;
   gap: 4px;
-  padding: 6px 16px 0;
+  padding: 0 16px;
+  height: var(--topnav-h);
   background: var(--surface-1);
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 .topnav-tab {
   background: transparent;
@@ -856,7 +881,8 @@ input { font-family: inherit; }
 .events-view {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 96px);
+  height: calc(100vh - var(--topbar-h) - var(--topnav-h));
+  min-height: 0;
   background: var(--bg);
 }
 .events-toolbar {
@@ -940,3 +966,247 @@ input { font-family: inherit; }
 .event-line.bucket-ws\:close  { border-left-color: var(--text-tertiary); opacity: 0.85; }
 .event-line.bucket-ws\:error  { border-left-color: var(--red); color: var(--red); }
 .event-line.bucket-other      { border-left-color: var(--border); }
+
+/* ================================================================
+   Sign-in overlay
+   ================================================================ */
+
+body.signin-active { overflow: hidden; }
+
+/* Author rules with `display:` would otherwise override the UA `[hidden]`
+   default at equal specificity, so be explicit for elements we toggle via
+   the `hidden` attribute. */
+.signin-overlay[hidden],
+.topbar-identity[hidden] { display: none !important; }
+
+.signin-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(ellipse at top, rgba(91, 177, 255, 0.06), transparent 60%),
+    radial-gradient(ellipse at bottom, rgba(255, 59, 48, 0.04), transparent 60%),
+    var(--bg-deep);
+  backdrop-filter: blur(8px);
+  animation: signinFade 220ms var(--ease);
+}
+
+@keyframes signinFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.signin-card {
+  width: 100%;
+  max-width: 420px;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface-1));
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 28px 26px 22px;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.55),
+    0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Hairline red bar across the top — mirrors topbar */
+.signin-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    var(--dev) 25%,
+    var(--dev-soft) 50%,
+    var(--dev) 75%,
+    transparent 100%
+  );
+  opacity: 0.7;
+}
+
+.signin-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.signin-title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.signin-sub {
+  margin: 0 0 18px;
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.signin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.signin-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.signin-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+.signin-form input[type="text"],
+.signin-form input[type="password"] {
+  background: var(--surface-3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 13px;
+  transition:
+    border-color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+}
+
+.signin-form input[type="text"]:hover,
+.signin-form input[type="password"]:hover {
+  border-color: var(--border-strong);
+}
+
+.signin-form input[type="text"]:focus,
+.signin-form input[type="password"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface-2);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.signin-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.signin-input-row input {
+  flex: 1;
+  font-family: "JetBrains Mono", "SF Mono", Consolas, ui-monospace, monospace;
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+}
+
+.signin-input-row .btn-xs {
+  padding: 0 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.signin-hint {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 2px;
+}
+
+.signin-hint code {
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  font-family: "JetBrains Mono", Consolas, monospace;
+}
+
+.signin-remember {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.signin-remember input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.signin-error {
+  background: rgba(224, 115, 115, 0.08);
+  border: 1px solid rgba(224, 115, 115, 0.32);
+  color: #ffb6b6;
+  border-radius: var(--r-sm);
+  padding: 9px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  animation: signinShake 320ms var(--ease);
+}
+
+@keyframes signinShake {
+  0%   { transform: translateX(0); }
+  20%  { transform: translateX(-4px); }
+  40%  { transform: translateX(4px); }
+  60%  { transform: translateX(-3px); }
+  80%  { transform: translateX(2px); }
+  100% { transform: translateX(0); }
+}
+
+.signin-submit {
+  margin-top: 6px;
+  padding: 10px 14px;
+  font-size: 13px;
+  width: 100%;
+  justify-content: center;
+}
+
+/* ================================================================
+   Topbar identity (post sign-in)
+   ================================================================ */
+
+.topbar-identity {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.2;
+  margin-right: 4px;
+}
+
+.topbar-id-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.topbar-id-name {
+  font-size: 12.5px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Auth-failed pill state — used briefly between rejection and overlay return */
+.conn-pill[data-state="auth-failed"] {
+  color: var(--red);
+  border-color: rgba(224, 115, 115, 0.4);
+  background: rgba(224, 115, 115, 0.1);
+}

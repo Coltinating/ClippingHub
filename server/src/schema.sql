@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS lobbies (
   id TEXT NOT NULL,
   name TEXT NOT NULL,
   password TEXT NOT NULL DEFAULT '',
+  password_hash TEXT NOT NULL DEFAULT '',
   host_id TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL

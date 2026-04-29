@@ -29,6 +29,7 @@ export const Inbound = z.discriminatedUnion('type', [
   z.object({ type: z.literal('transcript:stop') }),
   z.object({ type: z.literal('admin:list-lobbies') }),
   z.object({ type: z.literal('admin:send-chat'), code: z.string(), text: z.string().min(1).max(2000) }),
+  z.object({ type: z.literal('admin:delete-lobby'), code: z.string() }),
   z.object({ type: z.literal('admin:subscribe-events') }),
   z.object({ type: z.literal('admin:unsubscribe-events') }),
   z.object({ type: z.literal('ping') })
@@ -64,7 +65,7 @@ const Lobby = z.object({
 });
 
 export const Outbound = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('hello:ack'), serverVersion: z.string() }),
+  z.object({ type: z.literal('hello:ack'), serverVersion: z.string(), isAdmin: z.boolean().optional(), authTried: z.boolean().optional() }),
   z.object({ type: z.literal('error'), code: z.string(), message: z.string() }),
   z.object({ type: z.literal('lobby:state'), lobby: Lobby }),
   z.object({ type: z.literal('lobby:closed'), code: z.string() }),

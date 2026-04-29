@@ -42,8 +42,10 @@ export function makeRouter({ store, presence, handlers, logger }) {
     let parsed;
     try { parsed = Inbound.parse(JSON.parse(raw.toString())); }
     catch (e) {
-      logger?.warn?.({ evt: 'ws:bad-inbound', err: e.message });
-      send(ws, { type: 'error', code: 'bad_request', message: e.message });
+      // Don't echo Zod/JSON errors back — they can include the offending payload
+      // (e.g. user-submitted passwords). Log full detail server-side.
+      logger?.warn?.({ evt: 'ws:bad-inbound', err: e.message, stack: e.stack });
+      send(ws, { type: 'error', code: 'bad_request', message: 'invalid request' });
       return;
     }
     if (!INBOUND_LOG_SKIP.has(parsed.type)) {
@@ -52,13 +54,14 @@ export function makeRouter({ store, presence, handlers, logger }) {
     }
     const handler = handlers[parsed.type];
     if (!handler) {
-      send(ws, { type: 'error', code: 'no_handler', message: parsed.type });
+      send(ws, { type: 'error', code: 'no_handler', message: 'unknown message type' });
       return;
     }
     try { handler({ ws, msg: parsed, send, broadcast, presence, store, logger }); }
     catch (e) {
-      logger?.warn?.({ evt: 'handler:error', type: parsed.type, err: e.message });
-      send(ws, { type: 'error', code: 'handler_error', message: e.message });
+      // Generic message to client; full error stays in server logs.
+      logger?.error?.({ evt: 'handler:error', type: parsed.type, err: e.message, stack: e.stack });
+      send(ws, { type: 'error', code: 'handler_error', message: 'internal error' });
     }
   }
   function onClose(ws) {

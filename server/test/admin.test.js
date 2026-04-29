@@ -23,9 +23,14 @@ function next(ws, predicate) {
   });
 }
 
+const TEST_ADMIN_TOKEN = 'test-admin-token-xyz';
+
 describe('admin', () => {
   let h;
-  beforeAll(async () => { h = await startServer({ port: 0, dataDir: ':memory:' }); });
+  beforeAll(async () => {
+    process.env.ADMIN_TOKEN = TEST_ADMIN_TOKEN;
+    h = await startServer({ port: 0, dataDir: ':memory:' });
+  });
   afterAll(async () => { await h.close(); });
 
   it('admin can list lobbies and send chat without joining', async () => {
@@ -42,7 +47,7 @@ describe('admin', () => {
     await send(adm, {
       type: 'hello',
       user: { id: 'admin1', name: 'Mark' },
-      admin: { name: 'Mark' }
+      admin: { name: 'Mark', token: TEST_ADMIN_TOKEN }
     });
     await next(adm, m => m.type === 'hello:ack');
 
@@ -77,7 +82,7 @@ describe('admin', () => {
     await send(adm, {
       type: 'hello',
       user: { id: 'admin2', name: 'Mark' },
-      admin: { name: 'Mark' }
+      admin: { name: 'Mark', token: TEST_ADMIN_TOKEN }
     });
     await next(adm, m => m.type === 'hello:ack');
 
@@ -101,5 +106,60 @@ describe('admin', () => {
     const m = await next(ws, mm => mm.type === 'error');
     expect(m.code).toBe('forbidden');
     ws.close();
+  });
+
+  it('admin can delete a lobby; members are kicked with lobby:closed', async () => {
+    // Member creates a lobby and stays joined.
+    const a = await open(`ws://127.0.0.1:${h.port}/ws`);
+    await send(a, { type: 'hello', user: { id: 'carol', name: 'Carol' } });
+    await next(a, m => m.type === 'hello:ack');
+    await send(a, { type: 'lobby:create', name: 'Doomed', password: '' });
+    const aState = await next(a, m => m.type === 'lobby:state');
+    const code = aState.lobby.code;
+
+    // Admin connects and deletes the lobby.
+    const adm = await open(`ws://127.0.0.1:${h.port}/ws`);
+    await send(adm, {
+      type: 'hello',
+      user: { id: 'admin3', name: 'Mark' },
+      admin: { name: 'Mark', token: TEST_ADMIN_TOKEN }
+    });
+    await next(adm, m => m.type === 'hello:ack');
+
+    // Carol should receive a lobby:closed broadcast.
+    const aClosedP = next(a, m => m.type === 'lobby:closed');
+    await send(adm, { type: 'admin:delete-lobby', code });
+
+    const closed = await aClosedP;
+    expect(closed.code).toBe(code);
+
+    const ack = await next(adm, m => m.type === 'admin:ack' && m.action === 'delete-lobby');
+    expect(ack.code).toBe(code);
+
+    // Lobby is gone from the listing.
+    await send(adm, { type: 'admin:list-lobbies' });
+    const list = await next(adm, m => m.type === 'admin:lobbies');
+    expect(list.lobbies.find(l => l.code === code)).toBeUndefined();
+
+    a.close(); adm.close();
+  });
+
+  it('non-admin cannot use admin:delete-lobby', async () => {
+    // Set up a lobby first so there's something targetable.
+    const a = await open(`ws://127.0.0.1:${h.port}/ws`);
+    await send(a, { type: 'hello', user: { id: 'dave', name: 'Dave' } });
+    await next(a, m => m.type === 'hello:ack');
+    await send(a, { type: 'lobby:create', name: 'Safe', password: '' });
+    const aState = await next(a, m => m.type === 'lobby:state');
+    const code = aState.lobby.code;
+
+    const ws = await open(`ws://127.0.0.1:${h.port}/ws`);
+    await send(ws, { type: 'hello', user: { id: 'rando2', name: 'Rando2' } });
+    await next(ws, m => m.type === 'hello:ack');
+    await send(ws, { type: 'admin:delete-lobby', code });
+    const m = await next(ws, mm => mm.type === 'error');
+    expect(m.code).toBe('forbidden');
+
+    a.close(); ws.close();
   });
 });

@@ -7,18 +7,57 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <!-- ── Sign-in overlay ────────────────────────────────────── -->
+  <div id="signinOverlay" class="signin-overlay" data-state="signin">
+    <div class="signin-card" role="dialog" aria-labelledby="signinTitle">
+      <div class="signin-brand">
+        <span class="dev-tag">[DEV]</span>
+        <span class="signin-title" id="signinTitle">ClippingHub Admin</span>
+      </div>
+      <p class="signin-sub">Operator console — sign in with your admin token to continue.</p>
+
+      <form id="signinForm" class="signin-form" autocomplete="off">
+        <label class="signin-field">
+          <span class="signin-label">Display name</span>
+          <input id="signinName" type="text" placeholder="Mark" autocomplete="off" required maxlength="32">
+        </label>
+
+        <label class="signin-field">
+          <span class="signin-label">Admin token</span>
+          <div class="signin-input-row">
+            <input id="signinToken" type="password" placeholder="paste token from server console or .env" autocomplete="off" required spellcheck="false">
+            <button type="button" id="signinTokenToggle" class="btn btn-ghost btn-xs" aria-label="Show token">show</button>
+          </div>
+          <span class="signin-hint">If <code>ADMIN_TOKEN</code> isn't set in the server <code>.env</code>, the server prints a random dev token on boot.</span>
+        </label>
+
+        <label class="signin-remember">
+          <input id="signinRemember" type="checkbox">
+          <span>Remember on this device</span>
+        </label>
+
+        <div id="signinError" class="signin-error" hidden></div>
+
+        <button type="submit" id="signinSubmit" class="btn btn-primary signin-submit">
+          <span id="signinSubmitLabel">Sign in</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── Main console ──────────────────────────────────────── -->
   <header class="topbar">
     <div class="brand">
       <span class="dev-tag">[DEV]</span>
       <span class="brand-title">ClippingHub Admin</span>
     </div>
     <div class="topbar-spacer"></div>
-    <label class="topbar-field">
-      <span class="topbar-label">Admin name</span>
-      <input id="adminName" type="text" placeholder="Mark" autocomplete="off">
-    </label>
+    <div class="topbar-identity" id="topbarIdentity" hidden>
+      <span class="topbar-id-label">Signed in as</span>
+      <span class="topbar-id-name" id="topbarIdName">—</span>
+    </div>
     <span id="connStatus" class="conn-pill" data-state="offline" role="status" aria-live="polite">● Offline</span>
-    <button id="connectBtn" class="btn btn-primary btn-sm" aria-label="Toggle server connection">Connect</button>
+    <button id="signoutBtn" class="btn btn-ghost btn-sm" hidden>Sign out</button>
   </header>
 
   <nav class="topnav">
@@ -56,6 +95,7 @@
           <div class="detail-actions">
             <button id="joinBtn" class="btn btn-primary btn-sm">Join as [DEV]</button>
             <button id="leaveBtn" class="btn btn-ghost btn-sm" hidden>Leave</button>
+            <button id="deleteBtn" class="btn btn-danger btn-sm" title="Permanently delete this lobby (kicks all members)">Delete</button>
           </div>
         </div>
 

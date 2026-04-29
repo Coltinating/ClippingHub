@@ -3,6 +3,7 @@ import { verifyAdminToken, adminPrefixedName } from '../admin/auth.js';
 export function hello({ ws, msg, send, presence, logger }) {
   let user = msg.user;
   let isAdmin = false;
+  const authTried = !!(msg.admin && msg.admin.token);
   if (msg.admin && verifyAdminToken(msg.admin.token)) {
     isAdmin = true;
     user = { ...user, name: adminPrefixedName(msg.admin.name) };
@@ -10,8 +11,8 @@ export function hello({ ws, msg, send, presence, logger }) {
   presence.attach(ws, user);
   const ent = presence.who(ws);
   if (ent) ent.isAdmin = isAdmin;
-  logger?.info?.({ evt: 'handler:hello', userId: user?.id, name: user?.name, isAdmin });
-  send(ws, { type: 'hello:ack', serverVersion: '0.1.0' });
+  logger?.info?.({ evt: 'handler:hello', userId: user?.id, name: user?.name, isAdmin, authTried });
+  send(ws, { type: 'hello:ack', serverVersion: '0.1.0', isAdmin, authTried });
 }
 
 function sendPendingDeliveries({ ws, send, store, code, userId }) {
