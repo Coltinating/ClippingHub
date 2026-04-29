@@ -55,6 +55,26 @@ export function lobbyJoin({ ws, msg, send, broadcast, presence, store, logger })
   if (me) broadcast(lobby.code, { type: 'member:joined', member: me }, ws);
 }
 
+export function profileUpdate({ ws, msg, send, broadcast, presence, store, logger }) {
+  const who = presence.who(ws);
+  if (!who) return send(ws, { type: 'error', code: 'no_session', message: 'hello first' });
+  const user = msg.user || {};
+  const cleaned = {
+    id: who.userId, // immutable
+    name: typeof user.name === 'string' ? user.name.slice(0, 64) : (who.userName || ''),
+    xHandle: typeof user.xHandle === 'string' ? user.xHandle.slice(0, 32) : '',
+    color: typeof user.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(user.color) ? user.color : '',
+    pfpDataUrl: typeof user.pfpDataUrl === 'string' && user.pfpDataUrl.length < 300000 ? user.pfpDataUrl : ''
+  };
+  presence.update(ws, cleaned);
+  if (who.code) {
+    const updated = store.updateMemberProfile(who.code, who.userId, cleaned);
+    if (updated) broadcast(who.code, { type: 'member:updated', member: updated });
+  }
+  send(ws, { type: 'profile:update-ack' });
+  logger?.info?.({ evt: 'handler:profile:update', userId: who.userId, name: cleaned.name });
+}
+
 export function lobbyLeave({ ws, broadcast, presence, store, logger }) {
   const who = presence.who(ws);
   const code = presence.unbind(ws);

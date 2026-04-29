@@ -148,6 +148,20 @@ describe('integration', () => {
     });
   });
 
+  describe('profile:update', () => {
+    it('propagates to lobby members and broadcasts member:updated', async () => {
+      const { host, guest } = await twoMemberLobby(h);
+      const updates = [];
+      guest.ws.on('message', m => { const p = JSON.parse(m.toString()); if (p.type === 'member:updated') updates.push(p); });
+      await host.send({ type: 'profile:update', user: { name: 'Alicia', xHandle: '@a' } });
+      await tick(50);
+      const seen = updates.find(u => u.member.id === host.userId);
+      expect(seen?.member.name).toBe('Alicia');
+      expect(seen?.member.xHandle).toBe('@a');
+      host.ws.close(); guest.ws.close();
+    });
+  });
+
   describe('auto-detach on Clipper lifecycle', () => {
     it('lobby:leave detaches helpers with member:updated(viewer)', async () => {
       const { host, guest } = await twoMemberLobby(h);

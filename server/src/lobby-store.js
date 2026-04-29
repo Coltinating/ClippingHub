@@ -24,6 +24,15 @@ export class LobbyStore {
           x_handle=excluded.x_handle, color=excluded.color, pfp_data_url=excluded.pfp_data_url,
           assist_user_id=excluded.assist_user_id, is_admin=excluded.is_admin`),
       updateMemberRole: this.db.prepare(`UPDATE members SET role=?, last_seen_at=? WHERE lobby_code=? AND id=?`),
+      updateMemberProfile: this.db.prepare(`
+        UPDATE members
+        SET name = COALESCE(@name, name),
+            x_handle = COALESCE(@x_handle, x_handle),
+            color = COALESCE(@color, color),
+            pfp_data_url = COALESCE(@pfp_data_url, pfp_data_url),
+            last_seen_at = @now
+        WHERE lobby_code = @code AND id = @id
+      `),
       updateMemberAssist: this.db.prepare(`UPDATE members SET assist_user_id=?, last_seen_at=? WHERE lobby_code=? AND id=?`),
       updateMemberAssistAndRole: this.db.prepare(
         `UPDATE members SET assist_user_id=?, role=?, last_seen_at=? WHERE lobby_code=? AND id=?`
@@ -123,6 +132,23 @@ export class LobbyStore {
       ? this.cleanupHelpersOf(c, memberId)
       : [];
     return { updatedMember, affectedHelpers };
+  }
+
+  updateMemberProfile(code, memberId, fields) {
+    const c = sanitizeCode(code);
+    const existing = this.getMember(c, memberId);
+    if (!existing) return null;
+    this.q.updateMemberProfile.run({
+      code: c,
+      id: memberId,
+      name: typeof fields.name === 'string' ? fields.name.slice(0, 64) : null,
+      x_handle: typeof fields.xHandle === 'string' ? fields.xHandle.slice(0, 32) : null,
+      color: typeof fields.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(fields.color) ? fields.color : null,
+      pfp_data_url: typeof fields.pfpDataUrl === 'string' && fields.pfpDataUrl.length < 300000 ? fields.pfpDataUrl : null,
+      now: Date.now()
+    });
+    this.q.bumpLobby.run(Date.now(), c);
+    return this.getMember(c, memberId);
   }
 
   setMemberAssist(code, memberId, assistUserId, role) {

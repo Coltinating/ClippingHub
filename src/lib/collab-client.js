@@ -113,7 +113,13 @@ CollabClient.prototype._dispatch = function (msg) {
     if (p.matchType === msg.type || (msg.type === 'error' && p.matchType !== 'error')) {
       clearTimeout(p.timeoutId);
       this.pending.splice(i, 1);
-      if (msg.type === 'error') p.reject(new Error(msg.message));
+      if (msg.type === 'error') {
+        var err = new Error(msg.message || 'error');
+        err.code = msg.code;
+        err.suggestion = msg.suggestion;
+        err.raw = msg;
+        p.reject(err);
+      }
       else p.resolve(msg);
       break;
     }
@@ -141,6 +147,10 @@ CollabClient.prototype.createLobby = function (opts) {
 };
 CollabClient.prototype.joinLobby = function (opts) {
   return this._request({ type: 'lobby:join', code: opts.code, password: opts.password || '' }, 'lobby:state');
+};
+CollabClient.prototype.updateProfile = function (user) {
+  this.user = user;  // keep self.user fresh so reconnects use the new name
+  if (this.connected) this._send({ type: 'profile:update', user: user });
 };
 CollabClient.prototype.leaveLobby = function () { this._send({ type: 'lobby:leave' }); };
 CollabClient.prototype.sendChat = function (text) { this._send({ type: 'chat:send', text: text }); };

@@ -49,6 +49,7 @@ export async function startServer(overrides = {}) {
     'lobby:create': auth.lobbyCreate,
     'lobby:join':   auth.lobbyJoin,
     'lobby:leave':  auth.lobbyLeave,
+    'profile:update': auth.profileUpdate,
     'chat:send':    chat.chatSend,
     'member:set-role':       roles.setRole,
     'member:set-assist':     roles.setAssist,

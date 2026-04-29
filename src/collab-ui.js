@@ -167,6 +167,9 @@ function updateLocalProfile(partial) {
     state.me.pfpDataUrl = window.Profile.validatePfpDataUrl(partial.pfpDataUrl, 256000) ? partial.pfpDataUrl : '';
   }
   savePrefs();
+  try {
+    if (client && client.updateProfile) client.updateProfile(mePayload());
+  } catch (_) {}
   emit();
 }
 

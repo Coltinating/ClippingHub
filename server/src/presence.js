@@ -4,6 +4,13 @@ export class Presence {
     this.byCode = new Map();
   }
   attach(ws, user) { this.byWs.set(ws, { userId: user.id, userName: user.name, user }); }
+  update(ws, user) {
+    const ent = this.byWs.get(ws);
+    if (!ent) return null;
+    ent.userName = user.name || ent.userName;
+    ent.user = { ...(ent.user || {}), ...user };
+    return ent;
+  }
   bind(ws, code) {
     const ent = this.byWs.get(ws);
     if (!ent) return;

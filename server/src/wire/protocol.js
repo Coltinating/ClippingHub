@@ -18,6 +18,7 @@ export const Inbound = z.discriminatedUnion('type', [
   z.object({ type: z.literal('lobby:create'), name: z.string(), password: z.string().default(''), code: z.string().optional() }),
   z.object({ type: z.literal('lobby:join'),   code: z.string(), password: z.string().default('') }),
   z.object({ type: z.literal('lobby:leave') }),
+  z.object({ type: z.literal('profile:update'), user: User.partial().optional() }),
   z.object({ type: z.literal('chat:send'),    text: z.string().min(1).max(2000) }),
   z.object({ type: z.literal('member:set-role'),   memberId: z.string(), role: z.enum(['clipper', 'helper', 'viewer']) }),
   z.object({ type: z.literal('member:set-assist'), assistUserId: z.string().nullable(), role: z.enum(['clipper', 'helper', 'viewer']).optional() }),
@@ -66,7 +67,8 @@ const Lobby = z.object({
 
 export const Outbound = z.discriminatedUnion('type', [
   z.object({ type: z.literal('hello:ack'), serverVersion: z.string(), isAdmin: z.boolean().optional(), authTried: z.boolean().optional() }),
-  z.object({ type: z.literal('error'), code: z.string(), message: z.string() }),
+  z.object({ type: z.literal('error'), code: z.string(), message: z.string(), suggestion: z.string().optional() }),
+  z.object({ type: z.literal('profile:update-ack') }),
   z.object({ type: z.literal('lobby:state'), lobby: Lobby }),
   z.object({ type: z.literal('lobby:closed'), code: z.string() }),
   z.object({ type: z.literal('member:joined'), member: Member }),

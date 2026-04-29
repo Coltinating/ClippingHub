@@ -137,3 +137,24 @@ describe('setMemberRole returns affectedHelpers', () => {
     expect(result.affectedHelpers[0].role).toBe('viewer');
   });
 });
+
+describe('updateMemberProfile', () => {
+  test('patches name + xHandle + color + pfpDataUrl, leaves role/assist intact', () => {
+    const store = new LobbyStore(buildTestDb());
+    store.createLobby({ name: 'L', user: { id: 'u1', name: 'Alice' }, code: 'AAAAAA' });
+    store.joinLobby({ code: 'AAAAAA', user: { id: 'u2', name: 'Bob', xHandle: '@b', color: '#000000', pfpDataUrl: '' } });
+    store.setMemberRole('AAAAAA', 'u2', 'clipper');
+    const updated = store.updateMemberProfile('AAAAAA', 'u2', { name: 'Bobby', xHandle: '@bobby', color: '#ffffff', pfpDataUrl: '' });
+    expect(updated.name).toBe('Bobby');
+    expect(updated.xHandle).toBe('@bobby');
+    expect(updated.color).toBe('#ffffff');
+    expect(updated.role).toBe('clipper'); // role untouched
+  });
+
+  test('returns null when member does not exist', () => {
+    const store = new LobbyStore(buildTestDb());
+    store.createLobby({ name: 'L', user: { id: 'u1', name: 'Alice' }, code: 'AAAAAA' });
+    expect(() => store.updateMemberProfile('AAAAAA', 'ghost', { name: 'X' })).not.toThrow();
+    expect(store.updateMemberProfile('AAAAAA', 'ghost', { name: 'X' })).toBeNull();
+  });
+});
