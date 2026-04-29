@@ -78,13 +78,7 @@ var state = {
     name: normalizeName(prefs.meName || 'You'),
     xHandle: (window.Profile && window.Profile.sanitizeXHandle(prefs.meXHandle)) || '',
     color: (window.Profile && window.Profile.resolveUserColor({ color: prefs.meColor }, '')) || '',
-    pfpDataUrl: (window.Profile && window.Profile.validatePfpDataUrl(prefs.mePfpDataUrl, 256000) ? prefs.mePfpDataUrl : '') || '',
-    role: 'clipper'
-  },
-  assignment: {
-    role: normalizeRole(prefs.role || 'clipper'),
-    assistUserId: String(prefs.assistUserId || '').trim(),
-    assistUserName: ''
+    pfpDataUrl: (window.Profile && window.Profile.validatePfpDataUrl(prefs.mePfpDataUrl, 256000) ? prefs.mePfpDataUrl : '') || ''
   },
   lobby: null,
   members: [],
@@ -100,9 +94,7 @@ function savePrefs() {
       meXHandle: state.me.xHandle || '',
       meColor: state.me.color || '',
       mePfpDataUrl: state.me.pfpDataUrl || '',
-      lastCode: state.lobby ? state.lobby.code : state.lastCode,
-      role: state.assignment.role,
-      assistUserId: state.assignment.assistUserId
+      lastCode: state.lobby ? state.lobby.code : state.lastCode
     }));
   } catch (_) {}
 }
@@ -136,75 +128,41 @@ function findMemberById(memberId) {
   return null;
 }
 
-function syncAssistTarget() {
-  if (!state.assignment.assistUserId) {
-    state.assignment.assistUserName = '';
-    return;
-  }
-  var match = findMemberById(state.assignment.assistUserId);
-  if (!match || match.id === state.me.id) {
-    state.assignment.assistUserId = '';
-    state.assignment.assistUserName = '';
-    return;
-  }
-  state.assignment.assistUserName = normalizeName(match.name || '');
+function myMember() {
+  return state.members.find(function (m) { return m.id === state.me.id; }) || null;
 }
 
-function setRole(role) {
-  var prev = state.assignment.role;
-  state.assignment.role = normalizeRole(role);
-  dlog('ACTION', 'setRole', { from: prev, to: state.assignment.role });
-  if (state.assignment.role !== 'helper') {
-    state.assignment.assistUserId = '';
-    state.assignment.assistUserName = '';
-  } else {
-    syncAssistTarget();
-  }
-  emit();
+function myRole() {
+  return (myMember() && myMember().role) || 'viewer';
 }
 
-function setAssistUserId(userId) {
-  var prev = state.assignment.assistUserId;
-  state.assignment.assistUserId = String(userId || '').trim();
-  syncAssistTarget();
-  dlog('ACTION', 'setAssistUserId', { from: prev, to: state.assignment.assistUserId });
-  if (client && state.lobby) client.setAssist(state.assignment.assistUserId || null);
-  emit();
+function myAssistUserId() {
+  return (myMember() && myMember().assistUserId) || null;
 }
 
 function getMarkContext() {
   var meName = normalizeName(state.me.name || 'You') || 'You';
   var meId = state.me.id;
-  if (state.assignment.role !== 'helper') {
+  if (myRole() !== 'helper') {
     return {
-      userId: meId,
-      userName: meName,
-      clipperId: meId,
-      clipperName: meName,
-      helperId: null,
-      helperName: ''
+      userId: meId, userName: meName,
+      clipperId: meId, clipperName: meName,
+      helperId: null, helperName: ''
     };
   }
-  syncAssistTarget();
-  var assist = findMemberById(state.assignment.assistUserId);
+  var assist = findMemberById(myAssistUserId());
   if (!assist) {
     return {
-      userId: meId,
-      userName: meName,
-      clipperId: meId,
-      clipperName: meName,
-      helperId: null,
-      helperName: ''
+      userId: meId, userName: meName,
+      clipperId: meId, clipperName: meName,
+      helperId: null, helperName: ''
     };
   }
   var clipperName = normalizeName(assist.name || '') || 'Clipper';
   return {
-    userId: meId,
-    userName: meName,
-    clipperId: assist.id,
-    clipperName: clipperName,
-    helperId: meId,
-    helperName: meName
+    userId: meId, userName: meName,
+    clipperId: assist.id, clipperName: clipperName,
+    helperId: meId, helperName: meName
   };
 }
 
@@ -238,9 +196,8 @@ function getUserColor(userId, userName) {
 function emit() {
   // Log a thin summary so we can trace state changes without flooding.
   dlog('COLLAB:STATE', 'emit', {
-    role: state.assignment.role,
-    meRole: state.me && state.me.role,
-    assistUserId: state.assignment.assistUserId || '',
+    role: myRole(),
+    assistUserId: myAssistUserId() || '',
     lobby: state.lobby ? state.lobby.code : null,
     members: state.members.length,
     inboundDeliveries: _inboundDeliveries.length
@@ -284,7 +241,6 @@ function applyLobbySnapshot(lobby) {
     state.members = [];
     state.chat = [];
     state.clipRanges = [];
-    state.me.role = state.assignment.role === 'helper' ? 'helper' : 'clipper';
     setStage(client && client.connected ? 'no-lobby' : 'offline');
     emit();
     return;
@@ -300,23 +256,6 @@ function applyLobbySnapshot(lobby) {
   state.members = Array.isArray(lobby.members) ? lobby.members.slice() : [];
   state.chat = Array.isArray(lobby.chat) ? lobby.chat.slice() : [];
   state.clipRanges = Array.isArray(lobby.clipRanges) ? lobby.clipRanges.slice() : [];
-
-  var myMember = state.members.find(function (m) { return m.id === state.me.id; }) || null;
-  var normalize = (window.RolePermissions && window.RolePermissions.normalizeRole) || function (r) { return r || 'viewer'; };
-  state.me.role = myMember ? normalize(myMember.role) : 'viewer';
-  if (myMember && myMember.assistUserId) {
-    state.assignment.assistUserId = myMember.assistUserId;
-    state.assignment.role = 'helper';
-  } else if (state.me.role === 'helper') {
-    state.assignment.role = 'helper';
-  } else if (state.me.role === 'clipper') {
-    state.assignment.role = 'clipper';
-    state.assignment.assistUserId = '';
-  } else {
-    state.assignment.role = 'viewer';
-    state.assignment.assistUserId = '';
-  }
-  syncAssistTarget();
   setStage('in-lobby');
   emit();
 }
@@ -565,9 +504,9 @@ function removeClipRange(rangeId) {
 function _deliveryPrecheck(clip) {
   if (!state.lobby) return { ok: false, reason: 'no-lobby', message: 'Join a lobby first' };
   if (!client) return { ok: false, reason: 'no-client', message: 'Not connected to server' };
-  if (state.assignment.role !== 'helper') return { ok: false, reason: 'not-helper', message: 'Switch role to Helper first' };
+  if (myRole() !== 'helper') return { ok: false, reason: 'not-helper', message: 'Switch role to Helper first' };
   if (!clip || !clip.id) return { ok: false, reason: 'no-clip', message: 'Clip is missing or invalid' };
-  var target = state.assignment.assistUserId || '';
+  var target = myAssistUserId() || '';
   if (!target) return { ok: false, reason: 'no-target', message: 'Pick an assigned Clipper first' };
   return { ok: true, target: target };
 }
@@ -650,12 +589,35 @@ function consumeMyDeliveries() {
   return Promise.resolve(batch);
 }
 
-function setMemberRole(targetId, role, opts) {
+function setMemberRole(targetId, role) {
   if (!state.lobby || !client) return null;
-  dlog('ACTION', 'setMemberRole', { targetId: targetId, role: role, assistUserId: opts && opts.assistUserId });
+  dlog('ACTION', 'setMemberRole', { targetId: targetId, role: role });
   client.setRole(targetId, role);
-  if (opts && opts.assistUserId) client.setAssist(opts.assistUserId);
   return Promise.resolve({ success: true });
+}
+
+function assistClipper(clipperId) {
+  if (!state.lobby || !client) return;
+  dlog('ACTION', 'assistClipper', { clipperId: clipperId });
+  client.setAssist(clipperId, 'helper');
+}
+
+function stopAssisting() {
+  if (!state.lobby || !client) return;
+  dlog('ACTION', 'stopAssisting');
+  client.setAssist(null);
+}
+
+function becomeViewer() {
+  if (!state.lobby || !client) return;
+  dlog('ACTION', 'becomeViewer');
+  client.setRole(state.me.id, 'viewer');
+}
+
+function becomeClipper() {
+  if (!state.lobby || !client) return;
+  dlog('ACTION', 'becomeClipper');
+  client.setRole(state.me.id, 'clipper');
 }
 
 function getIndicatorAtTime(timeSec) {
@@ -1185,16 +1147,12 @@ function bindTranscribeUi() {
 function setState(nextState) {
   state = {
     me: nextState.me || state.me,
-    assignment: nextState.assignment || state.assignment,
     lobby: nextState.lobby || null,
     members: Array.isArray(nextState.members) ? nextState.members : [],
     chat: Array.isArray(nextState.chat) ? nextState.chat : [],
     clipRanges: Array.isArray(nextState.clipRanges) ? nextState.clipRanges : [],
     lastCode: nextState.lastCode || state.lastCode
   };
-  state.assignment.role = normalizeRole(state.assignment.role);
-  state.assignment.assistUserId = String(state.assignment.assistUserId || '').trim();
-  syncAssistTarget();
   emit();
 }
 
@@ -1215,8 +1173,10 @@ window.CollabUI = {
   getClipRanges: getClipRanges,
   getIndicatorAtTime: getIndicatorAtTime,
   getMarkContext: getMarkContext,
-  setRole: setRole,
-  setAssistUserId: setAssistUserId,
+  assistClipper: assistClipper,
+  stopAssisting: stopAssisting,
+  becomeViewer: becomeViewer,
+  becomeClipper: becomeClipper,
   getUserColor: getUserColor,
   subscribe: subscribe,
   simulate: simulate,
