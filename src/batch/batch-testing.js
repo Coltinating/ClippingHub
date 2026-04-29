@@ -25,49 +25,69 @@ const DEFAULT_CFG = {
   nvencPreset: 'p4',
 };
 
-// All options for each field
-const OPTIONS = {
+// Each option carries a `platforms` array; we filter to the current OS at boot.
+const PLATFORM = (window.clipper && window.clipper.platform) || 'win32';
+const ALL = ['win32', 'darwin', 'linux'];
+
+const OPTIONS_RAW = {
   videoCodec: [
-    { value: 'libx264', label: 'libx264 (CPU)' },
-    { value: 'libx265', label: 'libx265 (CPU)' },
-    { value: 'h264_nvenc', label: 'h264_nvenc (NVIDIA)' },
-    { value: 'hevc_nvenc', label: 'hevc_nvenc (NVIDIA)' },
+    { value: 'libx264',           label: 'libx264 (CPU)',                 platforms: ALL },
+    { value: 'libx265',           label: 'libx265 (CPU)',                 platforms: ALL },
+    { value: 'h264_nvenc',        label: 'h264_nvenc (NVIDIA)',           platforms: ['win32', 'linux'] },
+    { value: 'hevc_nvenc',        label: 'hevc_nvenc (NVIDIA)',           platforms: ['win32', 'linux'] },
+    { value: 'h264_videotoolbox', label: 'h264_videotoolbox (macOS)',     platforms: ['darwin'] },
+    { value: 'hevc_videotoolbox', label: 'hevc_videotoolbox (macOS)',     platforms: ['darwin'] },
+    { value: 'h264_vaapi',        label: 'h264_vaapi (Linux)',            platforms: ['linux'] },
+    { value: 'hevc_vaapi',        label: 'hevc_vaapi (Linux)',            platforms: ['linux'] },
+    { value: 'h264_qsv',          label: 'h264_qsv (Intel)',              platforms: ['win32', 'linux'] },
+    { value: 'hevc_qsv',          label: 'hevc_qsv (Intel)',              platforms: ['win32', 'linux'] },
   ],
   preset: [
-    { value: 'ultrafast', label: 'ultrafast' },
-    { value: 'superfast', label: 'superfast' },
-    { value: 'veryfast', label: 'veryfast' },
-    { value: 'faster', label: 'faster' },
-    { value: 'fast', label: 'fast' },
-    { value: 'medium', label: 'medium' },
-    { value: 'slow', label: 'slow' },
-    { value: 'slower', label: 'slower' },
-    { value: 'veryslow', label: 'veryslow' },
+    { value: 'ultrafast', label: 'ultrafast', platforms: ALL },
+    { value: 'superfast', label: 'superfast', platforms: ALL },
+    { value: 'veryfast',  label: 'veryfast',  platforms: ALL },
+    { value: 'faster',    label: 'faster',    platforms: ALL },
+    { value: 'fast',      label: 'fast',      platforms: ALL },
+    { value: 'medium',    label: 'medium',    platforms: ALL },
+    { value: 'slow',      label: 'slow',      platforms: ALL },
+    { value: 'slower',    label: 'slower',    platforms: ALL },
+    { value: 'veryslow',  label: 'veryslow',  platforms: ALL },
   ],
   audioCodec: [
-    { value: 'aac', label: 'AAC' },
-    { value: 'libopus', label: 'Opus' },
-    { value: 'copy', label: 'Copy (no re-encode)' },
+    { value: 'aac',     label: 'AAC',                   platforms: ALL },
+    { value: 'libopus', label: 'Opus',                  platforms: ALL },
+    { value: 'copy',    label: 'Copy (no re-encode)',   platforms: ALL },
   ],
   hwaccel: [
-    { value: '', label: 'None (CPU only)' },
-    { value: 'cuda', label: 'CUDA (NVIDIA)' },
-    { value: 'd3d11va', label: 'D3D11VA (Windows)' },
-    { value: 'dxva2', label: 'DXVA2 (Windows)' },
-    { value: 'qsv', label: 'QSV (Intel)' },
+    { value: '',             label: 'None (CPU only)',         platforms: ALL },
+    { value: 'cuda',         label: 'CUDA (NVIDIA)',           platforms: ['win32', 'linux'] },
+    { value: 'videotoolbox', label: 'VideoToolbox (macOS)',    platforms: ['darwin'] },
+    { value: 'vaapi',        label: 'VAAPI (Linux)',           platforms: ['linux'] },
+    { value: 'd3d11va',      label: 'D3D11VA (Windows)',       platforms: ['win32'] },
+    { value: 'dxva2',        label: 'DXVA2 (Windows)',         platforms: ['win32'] },
+    { value: 'qsv',          label: 'QSV (Intel)',             platforms: ['win32', 'linux'] },
   ],
   hwaccelOutputFormat: [
-    { value: '', label: 'Default' },
-    { value: 'cuda', label: 'cuda' },
-    { value: 'd3d11', label: 'd3d11' },
+    { value: '',                 label: 'Default',           platforms: ALL },
+    { value: 'cuda',             label: 'cuda',              platforms: ['win32', 'linux'] },
+    { value: 'd3d11',            label: 'd3d11',             platforms: ['win32'] },
+    { value: 'videotoolbox_vld', label: 'videotoolbox_vld',  platforms: ['darwin'] },
+    { value: 'vaapi',            label: 'vaapi',             platforms: ['linux'] },
+    { value: 'qsv',              label: 'qsv',               platforms: ['win32', 'linux'] },
   ],
   nvencPreset: [
-    { value: 'p1', label: 'p1' }, { value: 'p2', label: 'p2' },
-    { value: 'p3', label: 'p3' }, { value: 'p4', label: 'p4' },
-    { value: 'p5', label: 'p5' }, { value: 'p6', label: 'p6' },
-    { value: 'p7', label: 'p7' },
+    { value: 'p1', label: 'p1', platforms: ALL }, { value: 'p2', label: 'p2', platforms: ALL },
+    { value: 'p3', label: 'p3', platforms: ALL }, { value: 'p4', label: 'p4', platforms: ALL },
+    { value: 'p5', label: 'p5', platforms: ALL }, { value: 'p6', label: 'p6', platforms: ALL },
+    { value: 'p7', label: 'p7', platforms: ALL },
   ],
 };
+
+const OPTIONS = Object.fromEntries(
+  Object.entries(OPTIONS_RAW).map(([k, list]) => [
+    k, list.filter(o => o.platforms.includes(PLATFORM)).map(o => ({ value: o.value, label: o.label }))
+  ])
+);
 
 // ── State ──────────────────────────────────────────────────
 let testSuite = [];

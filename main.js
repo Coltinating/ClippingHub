@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, nativeImage, shell, dialog, session, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeImage, shell, dialog, session, clipboard, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -21,6 +21,9 @@ const { getFfmpegPath, getFfprobePath } = require('./src/lib/ffmpeg-path');
 const { getWhisperPath, getWhisperModelPath, isWhisperAvailable,
         getTranscribeScript, getPythonPath, isFasterWhisperAvailable } = require('./src/lib/whisper-path');
 
+// ── Cross-Platform Helpers ──────────────────────────────────────
+const platformHelpers = require('./src/lib/platform');
+
 // ── Auto-Updater ────────────────────────────────────────────────
 const { autoUpdater } = require('electron-updater');
 
@@ -28,10 +31,7 @@ const { autoUpdater } = require('electron-updater');
 const { registerBatchIPC } = require('./src/batch/batch-ipc');
 
 // ── Debug Logger ─────────────────────────────────────────────────
-const DEBUG_DIR = path.join(
-  process.env.APPDATA || path.join(require('os').homedir(), 'AppData', 'Roaming'),
-  'ClippingHub', 'logs'
-);
+const DEBUG_DIR = path.join(platformHelpers.userConfigRoot(), 'ClippingHub', 'logs');
 let debugLogStream = null;
 let debugSessionId = null;
 let playerLogStream = null;
@@ -54,17 +54,24 @@ function initDebugLog() {
   debugLog('SESSION', `Player log file: ${playerLogPath}`);
 }
 
-// Sanitize paths and identifiers from log output
+// Sanitize paths and identifiers from log output (cross-platform).
 const _userDir = require('os').homedir();
 const _userDirRegex = new RegExp(_userDir.replace(/[\\\/]/g, '[\\\\/\\\\\\\\]'), 'gi');
 const _usernameRegex = new RegExp('(?<=[\\\\/\\\\\\\\])' + path.basename(_userDir) + '(?=[\\\\/\\\\\\\\])', 'gi');
-const _computerNameRegex = process.env.COMPUTERNAME
-  ? new RegExp(process.env.COMPUTERNAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+// COMPUTERNAME is Windows-only; fall back to os.hostname() on macOS/Linux.
+const _hostName = process.env.COMPUTERNAME || (() => { try { return require('os').hostname(); } catch (_) { return null; } })();
+const _computerNameRegex = _hostName
+  ? new RegExp(_hostName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
   : null;
+// Use a path placeholder that matches the current OS layout so the sanitized
+// string still resembles a real path (helps when grep'ing logs).
+const _anonUserPath = process.platform === 'win32'
+  ? 'C:\\Users\\ANON'
+  : (process.platform === 'darwin' ? '/Users/ANON' : '/home/ANON');
 
 function sanitize(str) {
   if (typeof str !== 'string') return str;
-  let s = str.replace(_userDirRegex, 'C:\\Users\\ANON');
+  let s = str.replace(_userDirRegex, _anonUserPath);
   s = s.replace(_usernameRegex, 'ANON');
   if (_computerNameRegex) s = s.replace(_computerNameRegex, 'ANON-PC');
   return s;
@@ -198,18 +205,23 @@ function broadcastProgress(clipName, progress) {
   if (hubWindow && !hubWindow.isDestroyed()) hubWindow.webContents.send('clip-progress', data);
 }
 
-// ── Config paths (AppData/Roaming) ──────────────────────────────
-const APPDATA = process.env.APPDATA || path.join(require('os').homedir(), 'AppData', 'Roaming');
-const CONFIG_DIR = path.join(APPDATA, 'ClippingHub');
+// ── Config paths (per-OS user config root) ──────────────────────
+// Windows: %APPDATA%\ClippingHub
+// macOS:   ~/Library/Application Support/ClippingHub
+// Linux:   ~/.config/ClippingHub
+const CONFIG_DIR = path.join(platformHelpers.userConfigRoot(), 'ClippingHub');
 const USER_CONFIG_PATH = path.join(CONFIG_DIR, 'user_config.json');
 const WATERMARK_CONFIG_PATH = path.join(CONFIG_DIR, 'watermark_config.json');
 const CHANNEL_CONFIG_PATH = path.join(CONFIG_DIR, 'channel_config.json');
 const SERVER_CONFIG_PATH = path.join(CONFIG_DIR, 'server_config.json');
 const PANEL_LAYOUTS_DIR = path.join(CONFIG_DIR, 'panel_layouts');
 const PANEL_LAYOUT_STATE_PATH = path.join(CONFIG_DIR, 'panel_layout_state.json');
+const PANEL_CURRENT_LAYOUT_PATH = path.join(CONFIG_DIR, 'panel_current_layout.json');
 const BUNDLED_LAYOUTS_DIR = path.join(__dirname, 'layouts');
-const DEFAULT_WORKSPACE_KEYS = ['default', 'editing', 'minimal'];
+const DEFAULT_WORKSPACE_KEYS = ['minimal', 'collaboration', 'watch'];
 const DEFAULT_WORKSPACE_SET = new Set(DEFAULT_WORKSPACE_KEYS);
+const DEFAULTS_VERSION = 2;
+const RETIRED_DEFAULT_KEYS = ['default', 'editing'];
 
 function ensureConfigDir() {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
@@ -243,15 +255,16 @@ function loadBundledDefaultLayouts() {
 function loadPanelLayoutState() {
   try {
     if (!fs.existsSync(PANEL_LAYOUT_STATE_PATH)) {
-      return { version: 1, activeWorkspace: 'default' };
+      return { version: 1, defaultsVersion: DEFAULTS_VERSION, activeWorkspace: 'minimal' };
     }
     const parsed = JSON.parse(fs.readFileSync(PANEL_LAYOUT_STATE_PATH, 'utf-8'));
     return {
       version: Number(parsed && parsed.version) || 1,
-      activeWorkspace: sanitizeLayoutKey(parsed && parsed.activeWorkspace ? parsed.activeWorkspace : 'default')
+      defaultsVersion: Number(parsed && parsed.defaultsVersion) || 1,
+      activeWorkspace: sanitizeLayoutKey(parsed && parsed.activeWorkspace ? parsed.activeWorkspace : 'minimal')
     };
   } catch {
-    return { version: 1, activeWorkspace: 'default' };
+    return { version: 1, defaultsVersion: DEFAULTS_VERSION, activeWorkspace: 'minimal' };
   }
 }
 
@@ -259,18 +272,61 @@ function savePanelLayoutState(state) {
   ensureConfigDir();
   const next = {
     version: 1,
-    activeWorkspace: sanitizeLayoutKey(state && state.activeWorkspace ? state.activeWorkspace : 'default')
+    defaultsVersion: Number(state && state.defaultsVersion) || DEFAULTS_VERSION,
+    activeWorkspace: sanitizeLayoutKey(state && state.activeWorkspace ? state.activeWorkspace : 'minimal')
   };
   fs.writeFileSync(PANEL_LAYOUT_STATE_PATH, JSON.stringify(next, null, 2));
   return next;
 }
 
+function loadPanelCurrentLayout() {
+  try {
+    if (!fs.existsSync(PANEL_CURRENT_LAYOUT_PATH)) return null;
+    return JSON.parse(fs.readFileSync(PANEL_CURRENT_LAYOUT_PATH, 'utf-8'));
+  } catch { return null; }
+}
+
+function savePanelCurrentLayout(layout) {
+  ensureConfigDir();
+  fs.writeFileSync(PANEL_CURRENT_LAYOUT_PATH, JSON.stringify(layout || {}, null, 2));
+  return true;
+}
+
+function clearPanelCurrentLayout() {
+  try { if (fs.existsSync(PANEL_CURRENT_LAYOUT_PATH)) fs.unlinkSync(PANEL_CURRENT_LAYOUT_PATH); }
+  catch {}
+}
+
+function migrateRetiredDefaults() {
+  for (let i = 0; i < RETIRED_DEFAULT_KEYS.length; i++) {
+    const stale = path.join(PANEL_LAYOUTS_DIR, `${RETIRED_DEFAULT_KEYS[i]}.json`);
+    try { if (fs.existsSync(stale)) fs.unlinkSync(stale); } catch {}
+  }
+  for (let j = 0; j < DEFAULT_WORKSPACE_KEYS.length; j++) {
+    const overwrite = path.join(PANEL_LAYOUTS_DIR, `${DEFAULT_WORKSPACE_KEYS[j]}.json`);
+    try { if (fs.existsSync(overwrite)) fs.unlinkSync(overwrite); } catch {}
+  }
+}
+
 function ensurePanelLayoutConfig() {
   ensureConfigDir();
+  fs.mkdirSync(PANEL_LAYOUTS_DIR, { recursive: true });
+
+  const state = loadPanelLayoutState();
+  if (!state.defaultsVersion || state.defaultsVersion < DEFAULTS_VERSION) {
+    migrateRetiredDefaults();
+    clearPanelCurrentLayout();
+    let nextActive = state.activeWorkspace;
+    if (RETIRED_DEFAULT_KEYS.indexOf(nextActive) !== -1 || nextActive === 'default') {
+      nextActive = 'minimal';
+    }
+    savePanelLayoutState({ activeWorkspace: nextActive, defaultsVersion: DEFAULTS_VERSION });
+  }
+
   const defaults = loadBundledDefaultLayouts();
   ensureDefaultLayouts(PANEL_LAYOUTS_DIR, defaults);
   if (!fs.existsSync(PANEL_LAYOUT_STATE_PATH)) {
-    savePanelLayoutState({ activeWorkspace: 'default' });
+    savePanelLayoutState({ activeWorkspace: 'minimal', defaultsVersion: DEFAULTS_VERSION });
   }
 }
 
@@ -1152,16 +1208,98 @@ ipcMain.handle('choose-watermark-image', async () => {
 // (Ported from ClipperWATERMARKTESTING)
 // ══════════════════════════════════════════════════════════════════
 
-const FONT_FILE_MAP = {
-  'Arial':         'arial.ttf',
-  'Impact':        'impact.ttf',
-  'Georgia':       'georgia.ttf',
-  'Courier New':   'cour.ttf',
-  'Verdana':       'verdana.ttf',
-  'Tahoma':        'tahoma.ttf',
-  'Trebuchet MS':  'trebuc.ttf',
-  'Comic Sans MS': 'comic.ttf',
+// Per-platform font candidates. First file that actually exists wins.
+// macOS keeps fonts under /System/Library/Fonts/Supplemental (Catalina+) or /Library/Fonts.
+// Linux fonts come from packages (msttcorefonts, dejavu, liberation, noto) and can live
+// in /usr/share/fonts/ subdirs — we probe multiple known locations.
+const FONT_CANDIDATES = {
+  win32: {
+    'Arial':         ['arial.ttf'],
+    'Impact':        ['impact.ttf'],
+    'Georgia':       ['georgia.ttf'],
+    'Courier New':   ['cour.ttf'],
+    'Verdana':       ['verdana.ttf'],
+    'Tahoma':        ['tahoma.ttf'],
+    'Trebuchet MS':  ['trebuc.ttf'],
+    'Comic Sans MS': ['comic.ttf'],
+  },
+  darwin: {
+    'Arial':         ['Arial.ttf', 'Supplemental/Arial.ttf'],
+    'Impact':        ['Impact.ttf', 'Supplemental/Impact.ttf'],
+    'Georgia':       ['Georgia.ttf', 'Supplemental/Georgia.ttf'],
+    'Courier New':   ['Courier New.ttf', 'Supplemental/Courier New.ttf'],
+    'Verdana':       ['Verdana.ttf', 'Supplemental/Verdana.ttf'],
+    'Tahoma':        ['Tahoma.ttf', 'Supplemental/Tahoma.ttf'],
+    'Trebuchet MS':  ['Trebuchet MS.ttf', 'Supplemental/Trebuchet MS.ttf'],
+    'Comic Sans MS': ['Comic Sans MS.ttf', 'Supplemental/Comic Sans MS.ttf'],
+  },
+  linux: {
+    // msttcorefonts lookalikes (Liberation/DejaVu) commonly available on Ubuntu/Fedora.
+    'Arial':         ['truetype/liberation/LiberationSans-Regular.ttf', 'truetype/dejavu/DejaVuSans.ttf'],
+    'Impact':        ['truetype/liberation/LiberationSans-Bold.ttf', 'truetype/dejavu/DejaVuSans-Bold.ttf'],
+    'Georgia':       ['truetype/liberation/LiberationSerif-Regular.ttf', 'truetype/dejavu/DejaVuSerif.ttf'],
+    'Courier New':   ['truetype/liberation/LiberationMono-Regular.ttf', 'truetype/dejavu/DejaVuSansMono.ttf'],
+    'Verdana':       ['truetype/dejavu/DejaVuSans.ttf', 'truetype/liberation/LiberationSans-Regular.ttf'],
+    'Tahoma':        ['truetype/dejavu/DejaVuSans.ttf', 'truetype/liberation/LiberationSans-Regular.ttf'],
+    'Trebuchet MS':  ['truetype/dejavu/DejaVuSans.ttf', 'truetype/liberation/LiberationSans-Regular.ttf'],
+    'Comic Sans MS': ['truetype/dejavu/DejaVuSans.ttf', 'truetype/liberation/LiberationSans-Regular.ttf'],
+  },
 };
+
+// macOS searches both /Library/Fonts and the system supplemental dir.
+// Linux searches a few common roots in addition to /usr/share/fonts.
+const FONT_SEARCH_ROOTS = {
+  win32:  [() => platformHelpers.fontsDir()],
+  darwin: [
+    () => '/System/Library/Fonts',
+    () => '/Library/Fonts',
+    () => path.join(require('os').homedir(), 'Library', 'Fonts'),
+  ],
+  linux:  [
+    () => '/usr/share/fonts',
+    () => '/usr/local/share/fonts',
+    () => path.join(require('os').homedir(), '.fonts'),
+    () => path.join(require('os').homedir(), '.local', 'share', 'fonts'),
+  ],
+};
+
+function resolveFontFile(fontFamily) {
+  const plat = process.platform;
+  const candidates = (FONT_CANDIDATES[plat] || FONT_CANDIDATES.linux)[fontFamily]
+                   || (FONT_CANDIDATES[plat] || FONT_CANDIDATES.linux)['Arial'];
+  const roots = (FONT_SEARCH_ROOTS[plat] || FONT_SEARCH_ROOTS.linux).map(fn => fn());
+
+  for (const root of roots) {
+    for (const rel of candidates) {
+      const candidate = path.join(root, rel);
+      try { if (fs.existsSync(candidate)) return candidate; } catch (_) {}
+    }
+  }
+  // Last-ditch fallback: just pick *something* that ffmpeg can open.
+  for (const root of roots) {
+    try {
+      const stack = [root];
+      while (stack.length) {
+        const dir = stack.shift();
+        let entries;
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { continue; }
+        for (const ent of entries) {
+          const full = path.join(dir, ent.name);
+          if (ent.isDirectory()) { stack.push(full); continue; }
+          if (/\.(ttf|otf)$/i.test(ent.name)) return full;
+        }
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+// Escape a path for use inside an ffmpeg drawtext filter expression.
+// On every platform: backslashes → forward slashes, ':' → '\:'.
+// On Windows specifically the resulting path looks like `C\:/Windows/Fonts/arial.ttf`.
+function escapeFontPathForFilter(p) {
+  return p.replace(/\\/g, '/').replace(/:/g, '\\:');
+}
 
 function buildWatermarkFilter(wm) {
   if (!wm || !wm.text) return null;
@@ -1190,9 +1328,14 @@ function buildWatermarkFilter(wm) {
   const fontSize = wm.fontSize || 48;
   const fontFamily = (wm.fontFamily || 'Arial');
 
-  const fontFileName = FONT_FILE_MAP[fontFamily] || 'arial.ttf';
-  const fontsDir = path.join(process.env.SYSTEMROOT || 'C:\\Windows', 'Fonts');
-  const fontPath = path.join(fontsDir, fontFileName).replace(/\\/g, '/').replace(/:/g, '\\:');
+  const resolved = resolveFontFile(fontFamily);
+  if (!resolved) {
+    // No font found — fall back to drawtext without an explicit font; ffmpeg
+    // will use its compiled-in default (libfontconfig/Arial) which is better
+    // than crashing the encode.
+    return `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=${ffColor}:x=${x}:y=${y}`;
+  }
+  const fontPath = escapeFontPathForFilter(resolved);
 
   return `drawtext=text='${escapedText}':fontsize=${fontSize}:fontcolor=${ffColor}:x=${x}:y=${y}:fontfile='${fontPath}'`;
 }
@@ -1723,7 +1866,11 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: false,
+      // App loads from http://localhost:<proxyPort>. All cross-origin video
+      // traffic (Rumble HLS) goes through the local proxy, so same-origin
+      // policy is fine. hls.js script comes from cdn.jsdelivr.net (https from
+      // http is allowed under default policy).
+      webSecurity: true,
       webviewTag: true,
     }
   });
@@ -1742,6 +1889,48 @@ function createWindow() {
 
 // ── Boot ─────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  // Application menu — provides Cmd/Ctrl+C/V/X/A accelerators.
+  // Without this, copy/paste doesn't work on macOS (and is hidden on Win/Linux).
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    ...(process.platform === 'darwin' ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    }] : []),
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    }
+  ]));
+
   clipsDir = path.join(app.getPath('videos'), 'ClipperHub');
   ensureConfigDir();
   ensurePanelLayoutConfig();
@@ -1788,6 +1977,63 @@ ipcMain.handle('update:check', () => autoUpdater.checkForUpdates().catch(() => n
 ipcMain.handle('update:download', () => autoUpdater.downloadUpdate().catch(() => null));
 ipcMain.handle('update:install', () => autoUpdater.quitAndInstall());
 ipcMain.handle('app:getVersion', () => app.getVersion());
+ipcMain.handle('app:quit', () => { app.quit(); });
+
+// App config import/export — bundles all top-level *.json files in CONFIG_DIR
+// into a single JSON file the user can save/share/restore.
+function _readJsonSafe(p) {
+  try { return JSON.parse(fs.readFileSync(p, 'utf-8')); } catch { return null; }
+}
+ipcMain.handle('app:export-config', async () => {
+  ensureConfigDir();
+  const bundle = { _version: 1, _exportedAt: new Date().toISOString(), files: {} };
+  try {
+    const entries = fs.readdirSync(CONFIG_DIR);
+    for (const name of entries) {
+      if (!name.endsWith('.json')) continue;
+      const data = _readJsonSafe(path.join(CONFIG_DIR, name));
+      if (data !== null) bundle.files[name] = data;
+    }
+  } catch (e) { return { success: false, error: e.message }; }
+  const result = await dialog.showSaveDialog({
+    title: 'Export ClippingHub config',
+    defaultPath: 'clippinghub-config.json',
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+  try {
+    fs.writeFileSync(result.filePath, JSON.stringify(bundle, null, 2), 'utf-8');
+    return { success: true, path: result.filePath };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+ipcMain.handle('app:import-config', async () => {
+  const result = await dialog.showOpenDialog({
+    title: 'Import ClippingHub config',
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+    properties: ['openFile'],
+  });
+  if (result.canceled || !result.filePaths.length) return { canceled: true };
+  try {
+    const raw = fs.readFileSync(result.filePaths[0], 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.files || typeof parsed.files !== 'object') {
+      return { success: false, error: 'Invalid config bundle' };
+    }
+    ensureConfigDir();
+    const names = Object.keys(parsed.files);
+    for (const name of names) {
+      // Only allow flat *.json filenames into CONFIG_DIR (no path traversal)
+      if (!/^[a-zA-Z0-9_\-]+\.json$/.test(name)) continue;
+      const dest = path.join(CONFIG_DIR, name);
+      fs.writeFileSync(dest, JSON.stringify(parsed.files[name], null, 2), 'utf-8');
+    }
+    return { success: true, restored: names.length };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
 
 // ── Layout config files ────────────────────────────────────────────
 ipcMain.handle('layouts:get-builtins', async () => {
@@ -1843,6 +2089,27 @@ ipcMain.handle('layouts:save-state', async (_, state) => {
   } catch (err) {
     return { success: false, error: err.message };
   }
+});
+
+ipcMain.handle('layouts:save-current', async (_, layout) => {
+  try {
+    ensurePanelLayoutConfig();
+    savePanelCurrentLayout(layout);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('layouts:load-current', async () => {
+  ensurePanelLayoutConfig();
+  return loadPanelCurrentLayout();
+});
+
+ipcMain.handle('layouts:clear-current', async () => {
+  ensurePanelLayoutConfig();
+  clearPanelCurrentLayout();
+  return { success: true };
 });
 
 // ── Floating panel windows ──────────────────────────────────────────

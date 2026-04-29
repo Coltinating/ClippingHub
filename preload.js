@@ -1,11 +1,20 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('clipper', {
+  // OS info — used by the renderer to filter platform-specific UI (codec/hwaccel
+  // dropdowns etc.). Exposed as a plain string so the renderer can compare with
+  // 'win32' / 'darwin' / 'linux' just like it would in a Node context.
+  platform: process.platform,
+  arch: process.arch,
+
   getProxyPort: () => ipcRenderer.invoke('get-proxy-port'),
   getChannelConfig: () => ipcRenderer.invoke('get-channel-config'),
 
   // App meta + auto-update
   getAppVersion:      () => ipcRenderer.invoke('app:getVersion'),
+  quitApp:            () => ipcRenderer.invoke('app:quit'),
+  exportAppConfig:    () => ipcRenderer.invoke('app:export-config'),
+  importAppConfig:    () => ipcRenderer.invoke('app:import-config'),
   checkForUpdate:     () => ipcRenderer.invoke('update:check'),
   downloadUpdate:     () => ipcRenderer.invoke('update:download'),
   installUpdate:      () => ipcRenderer.invoke('update:install'),
@@ -125,4 +134,7 @@ contextBridge.exposeInMainWorld('clipper', {
   deletePanelLayout: (key) => ipcRenderer.invoke('layouts:delete', key),
   loadPanelLayoutState: () => ipcRenderer.invoke('layouts:load-state'),
   savePanelLayoutState: (state) => ipcRenderer.invoke('layouts:save-state', state),
+  savePanelCurrentLayout: (layout) => ipcRenderer.invoke('layouts:save-current', layout),
+  loadPanelCurrentLayout: () => ipcRenderer.invoke('layouts:load-current'),
+  clearPanelCurrentLayout: () => ipcRenderer.invoke('layouts:clear-current'),
 });

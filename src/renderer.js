@@ -135,15 +135,7 @@ function dbg(category, message, data) {
 // Expose for external modules (batch-testing.js etc.)
 window.dbg = dbg;
 
-// Debug button opens detached window
-const _debugToggle = document.getElementById('debugToggleBtn');
-if (_debugToggle) {
-  _debugToggle.onclick = () => {
-    dbg('ACTION', 'Open debug window');
-    if (window.clipper?.openDebugWindow) window.clipper.openDebugWindow();
-  };
-}
-
+// Header Debug button is wired below in the header dropdown wiring section.
 dbg('SESSION', 'Renderer initialized');
 
 // Batch test suite button (wired after batch module loads)
@@ -206,11 +198,21 @@ let userConfig = {
     audioBitrate: '192k',
   },
   keybinds: {
+    // Clipping
     markIn: 'g',
     markOut: 'k',
     editIn: 'h',
     editOut: 'j',
+    // Playback
     playPause: ' ',
+    volumeUp: 'ArrowUp',
+    volumeDown: 'ArrowDown',
+    mute: 'm',
+    fullscreen: 'f',
+    cycleSpeed: 's',
+    toggleCatchUp: 'c',
+    toggleTranscript: 't',
+    // Seeking
     seekBackSmall: 'ArrowLeft',
     seekForwardSmall: 'ArrowRight',
     seekBackMedium: 'shift+ArrowLeft',
@@ -220,6 +222,12 @@ let userConfig = {
     jumpSizeSmall: 5,
     jumpSizeMedium: 30,
     jumpSizeLarge: 60,
+    // Layout (Advanced panel system only)
+    resetLayout: 'ctrl+shift+r',
+    saveLayout: 'ctrl+shift+l',
+    // Header
+    openClips: '',
+    openDebug: '',
   },
   catchUpSpeed: 1.5,
   transcriptionBackend: 'cpu', // 'cpu' (WASM Whisper) or 'gpu' (whisper.cpp CUDA)
@@ -227,6 +235,7 @@ let userConfig = {
     ffmpegLogs: false,
     keepTempFiles: false,
     logFfmpegCommands: false,
+    advancedPanelSystem: false,
   },
 };
 
@@ -253,7 +262,7 @@ function showPlayerView() {
   $('dockRoot').style.display = '';
   $('playerWrap').style.display = '';
   $('markerState').style.display = '';
-  backBtn.classList.add('on');
+  if (backBtn) backBtn.classList.add('on');
 }
 
 function showBrowserView() {
@@ -265,15 +274,19 @@ function showBrowserView() {
   $('dockRoot').style.display = 'none';
   $('playerWrap').style.display = 'none';
   $('markerState').style.display = 'none';
-  backBtn.classList.remove('on');
+  if (backBtn) backBtn.classList.remove('on');
 
   window.Player.stream.resetPlayer();
   pendingInTime = null;
   markingIn = false;
-  $('urlIn').value = '';
+  const _u = $('urlIn'); if (_u) _u.value = '';
 }
 
-backBtn.onclick = () => { dbg('ACTION', 'Back to channel browser clicked'); showBrowserView(); };
+if (backBtn) backBtn.onclick = () => { dbg('ACTION', 'Back to channel browser clicked'); showBrowserView(); };
+
+// Expose for header dropdown wiring (File > Rumble Browser) and for debugging.
+window.showBrowserView = showBrowserView;
+window.showPlayerView = showPlayerView;
 
 /* ─── Init ──────────────────────────────────────────────────── */
 // Initialize the Player module
@@ -296,6 +309,8 @@ if (window.CollabUI && window.CollabUI.subscribe) {
   if (savedConfig) {
     userConfig = mergeDeep(userConfig, savedConfig);
   }
+  // Expose for cross-module readers (panels.js layout shortcuts, header-modals editor)
+  window.userConfig = userConfig;
 
   // Load universal watermark config
   const savedWm = await window.clipper.loadWatermarkConfig();
@@ -387,6 +402,9 @@ function mergeDeep(target, source) {
 function applyConfig() {
   // Apply button visibility to pending clips header toggles
   // (this is called after config load and after config changes)
+  if (window._panels && window._panels.applyPanelSystemMode) {
+    window._panels.applyPanelSystemMode();
+  }
 }
 
 async function saveConfig() {
@@ -404,51 +422,27 @@ async function saveUniversalConfigs() {
 /* ─── Stream loading (delegated to Player module) ──────────── */
 const urlIn      = $('urlIn');
 const loadBtn    = $('loadBtn');
-const postCaptionEditorBtn = $('postCaptionEditorBtn');
-const navBtn     = $('navBtn');
-const importBtn  = $('importBtn');
 const vid        = $('vid');
 const playerWrap = $('playerWrap');
 
-loadBtn.onclick = () => { dbg('ACTION', 'Load Stream clicked', { url: urlIn.value.trim().slice(0, 120) }); window.Player.stream.handleURL(urlIn.value.trim()); };
-if (postCaptionEditorBtn) {
-  postCaptionEditorBtn.onclick = () => {
-    dbg('ACTION', 'Open Post Caption Editor from header');
-    openPostCaptionWindow(undefined, { tab: 'clips', source: 'header-button' });
+if (loadBtn) {
+  loadBtn.onclick = () => {
+    dbg('ACTION', 'Load Stream clicked', { url: urlIn.value.trim().slice(0, 120) });
+    window.Player.stream.handleURL(urlIn.value.trim());
   };
 }
-urlIn.onkeydown = e => { if (e.key === 'Enter') { dbg('ACTION', 'URL submitted via Enter', { url: urlIn.value.trim().slice(0, 120) }); window.Player.stream.handleURL(urlIn.value.trim()); } };
-
-if (navBtn) navBtn.onclick = () => {
-  const url = urlIn.value.trim();
-  dbg('ACTION', 'Browse Streams clicked', { url: url || '(none)' });
-  window.clipper.openNavigator({ url: window.Player.stream.isRumble(url) ? url : undefined });
-  window.Player.stream.setStatus('', 'Stream navigator open — play any video to grab the stream');
-};
-
-importBtn && (importBtn.onclick = () => {
-  dbg('ACTION', 'Import local file clicked');
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'video/*,.m3u8,.m3u';
-  input.onchange = () => {
-    const f = input.files[0];
-    if (!f) return;
-    if (f.name.endsWith('.m3u8') || f.name.endsWith('.m3u')) {
-      window.Player.stream.handleURL(f.path || f.name);
-    } else {
-      PS.currentM3U8 = null;
-      const objectUrl = URL.createObjectURL(f);
-      window.Player.stream.loadLocalFile(objectUrl, f.name);
+if (urlIn) {
+  urlIn.onkeydown = e => {
+    if (e.key === 'Enter') {
+      dbg('ACTION', 'URL submitted via Enter', { url: urlIn.value.trim().slice(0, 120) });
+      window.Player.stream.handleURL(urlIn.value.trim());
     }
   };
-  input.click();
-});
+}
 
 /* ─── Player controls are now handled by src/player/ modules ─ */
 const progTrack = $('progressTrack');
 const collabRangeIndicator = $('collabRangeIndicator');
-const timelineCollabIndicator = $('timelineCollabIndicator');
 const playerWrapEl = $('playerWrap');
 
 /* ─── Customizable Keybinds ─────────────────────────────────── */
@@ -494,6 +488,20 @@ document.addEventListener('keydown', e => {
 
   // All other player keybinds (play/pause, seek, volume, speed, fullscreen, PiP, catch-up)
   if (window.Player.keybinds.handlePlayerKeybind(e, kb, userConfig.catchUpSpeed)) return;
+
+  // Header shortcuts (off by default — user can assign in Keyboard Shortcuts editor)
+  if (kb.openClips && matchKeybind(e, kb.openClips)) {
+    e.preventDefault();
+    if (typeof openPostCaptionWindow === 'function') {
+      openPostCaptionWindow(undefined, { tab: 'clips', source: 'shortcut' });
+    }
+    return;
+  }
+  if (kb.openDebug && matchKeybind(e, kb.openDebug)) {
+    e.preventDefault();
+    if (window.clipper && window.clipper.openDebugWindow) window.clipper.openDebugWindow();
+    return;
+  }
 });
 
 /* ─── IN / OUT markers (CLIPPER'S EXACT LOGIC) ──────────────── */
@@ -809,7 +817,6 @@ function renderProgressMarkers() {
 function updateCollabIndicators(currentTime) {
   if (!window.CollabUI || !window.CollabUI.getIndicatorAtTime) {
     if (collabRangeIndicator) collabRangeIndicator.style.display = 'none';
-    if (timelineCollabIndicator) timelineCollabIndicator.style.display = 'none';
     if (playerWrapEl) playerWrapEl.classList.remove('collab-active-glow');
     return;
   }
@@ -817,15 +824,13 @@ function updateCollabIndicators(currentTime) {
   const active = window.CollabUI.getIndicatorAtTime(currentTime);
   if (!active) {
     if (collabRangeIndicator) collabRangeIndicator.style.display = 'none';
-    if (timelineCollabIndicator) timelineCollabIndicator.style.display = 'none';
     if (playerWrapEl) playerWrapEl.classList.remove('collab-active-glow');
     return;
   }
 
-  if (collabRangeIndicator) collabRangeIndicator.style.display = 'none';
-  if (timelineCollabIndicator) {
-    timelineCollabIndicator.textContent = active.text;
-    timelineCollabIndicator.style.display = 'inline-flex';
+  if (collabRangeIndicator) {
+    collabRangeIndicator.textContent = active.text;
+    collabRangeIndicator.style.display = 'inline-flex';
   }
   if (playerWrapEl) playerWrapEl.classList.add('collab-active-glow');
 }
@@ -2329,6 +2334,116 @@ document.querySelectorAll('.hub-resize-handle').forEach(handle => {
 /* ═══════════════════════════════════════════════════════════════
    ── Config Settings Modal ────────────────────────────────────
    ═══════════════════════════════════════════════════════════════ */
+
+// Tab definitions for the redesigned settings modal sidebar.
+// Order matters — first tab is selected by default.
+const SETTINGS_TABS = [
+  { id: 'general',     label: 'General',           icon: '⚙', subtitle: 'Editor options, default channel, configuration' },
+  { id: 'shortcuts',   label: 'Keyboard',          icon: '⌨', subtitle: 'Shortcut editor lives in Help > Keyboard Shortcuts' },
+  { id: 'assets',      label: 'Stream Assets',     icon: '◫', subtitle: 'Universal watermark and outro applied to every clip' },
+  { id: 'encoding',    label: 'Encoding',          icon: '⚡', subtitle: 'FFmpeg codecs, presets, and catch-up playback' },
+  { id: 'performance', label: 'Hardware',          icon: '▤', subtitle: 'GPU acceleration and decoder tuning' },
+  { id: 'developer',   label: 'Developer',         icon: '⚠', subtitle: 'Diagnostics and experimental features' },
+];
+
+// Strip <option data-platforms="..."> entries that don't apply to the current
+// OS. If the currently-selected option is removed, fall back to the first
+// remaining option so the dropdown isn't left with nothing selected.
+function filterOptionsByPlatform(root) {
+  const plat = (typeof window !== 'undefined' && window.clipper && window.clipper.platform)
+             || (typeof process !== 'undefined' && process.platform)
+             || 'win32';
+  root.querySelectorAll('option[data-platforms]').forEach(opt => {
+    const list = (opt.getAttribute('data-platforms') || '').split(',').map(s => s.trim());
+    if (list.length && !list.includes(plat)) opt.remove();
+  });
+  // If a select lost its selected option, pick the first one.
+  root.querySelectorAll('select').forEach(sel => {
+    if (sel.selectedIndex === -1 && sel.options.length) sel.selectedIndex = 0;
+  });
+}
+
+function decorateSettingsAsTabs(overlay) {
+  const modal   = overlay.querySelector('.config-modal');
+  const body    = overlay.querySelector('.wm-modal-body');
+  const title   = overlay.querySelector('.wm-modal-title');
+  const actions = overlay.querySelector('.wm-modal-actions');
+  if (!modal || !body) return;
+
+  // Hide options that don't apply to this OS before any tab grouping happens.
+  filterOptionsByPlatform(overlay);
+
+  // Switch to the new sidebar grid layout
+  modal.classList.add('settings-modal-redesign');
+  modal.style.width = '';
+  modal.style.maxHeight = '';
+  if (title) title.style.display = 'none';
+
+  // Build the sidebar
+  const sidebar = document.createElement('div');
+  sidebar.className = 'settings-sidebar';
+  sidebar.innerHTML =
+    '<div class="settings-sidebar-title">Settings</div>' +
+    SETTINGS_TABS.map((t, i) =>
+      `<div class="settings-tab${i === 0 ? ' active' : ''}" data-tab="${t.id}">` +
+        `<span class="settings-tab-icon">${t.icon}</span>` +
+        `<span class="settings-tab-label">${t.label}</span>` +
+      '</div>'
+    ).join('');
+
+  // Build the right-column pane wrapper (header + body + actions)
+  const pane = document.createElement('div');
+  pane.className = 'settings-pane';
+  const header = document.createElement('div');
+  header.className = 'settings-pane-header';
+  header.innerHTML =
+    '<div>' +
+      '<div class="settings-pane-title" id="settingsPaneTitle">' + SETTINGS_TABS[0].label + '</div>' +
+      '<div class="settings-pane-subtitle" id="settingsPaneSubtitle">' + SETTINGS_TABS[0].subtitle + '</div>' +
+    '</div>';
+  pane.appendChild(header);
+  body.classList.add('settings-pane-body');
+  pane.appendChild(body);
+  if (actions) {
+    actions.classList.add('settings-pane-actions-row');
+    pane.appendChild(actions);
+  }
+  modal.appendChild(sidebar);
+  modal.appendChild(pane);
+
+  // Group existing config-section elements into tab containers
+  const sections = Array.from(body.querySelectorAll('.config-section'));
+  // Create container per tab
+  const tabContainers = {};
+  SETTINGS_TABS.forEach(t => {
+    const c = document.createElement('div');
+    c.className = 'settings-pane-section' + (t.id === 'general' ? ' active' : '');
+    c.dataset.tabContainer = t.id;
+    body.appendChild(c);
+    tabContainers[t.id] = c;
+  });
+  sections.forEach(sec => {
+    const tab = sec.dataset.settingsTab || 'general';
+    if (tabContainers[tab]) tabContainers[tab].appendChild(sec);
+  });
+
+  // Tab switching
+  sidebar.addEventListener('click', (e) => {
+    const tab = e.target.closest('.settings-tab');
+    if (!tab) return;
+    const id = tab.dataset.tab;
+    sidebar.querySelectorAll('.settings-tab').forEach(t => t.classList.toggle('active', t === tab));
+    Object.keys(tabContainers).forEach(k => tabContainers[k].classList.toggle('active', k === id));
+    const def = SETTINGS_TABS.find(t => t.id === id);
+    if (def) {
+      const t1 = overlay.querySelector('#settingsPaneTitle');
+      const t2 = overlay.querySelector('#settingsPaneSubtitle');
+      if (t1) t1.textContent = def.label;
+      if (t2) t2.textContent = def.subtitle;
+    }
+  });
+}
+
 function openConfigModal() {
   const old = document.querySelector('.config-modal-overlay');
   if (old) old.remove();
@@ -2342,7 +2457,7 @@ function openConfigModal() {
       <div class="wm-modal-body" style="gap:16px;">
 
         <!-- Config Actions -->
-        <div class="config-section">
+        <div class="config-section" data-settings-tab="general">
           <div class="config-section-title">Configuration</div>
           <div style="display:flex; gap:8px;">
             <button class="btn btn-ghost btn-sm" id="cfgImport">Load / Import Config</button>
@@ -2352,7 +2467,7 @@ function openConfigModal() {
         </div>
 
         <!-- Button Toggles -->
-        <div class="config-section">
+        <div class="config-section" data-settings-tab="general">
           <div class="config-section-title">Editor / Clipping Options</div>
           <p class="config-note">Toggle which buttons appear on pending clips. Download is always shown.</p>
           <label class="config-toggle"><input type="checkbox" id="cfgJumpIn" ${cfg.buttons.jumpToIn?'checked':''}> <span>Jump to IN</span> <span class="config-default">(on by default)</span></label>
@@ -2362,7 +2477,7 @@ function openConfigModal() {
         </div>
 
         <!-- Universal Watermark Config -->
-        <div class="config-section">
+        <div class="config-section" data-settings-tab="assets">
           <div class="config-section-title">Universal Watermark</div>
           <p class="config-note">Set a default watermark applied to all clips unless overridden per-clip.</p>
           <button class="btn btn-accent btn-sm" id="cfgEditWatermark">${(universalWatermark || universalImageWatermark) ? 'Edit Universal Watermark' : 'Configure Universal Watermark'}</button>
@@ -2371,7 +2486,7 @@ function openConfigModal() {
         </div>
 
         <!-- Universal Outro Config -->
-        <div class="config-section">
+        <div class="config-section" data-settings-tab="assets">
           <div class="config-section-title">Universal Outro</div>
           <p class="config-note">Set a default outro video appended to all clips unless overridden per-clip.</p>
           <label class="config-toggle"><input type="checkbox" id="cfgOutroEnabled" ${universalOutro.enabled?'checked':''}> <span>Enable Universal Outro</span></label>
@@ -2382,7 +2497,7 @@ function openConfigModal() {
         </div>
 
         <!-- Default Channel -->
-        <div class="config-section">
+        <div class="config-section" data-settings-tab="general">
           <div class="config-section-title">Default Channel</div>
           <p class="config-note">Set a default channel to navigate to on startup.</p>
           <label class="config-toggle"><input type="checkbox" id="cfgChannelEnabled" ${cfg.defaultChannel.enabled?'checked':''}> <span>Enable Default Channel</span></label>
@@ -2393,27 +2508,15 @@ function openConfigModal() {
           </div>
         </div>
 
-        <!-- Keybinds -->
-        <div class="config-section">
-          <div class="config-section-title">Keybinds</div>
-          <p class="config-note">Customize keyboard shortcuts. Use modifier+key format (e.g. shift+ArrowLeft).</p>
-          <div class="config-grid">
-            <label class="config-kb"><span>Mark IN</span><input class="wm-input config-kb-input" data-bind="markIn" value="${escAttr(cfg.keybinds.markIn)}"></label>
-            <label class="config-kb"><span>Mark OUT</span><input class="wm-input config-kb-input" data-bind="markOut" value="${escAttr(cfg.keybinds.markOut)}"></label>
-            <label class="config-kb"><span>Edit IN</span><input class="wm-input config-kb-input" data-bind="editIn" value="${escAttr(cfg.keybinds.editIn)}"></label>
-            <label class="config-kb"><span>Edit OUT</span><input class="wm-input config-kb-input" data-bind="editOut" value="${escAttr(cfg.keybinds.editOut)}"></label>
-            <label class="config-kb"><span>Play/Pause</span><input class="wm-input config-kb-input" data-bind="playPause" value="${escAttr(cfg.keybinds.playPause === ' ' ? 'Space' : cfg.keybinds.playPause)}"></label>
-          </div>
-          <div class="config-section-title" style="margin-top:12px; font-size:10px;">Jump Sizes (seconds)</div>
-          <div class="config-grid">
-            <label class="config-kb"><span>Small (Arrow)</span><input class="wm-input config-kb-input" type="number" data-size="jumpSizeSmall" value="${cfg.keybinds.jumpSizeSmall}" min="1" max="300"></label>
-            <label class="config-kb"><span>Medium (Shift+Arrow)</span><input class="wm-input config-kb-input" type="number" data-size="jumpSizeMedium" value="${cfg.keybinds.jumpSizeMedium}" min="1" max="300"></label>
-            <label class="config-kb"><span>Large (Ctrl+Arrow)</span><input class="wm-input config-kb-input" type="number" data-size="jumpSizeLarge" value="${cfg.keybinds.jumpSizeLarge}" min="1" max="300"></label>
-          </div>
+        <!-- Keybinds — moved to dedicated Keyboard Shortcuts editor (Help > Keyboard Shortcuts) -->
+        <div class="config-section" data-settings-tab="shortcuts">
+          <div class="config-section-title">Keyboard Shortcuts</div>
+          <p class="config-note">Every shortcut is now editable in the dedicated Keyboard Shortcuts editor.</p>
+          <button class="btn btn-accent btn-sm" id="cfgOpenShortcuts">Open Keyboard Shortcuts Editor</button>
         </div>
 
         <!-- Catch-up Speed -->
-        <div class="config-section">
+        <div class="config-section" data-settings-tab="encoding">
           <div class="config-section-title">Catch-Up Mode</div>
           <p class="config-note">Press <kbd>C</kbd> during playback to toggle catch-up speed after clipping a live moment.</p>
           <label class="wm-label">Speed <span class="wm-val" id="cfgCatchUpVal">${cfg.catchUpSpeed}x</span>
@@ -2422,16 +2525,22 @@ function openConfigModal() {
         </div>
 
         <!-- FFmpeg Settings -->
-        <div class="config-section">
+        <div class="config-section" data-settings-tab="encoding">
           <div class="config-section-title">FFmpeg / Encoding Settings</div>
           <p class="config-note">Advanced settings for how clips are encoded. Leave defaults unless you know what you're doing.</p>
           <div class="config-grid">
             <label class="config-kb"><span>Video Codec</span>
               <select class="wm-select" id="cfgVideoCodec">
-                <option value="libx264"${cfg.ffmpeg.videoCodec==='libx264'?' selected':''}>libx264 (CPU)</option>
-                <option value="libx265"${cfg.ffmpeg.videoCodec==='libx265'?' selected':''}>libx265 (CPU)</option>
-                <option value="h264_nvenc"${cfg.ffmpeg.videoCodec==='h264_nvenc'?' selected':''}>h264_nvenc (NVIDIA GPU)</option>
-                <option value="hevc_nvenc"${cfg.ffmpeg.videoCodec==='hevc_nvenc'?' selected':''}>hevc_nvenc (NVIDIA GPU)</option>
+                <option value="libx264" data-platforms="win32,darwin,linux"${cfg.ffmpeg.videoCodec==='libx264'?' selected':''}>libx264 (CPU — all platforms)</option>
+                <option value="libx265" data-platforms="win32,darwin,linux"${cfg.ffmpeg.videoCodec==='libx265'?' selected':''}>libx265 (CPU — all platforms)</option>
+                <option value="h264_nvenc" data-platforms="win32,linux"${cfg.ffmpeg.videoCodec==='h264_nvenc'?' selected':''}>h264_nvenc (NVIDIA GPU — Windows/Linux)</option>
+                <option value="hevc_nvenc" data-platforms="win32,linux"${cfg.ffmpeg.videoCodec==='hevc_nvenc'?' selected':''}>hevc_nvenc (NVIDIA GPU — Windows/Linux)</option>
+                <option value="h264_videotoolbox" data-platforms="darwin"${cfg.ffmpeg.videoCodec==='h264_videotoolbox'?' selected':''}>h264_videotoolbox (Apple Silicon / macOS)</option>
+                <option value="hevc_videotoolbox" data-platforms="darwin"${cfg.ffmpeg.videoCodec==='hevc_videotoolbox'?' selected':''}>hevc_videotoolbox (Apple Silicon / macOS)</option>
+                <option value="h264_vaapi" data-platforms="linux"${cfg.ffmpeg.videoCodec==='h264_vaapi'?' selected':''}>h264_vaapi (Linux — Intel/AMD)</option>
+                <option value="hevc_vaapi" data-platforms="linux"${cfg.ffmpeg.videoCodec==='hevc_vaapi'?' selected':''}>hevc_vaapi (Linux — Intel/AMD)</option>
+                <option value="h264_qsv" data-platforms="win32,linux"${cfg.ffmpeg.videoCodec==='h264_qsv'?' selected':''}>h264_qsv (Intel Quick Sync — Windows/Linux)</option>
+                <option value="hevc_qsv" data-platforms="win32,linux"${cfg.ffmpeg.videoCodec==='hevc_qsv'?' selected':''}>hevc_qsv (Intel Quick Sync — Windows/Linux)</option>
               </select>
             </label>
             <label class="config-kb"><span>Preset</span>
@@ -2454,24 +2563,29 @@ function openConfigModal() {
         </div>
 
         <!-- GPU Acceleration -->
-        <div class="config-section">
+        <div class="config-section" data-settings-tab="performance">
           <div class="config-section-title">GPU Acceleration</div>
           <p class="config-note">Enable hardware-accelerated decoding. Requires compatible GPU and drivers.</p>
           <div class="config-grid">
             <label class="config-kb"><span>HW Accel</span>
               <select class="wm-select" id="cfgHwaccel">
-                <option value=""${!cfg.ffmpeg.hwaccel?' selected':''}>None (CPU only)</option>
-                <option value="cuda"${cfg.ffmpeg.hwaccel==='cuda'?' selected':''}>CUDA (NVIDIA)</option>
-                <option value="d3d11va"${cfg.ffmpeg.hwaccel==='d3d11va'?' selected':''}>D3D11VA (Windows)</option>
-                <option value="dxva2"${cfg.ffmpeg.hwaccel==='dxva2'?' selected':''}>DXVA2 (Windows)</option>
-                <option value="qsv"${cfg.ffmpeg.hwaccel==='qsv'?' selected':''}>QSV (Intel)</option>
+                <option value="" data-platforms="win32,darwin,linux"${!cfg.ffmpeg.hwaccel?' selected':''}>None (CPU only)</option>
+                <option value="cuda" data-platforms="win32,linux"${cfg.ffmpeg.hwaccel==='cuda'?' selected':''}>CUDA (NVIDIA — Windows/Linux)</option>
+                <option value="videotoolbox" data-platforms="darwin"${cfg.ffmpeg.hwaccel==='videotoolbox'?' selected':''}>VideoToolbox (macOS)</option>
+                <option value="vaapi" data-platforms="linux"${cfg.ffmpeg.hwaccel==='vaapi'?' selected':''}>VAAPI (Linux — Intel/AMD)</option>
+                <option value="d3d11va" data-platforms="win32"${cfg.ffmpeg.hwaccel==='d3d11va'?' selected':''}>D3D11VA (Windows)</option>
+                <option value="dxva2" data-platforms="win32"${cfg.ffmpeg.hwaccel==='dxva2'?' selected':''}>DXVA2 (Windows)</option>
+                <option value="qsv" data-platforms="win32,linux"${cfg.ffmpeg.hwaccel==='qsv'?' selected':''}>QSV (Intel — Windows/Linux)</option>
               </select>
             </label>
             <label class="config-kb"><span>Output Format</span>
               <select class="wm-select" id="cfgHwaccelFormat">
-                <option value=""${!cfg.ffmpeg.hwaccelOutputFormat?' selected':''}>Default</option>
-                <option value="cuda"${cfg.ffmpeg.hwaccelOutputFormat==='cuda'?' selected':''}>cuda</option>
-                <option value="d3d11"${cfg.ffmpeg.hwaccelOutputFormat==='d3d11'?' selected':''}>d3d11</option>
+                <option value="" data-platforms="win32,darwin,linux"${!cfg.ffmpeg.hwaccelOutputFormat?' selected':''}>Default</option>
+                <option value="cuda" data-platforms="win32,linux"${cfg.ffmpeg.hwaccelOutputFormat==='cuda'?' selected':''}>cuda (NVIDIA)</option>
+                <option value="d3d11" data-platforms="win32"${cfg.ffmpeg.hwaccelOutputFormat==='d3d11'?' selected':''}>d3d11 (Windows)</option>
+                <option value="videotoolbox_vld" data-platforms="darwin"${cfg.ffmpeg.hwaccelOutputFormat==='videotoolbox_vld'?' selected':''}>videotoolbox_vld (macOS)</option>
+                <option value="vaapi" data-platforms="linux"${cfg.ffmpeg.hwaccelOutputFormat==='vaapi'?' selected':''}>vaapi (Linux)</option>
+                <option value="qsv" data-platforms="win32,linux"${cfg.ffmpeg.hwaccelOutputFormat==='qsv'?' selected':''}>qsv (Intel)</option>
               </select>
             </label>
             <label class="config-kb"><span>Device ID</span><input class="wm-input config-kb-input" id="cfgHwaccelDevice" value="${escAttr(cfg.ffmpeg.hwaccelDevice||'')}" placeholder="e.g. 0 or 1"></label>
@@ -2486,13 +2600,14 @@ function openConfigModal() {
         </div>
 
         <!-- Dev Features -->
-        <div class="config-section" style="border:1px dashed #ef4444; border-radius:6px; padding:10px; margin-top:8px;">
+        <div class="config-section" data-settings-tab="developer" style="border:1px dashed #ef4444; border-radius:6px; padding:10px; margin-top:8px;">
           <div class="config-section-title" style="color:#ef4444;">Developer Features <span style="font-weight:400;color:#71717a;">(FOR DEVELOPMENT PURPOSES)</span></div>
           <p class="config-note">When enabled, press <kbd>B</kbd> to toggle batch mode. Creates N identical clips from a single IN/OUT for encoding comparison. Each batch outputs to a subfolder named after the ffmpeg config, with a manifest .txt documenting all commands.</p>
           <label class="config-toggle"><input type="checkbox" id="cfgBatchEnabled" ${batchModeEnabled?'checked':''}> <span>Enable Batch Testing Mode</span></label>
           <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgFfmpegLogs" ${cfg.devFeatures?.ffmpegLogs?'checked':''}> <span>Show "View FFMPEG Log" on completed clips</span></label>
           <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgKeepTempFiles" ${cfg.devFeatures?.keepTempFiles?'checked':''}> <span>Keep temp files after clip download</span></label>
           <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgLogFfmpegCommands" ${cfg.devFeatures?.logFfmpegCommands?'checked':''}> <span>Output all FFmpeg commands to debug log</span></label>
+          <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgAdvancedPanels" ${cfg.devFeatures?.advancedPanelSystem?'checked':''}> <span>Enable advanced panel system</span> <span class="config-default">(drag, split, dock, undock, custom layouts &mdash; off for a simpler experience)</span></label>
         </div>
 
       </div>
@@ -2503,6 +2618,18 @@ function openConfigModal() {
     </div>
   `;
   document.body.appendChild(overlay);
+
+  // Decorate the modal with sidebar tabs (enterprise-style layout)
+  decorateSettingsAsTabs(overlay);
+
+  // Wire the "Open Keyboard Shortcuts Editor" button to the dedicated modal
+  const _openShortcutsBtn = overlay.querySelector('#cfgOpenShortcuts');
+  if (_openShortcutsBtn) {
+    _openShortcutsBtn.onclick = () => {
+      overlay.remove();
+      if (window.HeaderModals && window.HeaderModals.openShortcuts) window.HeaderModals.openShortcuts();
+    };
+  }
 
   // Snapshot all form inputs for dirty-checking
   function snapshotFormValues() {
@@ -2536,6 +2663,7 @@ function openConfigModal() {
     const result = await window.clipper.importUserConfig();
     if (result.success) {
       userConfig = mergeDeep(userConfig, result.config);
+      window.userConfig = userConfig;
       applyConfig();
       overlay.remove();
       openConfigModal(); // re-open with new values
@@ -2631,6 +2759,7 @@ function openConfigModal() {
     userConfig.devFeatures.ffmpegLogs = overlay.querySelector('#cfgFfmpegLogs').checked;
     userConfig.devFeatures.keepTempFiles = overlay.querySelector('#cfgKeepTempFiles').checked;
     userConfig.devFeatures.logFfmpegCommands = overlay.querySelector('#cfgLogFfmpegCommands').checked;
+    userConfig.devFeatures.advancedPanelSystem = overlay.querySelector('#cfgAdvancedPanels').checked;
 
     dbg('ACTION', 'Settings saved', { videoCodec: userConfig.ffmpeg.videoCodec, hwaccel: userConfig.ffmpeg.hwaccel || 'none', catchUpSpeed: userConfig.catchUpSpeed, batchEnabled: batchModeEnabled, ffmpegLogs: userConfig.devFeatures.ffmpegLogs, keepTempFiles: userConfig.devFeatures.keepTempFiles, logFfmpegCommands: userConfig.devFeatures.logFfmpegCommands });
     await saveConfig();
@@ -2871,15 +3000,204 @@ function openUniversalWatermarkModal() {
 }
 
 /* ─── Settings ──────────────────────────────────────────────── */
-$('settingsBtn').onclick = $('outputPath').onclick = async () => {
+$('outputPath').onclick = async () => {
   dbg('ACTION', 'Choose clips directory');
   const d = await window.clipper.chooseClipsDir();
   if (d) { dbg('ACTION', 'Clips directory changed', { path: d }); $('outputPath').textContent = d; }
 };
-$('openFolderBtn').onclick = $('openCompletedFolder').onclick = () => { dbg('ACTION', 'Open clips folder'); window.clipper.openClipsFolder(); };
+{
+  const _completedFolderBtn = $('openCompletedFolder');
+  if (_completedFolderBtn) {
+    _completedFolderBtn.onclick = () => { dbg('ACTION', 'Open clips folder'); window.clipper.openClipsFolder(); };
+  }
+}
 
-// Config gear button
-$('configBtn').onclick = () => { dbg('ACTION', 'Open settings modal'); openConfigModal(); };
+/* ─── Header dropdown wiring (File / Edit / Help / Clips / Debug) ─ */
+
+// Helper: wire a click on either the action button or the entire row
+// (.dd-row-with-action) so the whole row is a target.
+function _wireDdRow(buttonId, handler) {
+  const btn = document.getElementById(buttonId);
+  if (!btn) return;
+  const row = btn.closest('.dd-row-with-action') || btn;
+  row.style.cursor = 'pointer';
+  row.addEventListener('click', (e) => {
+    e.stopPropagation();
+    handler(e);
+  });
+}
+
+// File > Rumble Browser — switches the main window back to the embedded
+// channel browser (Rumble homepage), same as the old back-arrow button.
+_wireDdRow('ddRumbleBtn', () => {
+  dbg('ACTION', 'File > Rumble Browser (back to embedded browser)');
+  closeAllMenus();
+  if (typeof showBrowserView === 'function') showBrowserView();
+  else if (window.showBrowserView) window.showBrowserView();
+});
+
+// File > Settings
+const _ddSettings = $('ddSettings');
+if (_ddSettings) {
+  _ddSettings.addEventListener('click', () => {
+    dbg('ACTION', 'File > Settings');
+    openConfigModal();
+    closeAllMenus();
+  });
+}
+
+// File > Connect > Go Online
+_wireDdRow('ddGoOnlineBtn', async () => {
+  dbg('ACTION', 'File > Connect > Go Online');
+  closeAllMenus();
+  if (!window.CollabUI || typeof window.CollabUI.connect !== 'function') {
+    if (window.toast) window.toast('Collab not initialized');
+    return;
+  }
+  let url = '';
+  try {
+    const cfg = (window.clipper && window.clipper.serverGetConfig) ? await window.clipper.serverGetConfig() : null;
+    url = (cfg && cfg.url) || '';
+  } catch (_) { url = ''; }
+  if (!url) {
+    if (window.toast) window.toast('Configure server URL in Settings, then Go Online');
+    return;
+  }
+  window.CollabUI.connect(url, { autoConnect: true });
+});
+
+// File > Exit
+const _ddExit = $('ddExit');
+if (_ddExit) {
+  _ddExit.addEventListener('click', () => {
+    dbg('ACTION', 'File > Exit');
+    if (window.clipper && window.clipper.quitApp) window.clipper.quitApp();
+    else window.close();
+  });
+}
+
+// Keep menu open when interacting with the Edit > Stream Settings URL pane
+const _editStreamPane = document.querySelector('.edit-stream-pane');
+if (_editStreamPane) {
+  _editStreamPane.addEventListener('click', (e) => e.stopPropagation());
+}
+
+// Edit > View M3U8 URL — copy current stream URL to clipboard
+const _ddViewM3u8 = $('ddViewM3u8');
+if (_ddViewM3u8) {
+  _ddViewM3u8.addEventListener('click', () => {
+    dbg('ACTION', 'Edit > View M3U8 URL');
+    const url = (window.Player && window.Player.stream && window.Player.stream.PS && window.Player.stream.PS.currentM3U8) || '';
+    if (!url) {
+      if (window.toast) window.toast('No stream loaded');
+    } else {
+      navigator.clipboard.writeText(url).then(
+        () => window.toast && window.toast('M3U8 URL copied to clipboard'),
+        () => window.toast && window.toast('M3U8: ' + url)
+      );
+    }
+    closeAllMenus();
+  });
+}
+
+// Edit > Reload Stream
+const _ddReloadStream = $('ddReloadStream');
+if (_ddReloadStream) {
+  _ddReloadStream.addEventListener('click', () => {
+    dbg('ACTION', 'Edit > Reload Stream');
+    const url = (window.Player && window.Player.stream && window.Player.stream.PS && window.Player.stream.PS.currentM3U8) || '';
+    if (!url) {
+      if (window.toast) window.toast('No stream to reload');
+    } else {
+      window.Player.stream.handleURL(url);
+    }
+    closeAllMenus();
+  });
+}
+
+// Edit > Config > Import
+_wireDdRow('ddImportConfig', () => {
+  dbg('ACTION', 'Edit > Config > Import');
+  if (window.HeaderModals && window.HeaderModals.importAppConfig) window.HeaderModals.importAppConfig();
+  closeAllMenus();
+});
+
+// Edit > Config > Export
+_wireDdRow('ddExportConfig', () => {
+  dbg('ACTION', 'Edit > Config > Export');
+  if (window.HeaderModals && window.HeaderModals.exportAppConfig) window.HeaderModals.exportAppConfig();
+  closeAllMenus();
+});
+
+// Help > Check for update
+const _ddCheckUpdate = $('ddCheckUpdate');
+if (_ddCheckUpdate) {
+  _ddCheckUpdate.addEventListener('click', () => {
+    dbg('ACTION', 'Help > Check for update');
+    closeAllMenus();
+    if (window.clipper && window.clipper.checkForUpdate) {
+      window.clipper.checkForUpdate().then((r) => {
+        if (window.toast) window.toast(r && r.updateInfo ? 'Update check started' : 'You are up to date');
+      }).catch(() => { if (window.toast) window.toast('Update check failed'); });
+    }
+  });
+}
+
+// Help > Debugger
+const _ddOpenDebugger = $('ddOpenDebugger');
+if (_ddOpenDebugger) {
+  _ddOpenDebugger.addEventListener('click', () => {
+    dbg('ACTION', 'Help > Debugger');
+    closeAllMenus();
+    if (window.clipper && window.clipper.openDebugWindow) window.clipper.openDebugWindow();
+  });
+}
+
+// Help > Keyboard Shortcuts
+const _ddShortcuts = $('ddShortcuts');
+if (_ddShortcuts) {
+  _ddShortcuts.addEventListener('click', () => {
+    dbg('ACTION', 'Help > Keyboard Shortcuts');
+    closeAllMenus();
+    if (window.HeaderModals && window.HeaderModals.openShortcuts) window.HeaderModals.openShortcuts();
+  });
+}
+
+// Help > About
+const _ddAbout = $('ddAbout');
+if (_ddAbout) {
+  _ddAbout.addEventListener('click', () => {
+    dbg('ACTION', 'Help > About');
+    closeAllMenus();
+    if (window.HeaderModals && window.HeaderModals.openAbout) window.HeaderModals.openAbout();
+  });
+}
+
+// Modal close buttons
+const _aboutClose = $('aboutClose');
+if (_aboutClose) _aboutClose.addEventListener('click', () => window.HeaderModals && window.HeaderModals.closeModal('aboutModal'));
+const _shortcutsClose = $('shortcutsClose');
+if (_shortcutsClose) _shortcutsClose.addEventListener('click', () => window.HeaderModals && window.HeaderModals.closeModal('shortcutsModal'));
+
+// Top-right Clips button (replaces old caption editor icon button)
+const _clipsBtn = $('clipsBtn');
+if (_clipsBtn) {
+  _clipsBtn.addEventListener('click', () => {
+    dbg('ACTION', 'Header > Clips');
+    if (typeof openPostCaptionWindow === 'function') {
+      openPostCaptionWindow(undefined, { tab: 'clips', source: 'header-button' });
+    }
+  });
+}
+
+// Top-right Debug button
+const _debugBtn = $('debugBtn');
+if (_debugBtn) {
+  _debugBtn.addEventListener('click', () => {
+    dbg('ACTION', 'Header > Debug');
+    if (window.clipper && window.clipper.openDebugWindow) window.clipper.openDebugWindow();
+  });
+}
 
 /* ─── Initial renders ───────────────────────────────────────── */
 renderPendingClips();

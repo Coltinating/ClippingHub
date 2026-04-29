@@ -1,20 +1,25 @@
 // Resolves whisper binary and model paths:
 //   - Packaged app: uses bundled binaries from resources/whisper/
-//   - Dev mode: falls back to local resources/whisper/ or system PATH
+//   - Dev mode: prefers resources/whisper/, then build/whisper/<platform>/
 //
 // Directory layout:
 //   resources/whisper/
-//     cpp/              — whisper.cpp CUDA build + tiny model
-//       whisper-cli.exe
+//     cpp/              — whisper.cpp build (CUDA on Windows, Metal on macOS, CPU/Vulkan on Linux)
+//       whisper-cli[.exe]
 //       ggml-tiny.en.bin
-//       *.dll
+//       *.dll / *.dylib / *.so
 //     faster/           — faster-whisper Python backend + medium model
 //       transcribe.py
 //       model.bin
+//
+// Cross-platform: binary is `whisper-cli.exe` on Windows, `whisper-cli` elsewhere.
 
 const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
+const { BIN_EXT, IS_WIN, platformDir } = require('./platform');
+
+const WHISPER_BIN = 'whisper-cli' + BIN_EXT;
 
 function getWhisperDir() {
   try {
@@ -25,9 +30,15 @@ function getWhisperDir() {
   } catch (_) {
     // Not in Electron context
   }
-  // Dev: check for a local resources/whisper folder relative to project root
-  const devDir = path.join(__dirname, '..', '..', 'resources', 'whisper');
-  if (fs.existsSync(devDir)) return devDir;
+  // Dev: prefer resources/whisper folder relative to project root
+  const projectRoot = path.join(__dirname, '..', '..');
+  const devResources = path.join(projectRoot, 'resources', 'whisper');
+  if (fs.existsSync(devResources)) return devResources;
+
+  // Fall back to per-platform build directory
+  const platDir = path.join(projectRoot, 'build', 'whisper', platformDir());
+  if (fs.existsSync(platDir)) return platDir;
+
   return null;
 }
 
@@ -36,10 +47,10 @@ function getWhisperDir() {
 function getWhisperPath() {
   const dir = getWhisperDir();
   if (dir) {
-    const cli = path.join(dir, 'cpp', 'whisper-cli.exe');
+    const cli = path.join(dir, 'cpp', WHISPER_BIN);
     if (fs.existsSync(cli)) return cli;
     // Legacy fallback (flat layout)
-    const legacy = path.join(dir, 'whisper-cli.exe');
+    const legacy = path.join(dir, WHISPER_BIN);
     if (fs.existsSync(legacy)) return legacy;
   }
   return 'whisper-cli'; // fall back to system PATH
@@ -86,16 +97,20 @@ function getFasterModelPath() {
 }
 
 function getPythonPath() {
-  // Prefer py launcher which can target specific versions
-  try {
-    execFileSync('py', ['-3.10', '--version'], { stdio: 'pipe', timeout: 5000 });
-    return { cmd: 'py', args: ['-3.10'] };
-  } catch (_) {}
-  // Fall back to plain python
-  try {
-    execFileSync('python', ['--version'], { stdio: 'pipe', timeout: 5000 });
-    return { cmd: 'python', args: [] };
-  } catch (_) {}
+  // Windows: prefer the `py` launcher, which can target specific versions.
+  if (IS_WIN) {
+    try {
+      execFileSync('py', ['-3.10', '--version'], { stdio: 'pipe', timeout: 5000 });
+      return { cmd: 'py', args: ['-3.10'] };
+    } catch (_) {}
+  }
+  // macOS/Linux (and Windows fallback): try python3 first, then python.
+  for (const cmd of ['python3', 'python']) {
+    try {
+      execFileSync(cmd, ['--version'], { stdio: 'pipe', timeout: 5000 });
+      return { cmd, args: [] };
+    } catch (_) {}
+  }
   return null;
 }
 

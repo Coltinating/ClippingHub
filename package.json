@@ -8,6 +8,10 @@
   "scripts": {
     "start": "node launch.js",
     "build": "electron-builder --win",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux",
+    "dist:all": "electron-builder -mwl",
     "test": "vitest run",
     "test:watch": "vitest"
   },
