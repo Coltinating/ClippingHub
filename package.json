@@ -1,6 +1,6 @@
 {
   "name": "clipper-hub",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Streamer Clipper Hub — mark, clip, and export moments from streams",
   "author": "Coltinating",
   "main": "main.js",
