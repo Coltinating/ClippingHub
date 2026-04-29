@@ -284,8 +284,9 @@ function getUserColor(userId, userName) {
   return NAME_COLORS[hashString(userName || userId || 'x') % NAME_COLORS.length];
 }
 
-function emit() {
-  // Log a thin summary so we can trace state changes without flooding.
+var _emitScheduled = false;
+function _emitNow() {
+  _emitScheduled = false;
   dlog('COLLAB:STATE', 'emit', {
     role: myRole(),
     assistUserId: myAssistUserId() || '',
@@ -294,8 +295,14 @@ function emit() {
     inboundDeliveries: _inboundDeliveries.length
   });
   renderAll();
-  savePrefs();
   for (var i = 0; i < listeners.length; i++) listeners[i](state);
+}
+function emit() {
+  // Coalesce multiple state changes in the same frame into one render.
+  if (_emitScheduled) return;
+  _emitScheduled = true;
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(_emitNow);
+  else setTimeout(_emitNow, 0);
 }
 
 function setStatus(msg) {
@@ -332,6 +339,7 @@ function applyLobbySnapshot(lobby) {
     state.members = [];
     state.chat = [];
     state.clipRanges = [];
+    bumpRangesVersion();
     setStage(client && client.connected ? 'no-lobby' : 'offline');
     savePrefs();
     emit();
@@ -348,6 +356,7 @@ function applyLobbySnapshot(lobby) {
   state.members = Array.isArray(lobby.members) ? lobby.members.slice() : [];
   state.chat = Array.isArray(lobby.chat) ? lobby.chat.slice() : [];
   state.clipRanges = Array.isArray(lobby.clipRanges) ? lobby.clipRanges.slice() : [];
+  bumpRangesVersion();
   setStage('in-lobby');
   savePrefs();
   emit();
@@ -441,6 +450,7 @@ function disconnect() {
   state.members = [];
   state.chat = [];
   state.clipRanges = [];
+  bumpRangesVersion();
   _inboundDeliveries.length = 0;
   _seenDeliveryIds.clear();
   setStage('offline');
@@ -557,6 +567,7 @@ function upsertClipRange(range) {
   } else {
     state.clipRanges.push(next);
   }
+  bumpRangesVersion();
   emit();
 
   if (state.lobby && client) client.upsertRange(next);
@@ -569,6 +580,7 @@ function removeClipRange(rangeId) {
   var before = state.clipRanges.length;
   state.clipRanges = state.clipRanges.filter(function (r) { return String(r.id || '') !== id; });
   if (before === state.clipRanges.length) return false;
+  bumpRangesVersion();
   emit();
   if (state.lobby && client) client.removeRange(id);
   return true;
@@ -681,25 +693,36 @@ function stopAssisting() {
   client.setAssist(null);
 }
 
+var _rangesVersion = 0;
+var _indicatorCache = { v: -1, t: -1, result: null };
+function bumpRangesVersion() { _rangesVersion++; }
+
 function getIndicatorAtTime(timeSec) {
-  if (utils && utils.buildIndicatorAtTime) {
-    return utils.buildIndicatorAtTime(state.clipRanges, timeSec);
-  }
   if (!isFinite(timeSec)) return null;
-  var names = [];
-  for (var i = 0; i < state.clipRanges.length; i++) {
-    var r = state.clipRanges[i];
-    if (!r) continue;
-    if (timeSec < r.inTime || timeSec > r.outTime) continue;
-    var label = (r.clipperName || r.userName || 'Editor');
-    if (r.helperName) label += ' (' + r.helperName + ')';
-    if (names.indexOf(label) === -1) names.push(label);
+  var t = Math.round(timeSec * 10) / 10;
+  if (_indicatorCache.v === _rangesVersion && _indicatorCache.t === t) {
+    return _indicatorCache.result;
   }
-  if (!names.length) return null;
-  return {
-    text: 'Clipped/Being Clipped by ' + names.join(', '),
-    names: names
-  };
+  var result;
+  if (utils && utils.buildIndicatorAtTime) {
+    result = utils.buildIndicatorAtTime(state.clipRanges, timeSec);
+  } else {
+    var names = [];
+    for (var i = 0; i < state.clipRanges.length; i++) {
+      var r = state.clipRanges[i];
+      if (!r) continue;
+      if (timeSec < r.inTime || timeSec > r.outTime) continue;
+      var label = (r.clipperName || r.userName || 'Editor');
+      if (r.helperName) label += ' (' + r.helperName + ')';
+      if (names.indexOf(label) === -1) names.push(label);
+    }
+    result = names.length ? {
+      text: 'Clipped/Being Clipped by ' + names.join(', '),
+      names: names
+    } : null;
+  }
+  _indicatorCache = { v: _rangesVersion, t: t, result: result };
+  return result;
 }
 
 function getClipRanges() {

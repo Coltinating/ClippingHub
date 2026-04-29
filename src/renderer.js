@@ -126,13 +126,18 @@ function getClipStartFrameDataUrl(filePath) {
 
 /* ─── Debug Logger (always capturing, detached window) ──── */
 function dbg(category, message, data) {
-  // Forward to main process → file log + debug window
+  // Fast-path: bail before any IPC work when logging is globally disabled.
+  // Caller's payload object is already allocated at call site, but skipping
+  // IPC saves the cross-process serialize/post in hot paths.
+  if (window.dbgEnabled === false) return;
   if (window.clipper?.sendDebugLog) {
     window.clipper.sendDebugLog({ category, message, data });
   }
 }
 // Expose for external modules (batch-testing.js etc.)
 window.dbg = dbg;
+// Default: enabled. Set window.dbgEnabled = false to silence in hot paths.
+if (typeof window.dbgEnabled === 'undefined') window.dbgEnabled = true;
 
 // Header Debug button is wired below in the header dropdown wiring section.
 dbg('SESSION', 'Renderer initialized');
@@ -293,8 +298,16 @@ window.Player.init($);
 
 // Listen for player events
 window.Player.on('showplayer', () => showPlayerView());
-window.Player.on('timeupdate', () => renderProgressMarkers());
+let _lastMarkerRender = 0;
+window.Player.on('timeupdate', () => {
+  // timeupdate fires ~40Hz; cap marker rebuilds to ~15Hz.
+  const now = performance.now();
+  if (now - _lastMarkerRender < 66) return;
+  _lastMarkerRender = now;
+  renderProgressMarkers();
+});
 if (window.CollabUI && window.CollabUI.subscribe) {
+  // CollabUI fires far less often; let it through unthrottled.
   window.CollabUI.subscribe(() => renderProgressMarkers());
 }
 
