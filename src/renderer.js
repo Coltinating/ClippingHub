@@ -2472,6 +2472,10 @@ function openConfigModal() {
   if (old) old.remove();
 
   const cfg = userConfig;
+  // Tutorial system is a localStorage flag (not in userConfig) so it stays
+  // out of saved/exported configs and never leaks to production users.
+  let tutorialDevEnabled = false;
+  try { tutorialDevEnabled = localStorage.getItem('ch.tutorial.enabled') === '1'; } catch (_) {}
   const overlay = document.createElement('div');
   overlay.className = 'config-modal-overlay wm-modal-overlay';
   overlay.innerHTML = `
@@ -2632,6 +2636,7 @@ function openConfigModal() {
           <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgLogFfmpegCommands" ${cfg.devFeatures?.logFfmpegCommands?'checked':''}> <span>Output all FFmpeg commands to debug log</span></label>
           <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgAdvancedPanels" ${cfg.devFeatures?.advancedPanelSystem?'checked':''}> <span>Enable advanced panel system</span> <span class="config-default">(drag, split, dock, undock, custom layouts &mdash; off for a simpler experience)</span></label>
           <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgFrameAccurateClipping" ${cfg.devFeatures?.frameAccurateClipping?'checked':''}> <span>Frame-accurate clipping</span> <span class="config-default">(experimental &mdash; off keeps the main pipeline untouched; tests live in tests/unit/frame-accurate-clip.test.js)</span></label>
+          <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgTutorialDev" ${tutorialDevEnabled?'checked':''}> <span>Tutorial system</span> <span class="config-default">(in-development guided walkthrough &mdash; reloads the app when toggled; not saved to user config)</span></label>
         </div>
 
       </div>
@@ -2786,18 +2791,38 @@ function openConfigModal() {
     userConfig.devFeatures.advancedPanelSystem = overlay.querySelector('#cfgAdvancedPanels').checked;
     userConfig.devFeatures.frameAccurateClipping = overlay.querySelector('#cfgFrameAccurateClipping').checked;
 
+    // Tutorial flag: localStorage, not userConfig. tutorial-boot.js reads
+    // this once at page load, so a real toggle requires a reload to take
+    // effect. We capture the change here and let the Save handler trigger
+    // reload only when the value actually flipped.
+    const newTutorialDev = overlay.querySelector('#cfgTutorialDev').checked;
+    let tutorialFlagChanged = false;
+    try {
+      const prev = localStorage.getItem('ch.tutorial.enabled') === '1';
+      if (prev !== newTutorialDev) {
+        if (newTutorialDev) localStorage.setItem('ch.tutorial.enabled', '1');
+        else localStorage.removeItem('ch.tutorial.enabled');
+        tutorialFlagChanged = true;
+      }
+    } catch (_) {}
+
     dbg('ACTION', 'Settings saved', { videoCodec: userConfig.ffmpeg.videoCodec, hwaccel: userConfig.ffmpeg.hwaccel || 'none', catchUpSpeed: userConfig.catchUpSpeed, batchEnabled: batchModeEnabled, ffmpegLogs: userConfig.devFeatures.ffmpegLogs, keepTempFiles: userConfig.devFeatures.keepTempFiles, logFfmpegCommands: userConfig.devFeatures.logFfmpegCommands });
     await saveConfig();
     await saveUniversalConfigs();
     applyConfig();
     renderPendingClips();
     renderCompletedClips();
+    return { tutorialFlagChanged };
   }
 
   // Save buttons
   overlay.querySelector('#cfgSave').onclick = overlay.querySelector('#cfgApply').onclick = async () => {
-    await collectAndSaveConfig();
+    const result = await collectAndSaveConfig();
     overlay.remove();
+    if (result && result.tutorialFlagChanged) {
+      // Reload so tutorial-boot.js re-evaluates the flag at startup.
+      setTimeout(() => location.reload(), 50);
+    }
   };
 }
 
