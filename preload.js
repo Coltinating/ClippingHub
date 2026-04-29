@@ -117,6 +117,10 @@ contextBridge.exposeInMainWorld('clipper', {
   serverGetConfig: () => ipcRenderer.invoke('server-get-config'),
   serverSetConfig: (cfg) => ipcRenderer.invoke('server-set-config', cfg),
 
+  // Profile config (disk-persisted, survives full app restart)
+  profileGetConfig: () => ipcRenderer.invoke('profile-get-config'),
+  profileSetConfig: (cfg) => ipcRenderer.invoke('profile-set-config', cfg),
+
   // Floating panel windows
   floatCreate: (opts) => ipcRenderer.invoke('float:create', opts),
   floatClose: (floatId) => ipcRenderer.invoke('float:close', floatId),

@@ -61,7 +61,10 @@ function hashString(v) {
   return Math.abs(h);
 }
 
-function loadPrefs() {
+function loadPrefsLegacy() {
+  // localStorage is keyed by origin; the loopback proxy uses an ephemeral port,
+  // so prefs survive Ctrl+R but NOT a full app restart. Kept as a one-shot
+  // migration source until the disk-config IPC hydrates.
   try {
     var raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return {};
@@ -71,7 +74,7 @@ function loadPrefs() {
   }
 }
 
-var prefs = loadPrefs();
+var prefs = loadPrefsLegacy();
 var state = {
   me: {
     id: makeId('u'),
@@ -87,15 +90,67 @@ var state = {
   lastCode: safeCode(prefs.lastCode || '')
 };
 
+var _saveTimer = null;
+var _saveDirty = false;
+
 function savePrefs() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      meName: state.me.name,
-      meXHandle: state.me.xHandle || '',
-      meColor: state.me.color || '',
-      mePfpDataUrl: state.me.pfpDataUrl || '',
+  // Debounced disk write via IPC. Pulled out of render hot path; only called
+  // from updateLocalProfile and lobby create/leave paths.
+  _saveDirty = true;
+  if (_saveTimer) return;
+  _saveTimer = setTimeout(function () {
+    _saveTimer = null;
+    if (!_saveDirty) return;
+    _saveDirty = false;
+    var payload = {
+      name: state.me.name,
+      xHandle: state.me.xHandle || '',
+      color: state.me.color || '',
+      pfpDataUrl: state.me.pfpDataUrl || '',
       lastCode: state.lobby ? state.lobby.code : state.lastCode
-    }));
+    };
+    if (window.clipper && window.clipper.profileSetConfig) {
+      try { window.clipper.profileSetConfig(payload); } catch (_) {}
+    }
+    // Mirror to localStorage as defense in depth for browser/dev contexts.
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        meName: payload.name,
+        meXHandle: payload.xHandle,
+        meColor: payload.color,
+        mePfpDataUrl: payload.pfpDataUrl,
+        lastCode: payload.lastCode
+      }));
+    } catch (_) {}
+  }, 250);
+}
+
+// Async hydrate from disk config. Disk wins over localStorage (it's
+// authoritative across launches, since localStorage is keyed by ephemeral port).
+if (window.clipper && window.clipper.profileGetConfig) {
+  try {
+    window.clipper.profileGetConfig().then(function (cfg) {
+      if (!cfg || typeof cfg !== 'object') return;
+      var changed = false;
+      if (cfg.name && cfg.name !== state.me.name) {
+        state.me.name = normalizeName(cfg.name); changed = true;
+      }
+      if (cfg.xHandle && cfg.xHandle !== state.me.xHandle && window.Profile) {
+        state.me.xHandle = window.Profile.sanitizeXHandle(cfg.xHandle); changed = true;
+      }
+      if (cfg.color && cfg.color !== state.me.color && window.Profile) {
+        state.me.color = window.Profile.resolveUserColor({ color: cfg.color }, ''); changed = true;
+      }
+      if (cfg.pfpDataUrl && cfg.pfpDataUrl !== state.me.pfpDataUrl && window.Profile) {
+        if (window.Profile.validatePfpDataUrl(cfg.pfpDataUrl, 256000)) {
+          state.me.pfpDataUrl = cfg.pfpDataUrl; changed = true;
+        }
+      }
+      if (cfg.lastCode && safeCode(cfg.lastCode) !== state.lastCode) {
+        state.lastCode = safeCode(cfg.lastCode); changed = true;
+      }
+      if (changed && typeof emit === 'function') emit();
+    }).catch(function () {});
   } catch (_) {}
 }
 
@@ -275,6 +330,7 @@ function applyLobbySnapshot(lobby) {
     state.chat = [];
     state.clipRanges = [];
     setStage(client && client.connected ? 'no-lobby' : 'offline');
+    savePrefs();
     emit();
     return;
   }
@@ -290,6 +346,7 @@ function applyLobbySnapshot(lobby) {
   state.chat = Array.isArray(lobby.chat) ? lobby.chat.slice() : [];
   state.clipRanges = Array.isArray(lobby.clipRanges) ? lobby.clipRanges.slice() : [];
   setStage('in-lobby');
+  savePrefs();
   emit();
 }
 
