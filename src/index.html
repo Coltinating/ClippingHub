@@ -7,6 +7,7 @@
 <title>Clipping Hub</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="tutorial/tutorial.css">
 </head>
 <body>
 
@@ -125,6 +126,9 @@
             <div class="dd-item" id="ddOpenDebugger">Debugger</div>
             <div class="dd-item" id="ddShortcuts">Keyboard Shortcuts</div>
             <div class="dd-item" id="ddAbout">About ClippingHub</div>
+            <!-- Dev-only tutorial entry; tutorial-boot.js unhides this when
+                 localStorage['ch.tutorial.enabled']==='1' (set via app DevTools). -->
+            <div class="dd-item" id="ddTutorial" hidden>Tutorial (dev)</div>
           </div>
         </div>
       </div>
@@ -721,5 +725,13 @@
 <script src="split-interact.js"></script>
 <script src="panels.js"></script>
 <script src="player2.js"></script>
+
+<!-- Tutorial system (dev-only, gated by localStorage['ch.tutorial.enabled']) -->
+<div class="tutorial-root" id="tutorialRoot" hidden></div>
+<script src="tutorial/tutorial-actions.js"></script>
+<script src="tutorial/tutorial-content.js"></script>
+<script src="tutorial/tutorial-engine.js"></script>
+<script src="tutorial/tutorial-overlay.js"></script>
+<script src="tutorial/tutorial-boot.js"></script>
 </body>
 </html>

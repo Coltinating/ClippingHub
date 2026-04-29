@@ -1,0 +1,154 @@
+/* src/tutorial/tutorial.css */
+:root {
+  /* Tutorial layer must sit above the Settings modal (.wm-modal-overlay
+     uses z-index 9999) and above the dropdown menus, so the spotlight and
+     guidance card stay on top while the user clicks through Settings. */
+  --tut-z-root: 10500;
+  --tut-z-toast-above: 11000;
+  --tut-card-bg: #1b1f27;
+  --tut-card-border: rgba(255,255,255,0.08);
+  --tut-text: #e8ecf3;
+  --tut-text-muted: #9aa3b2;
+  --tut-accent: #5bb1ff;
+}
+
+.tutorial-root { position: fixed; inset: 0; z-index: var(--tut-z-root); pointer-events: none; }
+.tutorial-root[hidden] { display: none; }
+
+/* Backdrop is visual only — clicks pass through to the underlying app
+   so the user can interact with highlighted controls (the whole point
+   of an "interactive" walkthrough). */
+.tutorial-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(1.5px);
+  opacity: 0; transition: opacity 200ms ease-out;
+  pointer-events: none;
+}
+.tutorial-root.open .tutorial-backdrop { opacity: 1; }
+
+/* Spotlight rectangle — rendered as a giant box-shadow ring around
+   the target, which dims everything outside while leaving the target
+   visible AND clickable (pointer-events:none on the spotlight itself). */
+.tutorial-spotlight {
+  position: absolute;
+  border-radius: 8px;
+  box-shadow: 0 0 0 9999px rgba(0,0,0,0.55), 0 0 0 3px rgba(91,177,255,0.6);
+  transition: top 250ms ease-out, left 250ms ease-out, width 250ms ease-out, height 250ms ease-out, opacity 200ms ease-out;
+  pointer-events: none;
+  animation: tut-pulse 2s ease-in-out infinite alternate;
+}
+@keyframes tut-pulse {
+  from { box-shadow: 0 0 0 9999px rgba(0,0,0,0.6), 0 0 0 3px rgba(91,177,255,0.55); }
+  to   { box-shadow: 0 0 0 9999px rgba(0,0,0,0.6), 0 0 0 5px rgba(91,177,255,0.85); }
+}
+
+/* Tooltip card — the only element that captures pointer events so
+   users can still operate the underlying app freely. */
+.tutorial-card {
+  position: absolute;
+  width: 360px; max-width: calc(100vw - 32px);
+  background: var(--tut-card-bg);
+  border: 1px solid var(--tut-card-border);
+  border-radius: 12px;
+  box-shadow: 0 12px 36px rgba(0,0,0,0.45);
+  color: var(--tut-text);
+  font-size: 14px; line-height: 1.5;
+  opacity: 0; transform: translateY(8px);
+  transition: opacity 200ms ease-out, transform 200ms ease-out;
+  pointer-events: auto;
+}
+.tutorial-root.open .tutorial-card { opacity: 1; transform: translateY(0); }
+
+.tutorial-card-header { display: flex; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--tut-card-border); }
+.tutorial-card-progress { font-size: 12px; color: var(--tut-text-muted); flex: 1; }
+.tutorial-card-progress strong { color: var(--tut-text); }
+.tutorial-card-toc-btn, .tutorial-card-close {
+  background: transparent; border: 0; color: var(--tut-text-muted);
+  cursor: pointer; padding: 4px 6px; border-radius: 4px;
+}
+.tutorial-card-toc-btn:hover, .tutorial-card-close:hover { background: rgba(255,255,255,0.06); color: var(--tut-text); }
+
+.tutorial-card-body { padding: 14px 14px 12px; }
+.tutorial-card-title { font-size: 16px; font-weight: 600; margin: 0 0 6px; }
+.tutorial-card-text { margin: 0; color: var(--tut-text); }
+.tutorial-card-text kbd {
+  display: inline-block; padding: 1px 6px; margin: 0 2px;
+  background: rgba(255,255,255,0.08); border: 1px solid var(--tut-card-border);
+  border-radius: 4px; font-family: monospace; font-size: 12px;
+}
+
+.tutorial-card-footer { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--tut-card-border); }
+.tutorial-card-footer .spacer { flex: 1; }
+.tutorial-btn {
+  background: rgba(255,255,255,0.06); color: var(--tut-text);
+  border: 1px solid var(--tut-card-border); border-radius: 6px;
+  padding: 6px 12px; font-size: 13px; cursor: pointer;
+  transition: background 150ms ease-out;
+}
+.tutorial-btn:hover { background: rgba(255,255,255,0.1); }
+.tutorial-btn-primary { background: var(--tut-accent); border-color: var(--tut-accent); color: #0a0d12; font-weight: 600; }
+.tutorial-btn-primary:hover { background: #7ec1ff; }
+.tutorial-btn:focus-visible { outline: 2px solid var(--tut-accent); outline-offset: 2px; }
+
+/* Pointer arrow on card */
+.tutorial-card[data-placement="top"]::after,
+.tutorial-card[data-placement="bottom"]::after,
+.tutorial-card[data-placement="left"]::after,
+.tutorial-card[data-placement="right"]::after {
+  content: ''; position: absolute; width: 12px; height: 12px;
+  background: var(--tut-card-bg);
+  border: 1px solid var(--tut-card-border);
+  transform: rotate(45deg);
+}
+.tutorial-card[data-placement="top"]::after    { bottom: -7px; left: var(--arrow-x, 50%); border-top: 0; border-left: 0; }
+.tutorial-card[data-placement="bottom"]::after { top: -7px;    left: var(--arrow-x, 50%); border-bottom: 0; border-right: 0; }
+.tutorial-card[data-placement="left"]::after   { right: -7px;  top: var(--arrow-y, 50%); border-bottom: 0; border-left: 0; }
+.tutorial-card[data-placement="right"]::after  { left: -7px;   top: var(--arrow-y, 50%); border-top: 0; border-right: 0; }
+
+/* TOC — also captures pointer events (modal-style). */
+.tutorial-toc {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 560px; max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 96px); overflow: auto;
+  background: var(--tut-card-bg);
+  border: 1px solid var(--tut-card-border);
+  border-radius: 14px;
+  color: var(--tut-text);
+  box-shadow: 0 16px 48px rgba(0,0,0,0.55);
+  pointer-events: auto;
+}
+.tutorial-toc-header { display:flex; align-items:center; padding: 16px 18px; border-bottom: 1px solid var(--tut-card-border); }
+.tutorial-toc-title { flex: 1; font-size: 18px; font-weight: 600; margin: 0; }
+.tutorial-toc-list { padding: 12px; display: grid; gap: 8px; }
+.tutorial-toc-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--tut-card-border); border-radius: 10px;
+  background: rgba(255,255,255,0.02);
+  cursor: pointer; transition: background 150ms ease-out, border-color 150ms ease-out;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  width: 100%;
+}
+.tutorial-toc-item:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.16); }
+.tutorial-toc-item:focus-visible { outline: 2px solid var(--tut-accent); outline-offset: 2px; }
+.tutorial-toc-num { width: 28px; height: 28px; border-radius: 50%; background: rgba(91,177,255,0.15); color: var(--tut-accent); display:flex; align-items:center; justify-content:center; font-weight: 600; font-size: 13px; flex-shrink: 0; }
+.tutorial-toc-meta { flex: 1; min-width: 0; }
+.tutorial-toc-meta-title { font-size: 15px; font-weight: 600; margin: 0; }
+.tutorial-toc-meta-blurb { font-size: 12px; color: var(--tut-text-muted); margin: 2px 0 0; }
+.tutorial-toc-status {
+  font-size: 11px; padding: 3px 8px; border-radius: 999px;
+  background: rgba(255,255,255,0.06); color: var(--tut-text-muted);
+  flex-shrink: 0;
+}
+.tutorial-toc-status[data-state="completed"] { background: rgba(45,200,100,0.16); color: #6ee7a7; }
+.tutorial-toc-status[data-state="in-progress"] { background: rgba(91,177,255,0.18); color: var(--tut-accent); }
+.tutorial-toc-footer { display:flex; padding: 12px 18px; border-top: 1px solid var(--tut-card-border); }
+.tutorial-toc-footer .spacer { flex: 1; }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-backdrop, .tutorial-spotlight, .tutorial-card { transition: none; animation: none; }
+}
