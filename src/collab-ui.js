@@ -318,26 +318,6 @@ function attachClientHandlers() {
     }
     if (added) emit();
   });
-  client.on('transcript:status', function (m) {
-    var statusEl = document.getElementById('transcribeStatus');
-    var startBtn = document.getElementById('transcribeStartBtn');
-    var stopBtn = document.getElementById('transcribeStopBtn');
-    if (statusEl) {
-      statusEl.dataset.state = m.status;
-      statusEl.textContent = m.error ? ('error: ' + m.error) : m.status;
-    }
-    if (startBtn) startBtn.disabled = m.status === 'running';
-    if (stopBtn) stopBtn.disabled = m.status !== 'running';
-  });
-  client.on('transcript:chunk', function (m) {
-    var logEl = document.getElementById('transcribeLog');
-    if (!logEl) return;
-    var row = document.createElement('div');
-    row.className = 'transcribe-row';
-    row.textContent = '[' + m.chunk.tStart.toFixed(1) + '–' + m.chunk.tEnd.toFixed(1) + '] ' + m.chunk.text;
-    logEl.appendChild(row);
-    logEl.scrollTop = logEl.scrollHeight;
-  });
   client.on('disconnected', function () {
     dlog('COLLAB:RECV', 'disconnected');
     _inboundDeliveries.length = 0;
@@ -1066,7 +1046,6 @@ function bindUi() {
 
   bindStageTabs();
   bindCollabTabs();
-  bindTranscribeUi();
 
   // Prefill server URL
   if (serverUrlInput && window.clipper && window.clipper.serverGetConfig) {
@@ -1159,32 +1138,6 @@ function bindUi() {
   }
 }
 
-function bindTranscribeUi() {
-  var startBtn = document.getElementById('transcribeStartBtn');
-  var stopBtn = document.getElementById('transcribeStopBtn');
-  var channelInput = document.getElementById('transcribeChannelId');
-
-  if (channelInput && window.clipper && window.clipper.getChannelConfig) {
-    window.clipper.getChannelConfig().then(function (cfg) {
-      if (channelInput && !channelInput.value) channelInput.value = (cfg && cfg.channel_id) || '';
-    }).catch(function () {});
-  }
-
-  if (startBtn) startBtn.addEventListener('click', function () {
-    if (!client || !state.lobby) { setStatus('Join a lobby first'); return; }
-    var channelId = channelInput ? channelInput.value.trim() : '';
-    var videoUrl = (document.getElementById('transcribeVideoUrl') || {}).value;
-    videoUrl = String(videoUrl || '').trim();
-    if (!channelId || !videoUrl) return;
-    dlog('ACTION', 'transcript:start', { channelId: channelId });
-    client.startTranscript({ channelId: channelId, videoUrl: videoUrl });
-  });
-  if (stopBtn) stopBtn.addEventListener('click', function () {
-    if (!client) return;
-    dlog('ACTION', 'transcript:stop');
-    client.stopTranscript();
-  });
-}
 
 function setState(nextState) {
   state = {

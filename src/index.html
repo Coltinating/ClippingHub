@@ -514,7 +514,6 @@
             <button class="collab-tab active" data-tab="members" type="button">Members <span class="collab-tab-count" id="lobbyMemberCount">0</span></button>
             <button class="collab-tab" data-tab="chat" type="button">Chat</button>
             <button class="collab-tab" data-tab="activity" type="button">Activity</button>
-            <button class="collab-tab collab-tab-admin" data-tab="transcribe" id="collabTabTranscribe" type="button" hidden>Transcribe</button>
           </div>
 
           <div class="collab-tab-panel" data-tab-panel="members">
@@ -529,24 +528,6 @@
           </div>
           <div class="collab-tab-panel" data-tab-panel="activity" hidden>
             <div class="collab-list" id="collabActivityList"></div>
-          </div>
-          <div class="collab-tab-panel" data-tab-panel="transcribe" hidden>
-            <div class="transcribe-controls">
-              <label class="lobby-field">
-                <span class="lobby-label">Channel ID</span>
-                <input id="transcribeChannelId" type="text" placeholder="nickjfuentes">
-              </label>
-              <label class="lobby-field">
-                <span class="lobby-label">Video URL</span>
-                <input id="transcribeVideoUrl" type="text" placeholder="https://rumble.com/v…">
-              </label>
-              <div class="lobby-row">
-                <button class="btn btn-primary" id="transcribeStartBtn" type="button">Start</button>
-                <button class="btn btn-ghost btn-xs" id="transcribeStopBtn" type="button" disabled>Stop</button>
-                <span class="transcribe-status" id="transcribeStatus" data-state="idle">idle</span>
-              </div>
-            </div>
-            <div class="transcribe-log" id="transcribeLog"></div>
           </div>
         </div>
 

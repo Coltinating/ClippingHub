@@ -2523,14 +2523,7 @@ svg { display: block; }
 
 .collab-disconnect-row { justify-content: flex-end; margin-top: 8px; }
 
-.transcribe-controls { display: flex; flex-direction: column; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--border, #2a2a30); }
-.transcribe-status   { font-size: 11px; padding: 1px 6px; border-radius: 999px; }
-.transcribe-status[data-state="idle"]    { color: var(--text-secondary, #a8a8b0); }
-.transcribe-status[data-state="running"] { color: #5ec27a; }
-.transcribe-status[data-state="stopped"] { color: var(--text-secondary, #a8a8b0); }
-.transcribe-status[data-state="error"]   { color: #d97474; }
-.transcribe-log { max-height: 240px; overflow-y: auto; margin-top: 8px; font-family: Consolas, monospace; font-size: 12px; }
-.transcribe-row { padding: 2px 0; color: var(--text-secondary, #a8a8b0); }
+
 
 /* Admin [DEV] tag — used wherever an admin's display name is rendered. */
 .dev-tag { color: #ff3333; font-weight: 800; letter-spacing: 0.02em; }
@@ -2551,9 +2544,7 @@ svg { display: block; }
 .clip-card-times,
 .clip-card-times *,
 .clip-card-locked-prefix,
-.clip-card-attribution,
-.transcribe-row,
-.transcribe-log {
+.clip-card-attribution {
   user-select: text;
   -webkit-user-select: text;
 }
