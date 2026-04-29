@@ -2468,18 +2468,6 @@ svg { display: block; }
 }
 
 .lobby-role-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
-.lobby-role-toggle {
-  display: inline-flex; background: #0a0a0a; border: 1px solid #1f1f1f;
-  border-radius: 8px; padding: 3px;
-}
-.lobby-role-opt {
-  appearance: none; border: none; background: transparent;
-  padding: 6px 12px; color: #a0a0a0; font-size: 12px; font-weight: 600;
-  cursor: pointer; border-radius: 6px;
-}
-.lobby-role-opt.active { background: #1a1a1a; color: #ffffff; }
-.lobby-assist { flex: 1; min-width: 140px; }
-.lobby-assist[hidden] { display: none !important; }
 
 .lobby-section-title {
   display: flex; justify-content: space-between; align-items: center;
@@ -2738,3 +2726,79 @@ body.basic-panels .area-header { cursor: default; }
 .settings-pane-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
 .settings-pane-section { display: none; }
 .settings-pane-section.active { display: block; }
+
+/* ── Collab panel restyle (matches Clips Queue visual language) ─────────── */
+
+.collab-section-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--text-muted, #888);
+}
+.collab-section-header::before {
+  content: '•'; font-size: 14px; line-height: 1; color: var(--accent, #8b5cf6);
+}
+
+.lobby-code {
+  font-family: var(--font-mono, monospace); font-size: 11px;
+  padding: 2px 7px; border-radius: 999px;
+  background: var(--surface-2, rgba(255,255,255,.07));
+  color: var(--text-secondary, #bbb); letter-spacing: .05em;
+}
+.collab-tab-count {
+  font-family: var(--font-mono, monospace); font-size: 10px;
+  padding: 1px 5px; border-radius: 999px;
+  background: var(--surface-2, rgba(255,255,255,.07)); margin-left: 4px;
+}
+
+.collab-role-badge {
+  font-size: 9px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  padding: 1px 6px; border-radius: 999px; margin-left: 5px;
+}
+.collab-role-badge.clipper { background: rgba(139,92,246,.18); color: #c4b5fd; }
+.collab-role-badge.helper  { background: rgba(34,197,94,.15);  color: #86efac; }
+.collab-role-badge.viewer  { background: rgba(148,163,184,.12); color: #94a3b8; }
+
+.collab-you-tag {
+  font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--text-muted, #777); margin-left: 4px;
+}
+
+.collab-member-row--indented { padding-left: 24px; }
+.collab-member-connector { font-size: 10px; color: var(--text-muted, #666); flex-shrink: 0; }
+.collab-role-icon { font-size: 13px; flex-shrink: 0; }
+
+.collab-member-name.is-me { font-weight: 700; }
+
+.collab-section-divider {
+  height: 1px; background: var(--border, rgba(255,255,255,.06)); margin: 6px 10px;
+}
+
+.collab-panel-body .btn-primary {
+  background: var(--accent, #8b5cf6); color: #fff; border: none;
+  padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: opacity .12s;
+}
+.collab-panel-body .btn-primary:hover { opacity: .85; }
+
+.collab-panel-body .btn-ghost {
+  background: transparent; border: 1px solid var(--border, rgba(255,255,255,.15));
+  color: var(--text-secondary, #bbb); padding: 5px 12px; border-radius: 6px;
+  font-size: 12px; cursor: pointer; transition: border-color .12s, color .12s;
+}
+.collab-panel-body .btn-ghost:hover { border-color: var(--text-secondary, #bbb); color: #fff; }
+
+.collab-panel-body input[type=text],
+.collab-panel-body input[type=password] {
+  background: var(--surface-2, rgba(255,255,255,.05));
+  border: 1px solid var(--border, rgba(255,255,255,.1));
+  border-radius: 5px; color: var(--text-primary, #fff);
+  padding: 5px 9px; font-size: 12px; outline: none; transition: border-color .15s;
+}
+.collab-panel-body input[type=text]:focus,
+.collab-panel-body input[type=password]:focus { border-color: var(--accent, #8b5cf6); }
+
+.profile-popover-actions {
+  display: flex; flex-direction: column; gap: 4px; margin-top: 8px;
+  border-top: 1px solid var(--border, rgba(255,255,255,.08)); padding-top: 8px;
+}
