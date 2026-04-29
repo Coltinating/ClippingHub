@@ -15,15 +15,14 @@ function escAttr(s) { return String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;
 function escH(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function renderSendUnsendButton(clip, idx) {
-  const st = window.CollabUI && window.CollabUI.getState && window.CollabUI.getState();
-  const myRole = st && st.me && st.me.role;
-  if (myRole === 'helper') {
+  if (!window.CollabUI) return '';
+  if (window.CollabUI.canSendDelivery && window.CollabUI.canSendDelivery()) {
     if (clip.sentByRangeId) {
       return `<button class="btn btn-ghost btn-xs" data-action="unsend-delivery" data-idx="${idx}" title="Unsend from Clipper">Unsend</button>`;
     }
     return `<button class="btn btn-accent btn-xs" data-action="send-delivery" data-idx="${idx}" title="Send to assigned Clipper">Send to Clipper</button>`;
   }
-  if (myRole === 'clipper' && clip.receivedFromDeliveryId) {
+  if (window.CollabUI.canConsumeDeliveries && window.CollabUI.canConsumeDeliveries() && clip.receivedFromDeliveryId) {
     return `<button class="btn btn-ghost btn-xs" data-action="revoke-delivery" data-idx="${idx}" title="Remove this clip locally">Revoke</button>`;
   }
   return '';
@@ -585,15 +584,8 @@ function updateCollabClipStage(clip, status, extra) {
   }, meta, extra || {}));
 }
 
-function getMyLobbyRole() {
-  const st = window.CollabUI && window.CollabUI.getState && window.CollabUI.getState();
-  if (!st || !st.lobby) return 'clipper';
-  return (st.me && st.me.role) || 'viewer';
-}
-
 function canMarkClips() {
-  const r = getMyLobbyRole();
-  return r === 'clipper' || r === 'helper';
+  return !!(window.CollabUI && window.CollabUI.canMarkClips && window.CollabUI.canMarkClips());
 }
 
 function handleMarkIn() {
@@ -1788,7 +1780,7 @@ async function consumeDeliveriesIntoPending() {
   if (_consumeInFlight) return;
   if (!window.CollabUI || !window.Delivery) return;
   const st = window.CollabUI.getState();
-  if (!st.lobby || st.me.role !== 'clipper') return;
+  if (!st.lobby || !window.CollabUI.canConsumeDeliveries()) return;
   _consumeInFlight = true;
   let deliveries = [];
   try {

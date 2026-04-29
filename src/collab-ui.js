@@ -136,6 +136,20 @@ function myRole() {
   return (myMember() && myMember().role) || 'viewer';
 }
 
+function canMarkClipsLocal() {
+  // Outside a lobby, default to clipper (solo clipping is allowed).
+  if (!state.lobby) return true;
+  return !!(window.RolePermissions && window.RolePermissions.canMarkClips(myRole()));
+}
+function canSendDeliveryLocal() {
+  if (!state.lobby) return false;
+  return !!(window.RolePermissions && window.RolePermissions.canSendDelivery(myRole()));
+}
+function canConsumeDeliveriesLocal() {
+  if (!state.lobby) return false;
+  return !!(window.RolePermissions && window.RolePermissions.canConsumeDeliveries(myRole()));
+}
+
 function myAssistUserId() {
   return (myMember() && myMember().assistUserId) || null;
 }
@@ -607,18 +621,6 @@ function stopAssisting() {
   client.setAssist(null);
 }
 
-function becomeViewer() {
-  if (!state.lobby || !client) return;
-  dlog('ACTION', 'becomeViewer');
-  client.setRole(state.me.id, 'viewer');
-}
-
-function becomeClipper() {
-  if (!state.lobby || !client) return;
-  dlog('ACTION', 'becomeClipper');
-  client.setRole(state.me.id, 'clipper');
-}
-
 function getIndicatorAtTime(timeSec) {
   if (utils && utils.buildIndicatorAtTime) {
     return utils.buildIndicatorAtTime(state.clipRanges, timeSec);
@@ -785,21 +787,18 @@ function openProfilePopover(userId, anchorEl) {
   if (isSelf) {
     if (iAmHelper) {
       addAction('Stop Assisting', 'btn-ghost', stopAssisting);
-    } else if (iAmClipper) {
-      addAction('Become Viewer', 'btn-ghost', becomeViewer);
-    } else {
-      addAction('Become Clipper', 'btn-primary', becomeClipper);
     }
+    // Viewer/clipper self -> no action; promotion/demotion is done by another clipper.
   } else if (m.role === 'clipper') {
     if (iAmAssistingThis) {
       addAction('Stop Assisting', 'btn-ghost', stopAssisting);
-    } else {
+    } else if (myRole() === 'viewer' || myRole() === 'helper') {
       addAction('Assist ' + esc(m.name || 'Clipper'), 'btn-primary', function () { assistClipper(userId); });
     }
     if (iAmClipper) {
       addAction('Demote to Viewer', 'btn-ghost btn-xs', function () { setMemberRole(userId, 'viewer'); });
     }
-  } else if (!isSelf && iAmClipper) {
+  } else if (iAmClipper) {
     if (m.role !== 'clipper') {
       addAction('Promote to Clipper', 'btn-ghost btn-xs', function () { setMemberRole(userId, 'clipper'); });
     }
@@ -1170,8 +1169,6 @@ window.CollabUI = {
   getMarkContext: getMarkContext,
   assistClipper: assistClipper,
   stopAssisting: stopAssisting,
-  becomeViewer: becomeViewer,
-  becomeClipper: becomeClipper,
   getUserColor: getUserColor,
   subscribe: subscribe,
   simulate: simulate,
@@ -1179,7 +1176,12 @@ window.CollabUI = {
   resendClipDelivery: resendClipDelivery,
   unsendClipDelivery: unsendClipDelivery,
   consumeMyDeliveries: consumeMyDeliveries,
-  setMemberRole: setMemberRole
+  setMemberRole: setMemberRole,
+  myRole: myRole,
+  myMember: myMember,
+  canMarkClips: canMarkClipsLocal,
+  canSendDelivery: canSendDeliveryLocal,
+  canConsumeDeliveries: canConsumeDeliveriesLocal
 };
 
 if (document.readyState === 'loading') {
