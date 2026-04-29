@@ -17,6 +17,15 @@ try {
   ffmpegAvailable = true;
 } catch { /* ffmpeg not installed */ }
 
+let ffprobeAvailable = false;
+try {
+  execSync('ffprobe -version', { stdio: 'pipe' });
+  ffprobeAvailable = true;
+} catch { /* ffprobe not installed */ }
+
+const fixtureImagesAvailable = fs.existsSync(SNAP_IMG) && fs.existsSync(CENTER_IMG);
+const canRun = ffmpegAvailable && ffprobeAvailable && fixtureImagesAvailable;
+
 // Helper: run FFmpeg with image watermark overlay on a source video
 function applyImageWatermark(inputVideo, outputPath, watermarkConfig) {
   return new Promise((resolve, reject) => {
@@ -45,16 +54,12 @@ function applyImageWatermark(inputVideo, outputPath, watermarkConfig) {
   });
 }
 
-describe.skipIf(!ffmpegAvailable)('image watermark overlay', () => {
+describe.skipIf(!canRun)('image watermark overlay', () => {
   const testVideo = path.join(FIXTURES_DIR, 'wm_test_source.mp4');
   const outputs = [];
 
   beforeAll(() => {
     fs.mkdirSync(FIXTURES_DIR, { recursive: true });
-
-    // Verify test images exist
-    if (!fs.existsSync(SNAP_IMG)) throw new Error(`Missing test image: ${SNAP_IMG}`);
-    if (!fs.existsSync(CENTER_IMG)) throw new Error(`Missing test image: ${CENTER_IMG}`);
 
     // Generate a 3-second 640x360 test video with audio
     execSync([

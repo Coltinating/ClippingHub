@@ -13,7 +13,15 @@ try {
   ffmpegAvailable = true;
 } catch { /* ffmpeg not installed */ }
 
-describe.skipIf(!ffmpegAvailable)('concat + trim pipeline', () => {
+let ffprobeAvailable = false;
+try {
+  execSync('ffprobe -version', { stdio: 'pipe' });
+  ffprobeAvailable = true;
+} catch { /* ffprobe not installed */ }
+
+const ffToolsAvailable = ffmpegAvailable && ffprobeAvailable;
+
+describe.skipIf(!ffToolsAvailable)('concat + trim pipeline', () => {
   const seg1Path = path.join(FIXTURES_DIR, 'seg_0001.ts');
   const seg2Path = path.join(FIXTURES_DIR, 'seg_0002.ts');
   const seg3Path = path.join(FIXTURES_DIR, 'seg_0003.ts');
@@ -110,7 +118,7 @@ describe.skipIf(!ffmpegAvailable)('concat + trim pipeline', () => {
 });
 
 // ─── Timestamp normalization ───
-describe.skipIf(!ffmpegAvailable)('timestamp normalization', () => {
+describe.skipIf(!ffToolsAvailable)('timestamp normalization', () => {
   const HLS_DIR = path.join(FIXTURES_DIR, 'hls_nonzero_pts');
   const hlsSeg1 = path.join(HLS_DIR, 'seg_hls_0001.ts');
   const hlsSeg2 = path.join(HLS_DIR, 'seg_hls_0002.ts');

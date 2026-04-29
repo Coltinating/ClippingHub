@@ -14,10 +14,28 @@ const fs = require('fs');
 const path = require('path');
 
 // ── Source file (the problematic concat.ts) ──
-const CONCAT_TS = 'C:\\Users\\rkoll\\Videos\\ClipperHub\\_tmp_1775081178625\\concat.ts';
+// Override via START_TIME_FIXTURE env var; otherwise default to a checked-in
+// fixture under tests/fixtures/. Test suite is skipped when fixture absent.
+const CONCAT_TS = process.env.START_TIME_FIXTURE
+  || path.join(__dirname, '..', 'fixtures', 'start-time', 'concat.ts');
 const OUT_DIR = path.join(__dirname, '..', 'fixtures', 'start-time-outputs');
 const SS_OFFSET = '1.979';
 const DURATION = '10.61';
+
+let ffmpegAvailable = false;
+try {
+  execSync('ffmpeg -version', { stdio: 'pipe' });
+  ffmpegAvailable = true;
+} catch { /* ffmpeg not installed */ }
+
+let ffprobeAvailable = false;
+try {
+  execSync('ffprobe -version', { stdio: 'pipe' });
+  ffprobeAvailable = true;
+} catch { /* ffprobe not installed */ }
+
+const fixtureAvailable = fs.existsSync(CONCAT_TS);
+const canRun = ffmpegAvailable && ffprobeAvailable && fixtureAvailable;
 
 function ffmpeg(args) {
   return execSync(`ffmpeg ${args}`, {
@@ -54,11 +72,8 @@ const COMMON_FILTERS = '-vf setpts=PTS-STARTPTS -af asetpts=PTS-STARTPTS';
 const COMMON_AUDIO = '-c:a aac -b:a 192k';
 const COMMON_MUXER = '-movflags +faststart -use_editlist 0';
 
-describe('start_time=0 across all codec configs', () => {
+describe.skipIf(!canRun)('start_time=0 across all codec configs', () => {
   beforeAll(() => {
-    if (!fs.existsSync(CONCAT_TS)) {
-      throw new Error(`Missing test source: ${CONCAT_TS}\nKeep temp files enabled and re-clip to generate.`);
-    }
     fs.mkdirSync(OUT_DIR, { recursive: true });
   });
 
