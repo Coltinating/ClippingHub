@@ -38,18 +38,6 @@ var PANEL_DEFINITIONS = {
     multiInstance: false,
     lifecycle: null
   },
-  timeline: {
-    key: 'timeline',
-    group: 'core',
-    title: 'Timeline',
-    menuLabel: 'Timeline',
-    emptyLabel: 'Timeline',
-    viewCheckId: 'chk-timeline',
-    elId: 'panel-timeline',
-    icon: '<svg viewBox="0 0 12 12" fill="currentColor"><rect x="0" y="3" width="12" height="2"/><rect x="0" y="7" width="12" height="2"/><rect x="4" y="0" width="1" height="12"/></svg>',
-    multiInstance: false,
-    lifecycle: null
-  },
   clips: {
     key: 'clips',
     group: 'core',

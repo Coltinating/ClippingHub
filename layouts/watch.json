@@ -1,0 +1,10 @@
+{
+  "name": "Watch",
+  "version": 1,
+  "tree": {
+    "type": "leaf",
+    "id": "a_root",
+    "panelType": "clipper"
+  },
+  "floating": []
+}

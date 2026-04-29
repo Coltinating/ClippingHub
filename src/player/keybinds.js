@@ -52,8 +52,8 @@
       e.preventDefault(); log('keybind: seekForwardSmall', { jump: kb.jumpSizeSmall || 5 }); P.controls.seekBy(kb.jumpSizeSmall || 5); return true;
     }
 
-    // Volume up/down
-    if (e.key === 'ArrowUp') {
+    // Volume up
+    if (matchKeybind(e, kb.volumeUp || 'ArrowUp')) {
       e.preventDefault();
       var vid = P.els.vid;
       vid.volume = Math.min(1, vid.volume + 0.1);
@@ -62,7 +62,8 @@
       log('keybind: volumeUp', { volume: vid.volume });
       return true;
     }
-    if (e.key === 'ArrowDown') {
+    // Volume down
+    if (matchKeybind(e, kb.volumeDown || 'ArrowDown')) {
       e.preventDefault();
       var vid2 = P.els.vid;
       vid2.volume = Math.max(0, vid2.volume - 0.1);
@@ -73,7 +74,7 @@
     }
 
     // Mute
-    if (e.key === 'm' || e.key === 'M') {
+    if (matchKeybind(e, kb.mute || 'm')) {
       P.els.vid.muted = !P.els.vid.muted;
       P.controls.syncVol();
       log('keybind: toggleMute', { muted: P.els.vid.muted });
@@ -81,21 +82,21 @@
     }
 
     // Fullscreen
-    if (e.key === 'f' || e.key === 'F') {
+    if (matchKeybind(e, kb.fullscreen || 'f')) {
       log('keybind: fullscreen');
       P.els.fsBtn.click();
       return true;
     }
 
     // Speed cycle
-    if (e.key === 's' || e.key === 'S') {
+    if (matchKeybind(e, kb.cycleSpeed || 's')) {
       log('keybind: cycleSpeed');
       P.els.speedBtn.click();
       return true;
     }
 
     // Catch-up mode
-    if (e.key === 'c' || e.key === 'C') {
+    if (matchKeybind(e, kb.toggleCatchUp || 'c')) {
       e.preventDefault();
       log('keybind: toggleCatchUp');
       P.controls.toggleCatchUp(catchUpSpeed);
@@ -103,7 +104,7 @@
     }
 
     // Live transcript toggle
-    if (e.key === 't' || e.key === 'T') {
+    if (matchKeybind(e, kb.toggleTranscript || 't')) {
       e.preventDefault();
       log('keybind: toggleTranscript');
       P.transcription.toggle();

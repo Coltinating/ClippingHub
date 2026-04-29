@@ -8,6 +8,10 @@ var SNAP_THRESHOLD = 0.015;
 var DRAG_THRESHOLD = 20;
 var _menuBranchId = null;
 
+function isAdvancedMode() {
+  return !!(window._panels && window._panels.isAdvancedMode && window._panels.isAdvancedMode());
+}
+
 function triggerSave() {
   if (window._panels && window._panels.autoSaveLayout) {
     window._panels.autoSaveLayout();
@@ -77,6 +81,7 @@ function initCornerDrag() {
   dockRoot.addEventListener('mousedown', function (e) {
     var handle = e.target.closest('.corner-hotzone');
     if (!handle || e.button !== 0) return;
+    if (!isAdvancedMode()) return;
     e.preventDefault();
     e.stopPropagation();
     startCornerDrag(handle, e);
@@ -205,6 +210,7 @@ function initContextMenu() {
   dockRoot.addEventListener('contextmenu', function (e) {
     var divider = e.target.closest('.split-divider');
     if (!divider) return;
+    if (!isAdvancedMode()) return;
     e.preventDefault();
     showContextMenu(divider, e.clientX, e.clientY);
   });
@@ -227,6 +233,7 @@ function initContextMenu() {
 }
 
 function showContextMenu(divider, x, y) {
+  if (!isAdvancedMode()) return;
   var menu = document.getElementById('splitContextMenu');
   if (!menu) return;
   _menuBranchId = divider.dataset.branchId;
@@ -307,6 +314,7 @@ function initAreaCloseAndUndock() {
   if (!dockRoot) return;
 
   dockRoot.addEventListener('click', function (e) {
+    if (!isAdvancedMode()) return;
     var closeBtn = e.target.closest('.area-btn.close');
     if (closeBtn && !closeBtn.closest('.floating-panel')) {
       var area = closeBtn.closest('.split-area');
@@ -333,6 +341,7 @@ function initPanelSelectors() {
   if (!dockRoot) return;
 
   dockRoot.addEventListener('change', function (e) {
+    if (!isAdvancedMode()) return;
     var emptySelect = e.target.closest('.empty-panel-select');
     if (emptySelect) {
       var panelType = emptySelect.value;
@@ -391,6 +400,7 @@ function initAreaHeaderDragDock() {
 
   dockRoot.addEventListener('mousedown', function (e) {
     if (e.button !== 0) return;
+    if (!isAdvancedMode()) return;
     if (e.target.closest('.area-btn') || e.target.closest('.area-panel-select')) return;
     var header = e.target.closest('.area-header');
     if (!header) return;

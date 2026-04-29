@@ -175,17 +175,24 @@
   </div>
 
   <div class="modal-overlay" id="shortcutsModal" hidden>
-    <div class="modal">
-      <div class="modal-header">Keyboard Shortcuts<button class="modal-close" id="shortcutsClose">&times;</button></div>
-      <div class="modal-body">
-        <table class="shortcuts-table">
-          <tr><td>Ctrl+Shift+R</td><td>Reset Layout</td></tr>
-          <tr><td>Ctrl+Shift+L</td><td>Save Layout&hellip;</td></tr>
-          <tr><td>Space</td><td>Play / Pause</td></tr>
-          <tr><td>&larr; / &rarr;</td><td>Seek</td></tr>
-          <tr><td>I</td><td>Mark In</td></tr>
-          <tr><td>O</td><td>Mark Out</td></tr>
-        </table>
+    <div class="modal modal-lg shortcuts-modal">
+      <div class="modal-header">
+        <span>Keyboard Shortcuts</span>
+        <div class="shortcuts-toolbar">
+          <input type="text" id="shortcutsSearch" placeholder="Search shortcuts…" class="shortcuts-search">
+          <button class="btn btn-xs" id="shortcutsResetAll" title="Reset every shortcut to its default">Reset All</button>
+          <button class="modal-close" id="shortcutsClose">&times;</button>
+        </div>
+      </div>
+      <div class="modal-body shortcuts-body" id="shortcutsBody">
+        <!-- Built dynamically from window.KeybindRegistry by header-modals.js -->
+      </div>
+      <div class="modal-footer shortcuts-footer">
+        <span class="shortcuts-status" id="shortcutsStatus"></span>
+        <div class="shortcuts-actions">
+          <button class="btn btn-xs" id="shortcutsCancel">Cancel</button>
+          <button class="btn btn-primary btn-xs" id="shortcutsSave">Save</button>
+        </div>
       </div>
     </div>
   </div>
@@ -325,8 +332,8 @@
                 <select class="ctrl-select quality-select" id="qualitySelect" title="Quality"><option value="-1">Auto</option></select>
                 <button class="ctrl-btn speed-btn" id="speedBtn" title="Playback speed">1.0&times;</button>
                 <div class="cc-wrap">
-                  <button class="ctrl-btn cc-btn cc-disabled" id="transcriptToggle" title="Coming Soon" disabled>CC</button>
-                  <button class="cc-chevron cc-disabled" id="ccDropdownChevron" title="Coming Soon" disabled>
+                  <button class="ctrl-btn cc-btn" id="transcriptToggle" title="Toggle live transcript (T)">CC</button>
+                  <button class="cc-chevron" id="ccDropdownChevron" title="Choose transcription backend">
                     <svg viewBox="0 0 24 24" fill="currentColor" width="8" height="8"><path d="M7 10l5 5 5-5z"/></svg>
                   </button>
                   <div class="cc-dropdown" id="ccDropdown" style="display:none">
@@ -573,26 +580,28 @@
       </div>
       <div class="panel-body">
         <!-- Pending Clips -->
-        <div class="hub-group">
+        <div class="hub-group hub-group-pending">
           <div class="hub-group-title">
-            <span>&#9998; Pending Clips</span>
+            <span class="hub-group-label"><span class="hub-status-dot"></span>Pending</span>
           </div>
           <div class="clip-list" id="pendingClipList">
             <div class="empty-state" id="pendingEmpty">
+              <svg class="empty-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" width="24" height="24"><rect x="2" y="2" width="16" height="16" rx="2.5"/><line x1="6.5" y1="10" x2="13.5" y2="10"/><line x1="10" y1="6.5" x2="10" y2="13.5"/></svg>
               <p>No clips yet</p>
-              <small>Mark IN/OUT points while watching to create clips</small>
+              <small>Mark IN/OUT points while watching</small>
             </div>
           </div>
         </div>
         <div class="hub-resize-handle" data-resize="0"></div>
 
-        <!-- Downloading -->
-        <div class="hub-group">
+        <!-- Processing -->
+        <div class="hub-group hub-group-processing">
           <div class="hub-group-title">
-            <span>&#9660; Downloading</span>
+            <span class="hub-group-label"><span class="hub-status-dot"></span>Processing</span>
           </div>
           <div class="clip-list" id="downloadingClipList">
             <div class="empty-state" id="downloadingEmpty">
+              <svg class="empty-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" width="24" height="24"><circle cx="10" cy="10" r="7.5"/><polyline points="10 5.5 10 10 13.5 12.5"/></svg>
               <small>Clips being processed will appear here</small>
             </div>
           </div>
@@ -600,15 +609,20 @@
         <div class="hub-resize-handle" data-resize="1"></div>
 
         <!-- Completed Clips -->
-        <div class="hub-group">
+        <div class="hub-group hub-group-completed">
           <div class="hub-group-title">
-            <span>&#10003; Completed</span>
-            <button class="btn btn-ghost btn-xs clear-btn" id="clearCompleted" title="Clear downloaded clips list">Clear Downloads</button>
-            <button class="btn btn-ghost btn-xs" id="openCompletedFolder" title="Open folder">&#128193;</button>
+            <span class="hub-group-label"><span class="hub-status-dot"></span>Done</span>
+            <div class="hub-group-actions">
+              <button class="btn btn-ghost btn-xs clear-btn" id="clearCompleted" title="Clear list">Clear</button>
+              <button class="btn btn-ghost btn-xs btn-icon" id="openCompletedFolder" title="Open output folder">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M1.5 5h5l1.5 1.5H14.5v7.5H1.5V5z"/><path d="M1.5 5V3a1 1 0 011-1h3.5l1.5 2"/></svg>
+              </button>
+            </div>
           </div>
           <div class="clip-list" id="completedClipList">
             <div class="empty-state" id="completedEmpty">
-              <small>Downloaded clips appear here &mdash; drag to post!</small>
+              <svg class="empty-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" width="24" height="24"><path d="M10 13.5V3m0 10.5l-3.5-3.5M10 13.5l3.5-3.5"/><path d="M3 15.5v.5a1.5 1.5 0 001.5 1.5h11A1.5 1.5 0 0017 16v-.5"/></svg>
+              <small>Downloads appear here — drag to post</small>
             </div>
           </div>
         </div>
@@ -679,6 +693,7 @@
 <script src="lib/collab-client.js"></script>
 <script src="lib/collab-store.js"></script>
 <script src="collab-ui.js"></script>
+<script src="keybind-registry.js"></script>
 <script src="header-modals.js"></script>
 <script src="renderer.js"></script>
 <script src="batch/batch-testing.js"></script>

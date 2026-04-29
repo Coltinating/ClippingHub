@@ -220,20 +220,10 @@ function deserialize(json) {
 }
 
 var DEFAULT_TREE = {
-  type: 'branch', id: 'b_root', direction: 'horizontal', ratio: 0.17,
+  type: 'branch', id: 'b_root', direction: 'horizontal', ratio: 0.77,
   children: [
-    { type: 'leaf', id: 'a_media', panelType: 'media' },
-    { type: 'branch', id: 'b_cr', direction: 'horizontal', ratio: 0.77,
-      children: [
-        { type: 'branch', id: 'b_cv', direction: 'vertical', ratio: 0.75,
-          children: [
-            { type: 'leaf', id: 'a_clipper', panelType: 'clipper' },
-            { type: 'leaf', id: 'a_timeline', panelType: 'timeline' }
-          ]
-        },
-        { type: 'leaf', id: 'a_clips', panelType: 'clips' }
-      ]
-    }
+    { type: 'leaf', id: 'a_clipper', panelType: 'clipper' },
+    { type: 'leaf', id: 'a_clips',   panelType: 'clips'   }
   ]
 };
 

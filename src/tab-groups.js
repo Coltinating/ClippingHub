@@ -12,7 +12,9 @@ var groupCounter = 0;
 var PANEL_LABELS = {
   media: 'Media Sources',
   preview: 'Preview',
-  timeline: 'Timeline',
+  clipper: 'Clipper',
+  viewer: 'Viewer',
+  collab: 'Collab',
   clips: 'Clips Queue'
 };
 

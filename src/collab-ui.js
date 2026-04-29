@@ -720,7 +720,7 @@ function renderMembers(listEl) {
   }
   listEl.innerHTML = state.members.map(function (m) {
     var color = (m.color) || getUserColor(m.id, m.name);
-    var avatarStyle = m.pfpDataUrl ? 'background-image:url(' + JSON.stringify(m.pfpDataUrl) + ');' : '';
+    var avatarStyle = m.pfpDataUrl ? "background-image:url('" + m.pfpDataUrl + "');" : '';
     var handle = m.xHandle ? '<div class="collab-member-handle">@' + esc(m.xHandle) + '</div>' : '';
     return '<div class="collab-member-row" data-user-id="' + esc(m.id) + '">' +
       '<div class="collab-member-avatar" style="' + avatarStyle + '"></div>' +
@@ -755,7 +755,7 @@ function openProfilePopover(userId, anchorEl) {
   pop.className = 'profile-popover';
   var color = (m.color) || getUserColor(m.id, m.name);
   var avatarHtml = m.pfpDataUrl
-    ? '<div class="profile-popover-avatar" style="background-image:url(' + JSON.stringify(m.pfpDataUrl) + ');"></div>'
+    ? "<div class=\"profile-popover-avatar\" style=\"background-image:url('" + m.pfpDataUrl + "');\"></div>"
     : '<div class="profile-popover-avatar"></div>';
   var xHtml = m.xHandle
     ? '<a href="#" class="profile-popover-x" data-handle="' + esc(m.xHandle) + '">@' + esc(m.xHandle) + '</a>'

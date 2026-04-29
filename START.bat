@@ -31,6 +31,7 @@ echo  Waiting for server to come up...
 timeout /t 3 /nobreak >nul
 echo  Starting app...
 echo.
+start "ClippingHub Admin" "Firefox.exe" "http://localhost:3535/admin"
 call npm start
 goto end
 

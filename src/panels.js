@@ -29,7 +29,12 @@ function getAllPanelTypes() {
   if (window._panelRegistry && window._panelRegistry.getPanelTypes) {
     return window._panelRegistry.getPanelTypes();
   }
-  return ['clipper', 'viewer', 'media', 'timeline', 'clips'];
+  return ['clipper', 'viewer', 'media', 'clips', 'collab'];
+}
+
+function isAdvancedMode() {
+  var cfg = window.userConfig && window.userConfig.devFeatures;
+  return !!(cfg && cfg.advancedPanelSystem);
 }
 
 function getViewCheckId(panelType) {
@@ -97,9 +102,15 @@ window.closeAllMenus = function () {
   openMenu = null;
   if (window._splitInteract) window._splitInteract.hideContextMenu();
 };
-document.addEventListener('click', closeAllMenus);
+document.addEventListener('click', function (e) {
+  // Don't close menus when interacting with embedded panes inside dropdowns
+  // (e.g. the Edit > Stream Settings URL bar pane).
+  if (e.target && e.target.closest && e.target.closest('.edit-stream-pane')) return;
+  closeAllMenus();
+});
 
 function closeLeafById(leafId, opts) {
+  if (!isAdvancedMode()) return false;
   opts = opts || {};
   var ST = window._splitTree;
   var SL = window._splitLayout;
@@ -127,6 +138,7 @@ function closeLeafById(leafId, opts) {
 }
 
 function closePanel(name) {
+  if (!isAdvancedMode()) return;
   var panelType = normalizePanelType(name);
   var leaf = getFirstLeafByPanelType(panelType);
   if (leaf) {
@@ -166,6 +178,7 @@ function placePanelType(panelType) {
 }
 
 function openPanel(name) {
+  if (!isAdvancedMode()) return;
   var ST = window._splitTree;
   var SL = window._splitLayout;
   var panelType = normalizePanelType(name);
@@ -186,6 +199,7 @@ function openPanel(name) {
 }
 
 function togglePanel(name) {
+  if (!isAdvancedMode()) return;
   var panelType = normalizePanelType(name);
   if (!isKnownPanelType(panelType)) return;
   if (isMultiInstance(panelType)) {
@@ -197,6 +211,7 @@ function togglePanel(name) {
 }
 
 function assignLeafPanel(leafId, panelType) {
+  if (!isAdvancedMode()) return false;
   var ST = window._splitTree;
   var SL = window._splitLayout;
   if (!ST || !SL) return false;
@@ -228,6 +243,7 @@ function assignLeafPanel(leafId, panelType) {
 }
 
 function moveLeafToTarget(sourceLeafId, targetLeafId, dropPos) {
+  if (!isAdvancedMode()) return false;
   var ST = window._splitTree;
   var SL = window._splitLayout;
   if (!ST || !SL) return false;
@@ -286,6 +302,7 @@ function collapseEmptyLeaf(leafId) {
 }
 
 function undockLeaf(leafId) {
+  if (!isAdvancedMode()) return false;
   var ST = window._splitTree;
   var SL = window._splitLayout;
   if (!ST || !SL) return false;
@@ -371,6 +388,7 @@ function redockFloating(floatId) {
 }
 
 function closeFloating(floatId) {
+  if (!isAdvancedMode()) return false;
   var SL = window._splitLayout;
   var idx = -1;
   for (var i = 0; i < floatingPanels.length; i++) {
@@ -498,6 +516,7 @@ function applyLayout(layout) {
 }
 
 function resetLayout() {
+  if (!isAdvancedMode()) return;
   var ST = window._splitTree;
   var SL = window._splitLayout;
   if (!ST || !SL) return;
@@ -505,42 +524,57 @@ function resetLayout() {
   floatingPanels = [];
   SL.render();
   updateViewChecks();
-  toast('Layout reset to <span class="accent">default</span>');
-  autoSaveLayout();
+  hasUnsavedScratch = false;
+  if (window.clipper && window.clipper.clearPanelCurrentLayout) {
+    window.clipper.clearPanelCurrentLayout().catch(function () {});
+  }
+  try { localStorage.removeItem(LAYOUT_KEY); } catch (e) {}
+  updateActiveTabDirty();
+  toast('Layout reset');
 }
 
+var hasUnsavedScratch = false;
+
 function autoSaveLayout() {
+  // Mutations write to a scratch slot only — named layouts (Minimal, Collaboration,
+  // Watch, user-saved) are never overwritten unless the user explicitly clicks
+  // "Save Layout".
   var layout = captureLayout();
   if (!layout) return;
-  var activeKey = activeWorkspaceKey || 'default';
-  var existing = builtinLayouts[activeKey] || userLayouts[activeKey];
-  var name = (existing && existing.name) ? existing.name : activeKey;
-  layout.name = name;
+  layout.name = '__scratch';
+  hasUnsavedScratch = true;
+  updateActiveTabDirty();
 
-  if (window.clipper && window.clipper.savePanelLayout) {
-    window.clipper.savePanelLayout({ key: activeKey, name: name, layout: layout }).then(function (result) {
-      if (!result || !result.success || !result.layout) return;
-      if (builtinLayouts[activeKey]) builtinLayouts[activeKey] = result.layout;
-      else userLayouts[activeKey] = result.layout;
-    }).catch(function () {});
-    if (window.clipper.savePanelLayoutState) {
-      window.clipper.savePanelLayoutState({ activeWorkspace: activeKey }).catch(function () {});
-    }
+  if (window.clipper && window.clipper.savePanelCurrentLayout) {
+    window.clipper.savePanelCurrentLayout(layout).catch(function () {});
     return;
   }
-
   try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch (e) {}
-  try { localStorage.setItem(LEGACY_ACTIVE_KEY, activeKey); } catch (e2) {}
 }
 
 function autoRestoreLayout() {
   if (window.clipper && window.clipper.loadPanelLayoutState) {
     return window.clipper.loadPanelLayoutState().then(function (state) {
-      var wanted = (state && state.activeWorkspace) ? state.activeWorkspace : 'default';
-      var layout = builtinLayouts[wanted] || userLayouts[wanted] || builtinLayouts.default || userLayouts.default;
-      activeWorkspaceKey = layout ? (layout._filename || wanted) : 'default';
+      var wanted = (state && state.activeWorkspace) ? state.activeWorkspace : 'minimal';
+      var layout = builtinLayouts[wanted] || userLayouts[wanted]
+        || builtinLayouts.minimal || userLayouts.minimal
+        || firstAvailableBuiltin();
+      activeWorkspaceKey = layout ? (layout._filename || wanted) : 'minimal';
       if (layout) applyLayout(layout);
-      rebuildWorkspaceTabs(activeWorkspaceKey);
+
+      var loadCurrent = (window.clipper && window.clipper.loadPanelCurrentLayout)
+        ? window.clipper.loadPanelCurrentLayout()
+        : Promise.resolve(null);
+
+      return loadCurrent.then(function (scratch) {
+        if (scratch && scratch.tree) {
+          applyLayout(scratch);
+          hasUnsavedScratch = true;
+        } else {
+          hasUnsavedScratch = false;
+        }
+        rebuildWorkspaceTabs(activeWorkspaceKey);
+      });
     }).catch(function () {
       rebuildWorkspaceTabs(activeWorkspaceKey);
     });
@@ -548,11 +582,55 @@ function autoRestoreLayout() {
 
   try {
     var saved = localStorage.getItem(LAYOUT_KEY);
-    activeWorkspaceKey = localStorage.getItem(LEGACY_ACTIVE_KEY) || 'default';
+    activeWorkspaceKey = localStorage.getItem(LEGACY_ACTIVE_KEY) || 'minimal';
     if (saved) applyLayout(JSON.parse(saved));
   } catch (e) {}
   rebuildWorkspaceTabs(activeWorkspaceKey);
   return Promise.resolve();
+}
+
+function firstAvailableBuiltin() {
+  var keys = Object.keys(builtinLayouts);
+  return keys.length ? builtinLayouts[keys[0]] : null;
+}
+
+function updateActiveTabDirty() {
+  var container = document.querySelector('.workspace-tabs');
+  if (!container) return;
+  var tabs = container.querySelectorAll('.ws-tab');
+  for (var i = 0; i < tabs.length; i++) {
+    if (tabs[i].classList.contains('active') && hasUnsavedScratch) {
+      tabs[i].classList.add('dirty');
+    } else {
+      tabs[i].classList.remove('dirty');
+    }
+  }
+}
+
+function redockAllFloating() {
+  var ids = floatingPanels.map(function (f) { return f.id; });
+  for (var i = 0; i < ids.length; i++) {
+    redockFloating(ids[i]);
+  }
+}
+
+function applyPanelSystemMode() {
+  var advanced = isAdvancedMode();
+  document.body.classList.toggle('basic-panels', !advanced);
+
+  if (!advanced) {
+    redockAllFloating();
+    var layout = builtinLayouts[activeWorkspaceKey] || userLayouts[activeWorkspaceKey]
+      || builtinLayouts.minimal || firstAvailableBuiltin();
+    if (layout) applyLayout(layout);
+    if (window.clipper && window.clipper.clearPanelCurrentLayout) {
+      window.clipper.clearPanelCurrentLayout().catch(function () {});
+    }
+    try { localStorage.removeItem(LAYOUT_KEY); } catch (e) {}
+    hasUnsavedScratch = false;
+  }
+
+  rebuildWorkspaceTabs(activeWorkspaceKey);
 }
 
 function migrateAndApplyOldLayout(old) {
@@ -603,6 +681,7 @@ function refreshLayoutCaches() {
 }
 
 function openSaveModal() {
+  if (!isAdvancedMode()) return;
   document.getElementById('saveModal').classList.add('open');
   var inp = document.getElementById('layoutNameInput');
   inp.value = '';
@@ -612,6 +691,7 @@ function closeSaveModal() {
   document.getElementById('saveModal').classList.remove('open');
 }
 function saveLayout() {
+  if (!isAdvancedMode()) return;
   var name = document.getElementById('layoutNameInput').value.trim();
   if (!name) return;
   var layout = captureLayout();
@@ -626,8 +706,14 @@ function saveLayout() {
       var key = result.key || result.layout._filename || name;
       userLayouts[key] = result.layout;
       activeWorkspaceKey = key;
+      hasUnsavedScratch = false;
+      if (window.clipper && window.clipper.clearPanelCurrentLayout) {
+        window.clipper.clearPanelCurrentLayout().catch(function () {});
+      }
+      try { localStorage.removeItem(LAYOUT_KEY); } catch (e) {}
       closeSaveModal();
       buildSavedLayoutsMenu();
+      buildBuiltinLayoutsMenu();
       rebuildWorkspaceTabs(key);
       if (window.clipper && window.clipper.savePanelLayoutState) {
         window.clipper.savePanelLayoutState({ activeWorkspace: key }).catch(function () {});
@@ -645,11 +731,13 @@ function saveLayout() {
   try { localStorage.setItem(LEGACY_LAYOUTS_KEY, JSON.stringify(layouts)); } catch (e) {}
   closeSaveModal();
   buildSavedLayoutsMenu();
+  buildBuiltinLayoutsMenu();
   rebuildWorkspaceTabs(name);
   toast('Layout <span class="accent">' + name + '</span> saved');
 }
 
 function loadSavedLayout(name) {
+  if (!isAdvancedMode()) return;
   var layouts = getSavedLayouts();
   if (layouts[name]) {
     activeWorkspaceKey = name;
@@ -657,12 +745,14 @@ function loadSavedLayout(name) {
     if (window.clipper && window.clipper.savePanelLayoutState) {
       window.clipper.savePanelLayoutState({ activeWorkspace: name }).catch(function () {});
     }
+    buildBuiltinLayoutsMenu();
     toast('Layout <span class="accent">' + name + '</span> loaded');
   }
   closeAllMenus();
 }
 
 function deleteSavedLayout(name) {
+  if (!isAdvancedMode()) return;
   if (window.clipper && window.clipper.deletePanelLayout) {
     window.clipper.deletePanelLayout(name).then(function (result) {
       if (result && result.success) {
@@ -674,6 +764,7 @@ function deleteSavedLayout(name) {
           }
         }
         buildSavedLayoutsMenu();
+        buildBuiltinLayoutsMenu();
         rebuildWorkspaceTabs(activeWorkspaceKey);
         toast('Layout <span class="accent">' + name + '</span> deleted');
       } else {
@@ -690,6 +781,7 @@ function deleteSavedLayout(name) {
   setSavedLayouts(layouts);
   try { localStorage.setItem(LEGACY_LAYOUTS_KEY, JSON.stringify(layouts)); } catch (e) {}
   buildSavedLayoutsMenu();
+  buildBuiltinLayoutsMenu();
   toast('Layout <span class="accent">' + name + '</span> deleted');
 }
 
@@ -713,6 +805,27 @@ function buildSavedLayoutsMenu() {
   }).join('');
 }
 
+function buildBuiltinLayoutsMenu() {
+  var container = document.getElementById('builtin-layouts-menu');
+  if (!container) return;
+  var keys = Object.keys(builtinLayouts);
+  if (keys.length === 0) {
+    container.innerHTML = '<div class="dd-item disabled" style="font-style:italic;">No built-in layouts</div>';
+    return;
+  }
+  container.innerHTML = keys.map(function (key) {
+    var layout = builtinLayouts[key];
+    var label = (layout && layout.name) ? layout.name : key;
+    var safeKey = key.replace(/'/g, "\\'").replace(/</g, '&lt;');
+    var safeLabel = String(label).replace(/'/g, "\\'").replace(/</g, '&lt;');
+    var marker = (key === activeWorkspaceKey) ? '\u2022' : '';
+    return '<div class="dd-item" onclick="window._panels.loadWorkspace(\'' + safeKey + '\'); closeAllMenus();">' +
+      '<span class="dd-check">' + marker + '</span>' +
+      '<span>' + safeLabel + '</span>' +
+      '</div>';
+  }).join('');
+}
+
 var builtinLayouts = {};
 var userLayouts = {};
 
@@ -731,11 +844,16 @@ function loadWorkspace(name) {
   if (!layout) return;
   activeWorkspaceKey = name;
   applyLayout(layout);
+  hasUnsavedScratch = false;
+  if (window.clipper && window.clipper.clearPanelCurrentLayout) {
+    window.clipper.clearPanelCurrentLayout().catch(function () {});
+  }
+  try { localStorage.removeItem(LAYOUT_KEY); } catch (e) {}
   rebuildWorkspaceTabs(name);
+  buildBuiltinLayoutsMenu();
   if (window.clipper && window.clipper.savePanelLayoutState) {
     window.clipper.savePanelLayoutState({ activeWorkspace: name }).catch(function () {});
   }
-  autoSaveLayout();
   toast('Layout <span class="accent">' + (layout.name || name) + '</span> loaded');
 }
 
@@ -758,7 +876,7 @@ function rebuildWorkspaceTabs(activeName) {
     container.appendChild(bTab);
   }
 
-  var userKeys = Object.keys(userLayouts);
+  var userKeys = isAdvancedMode() ? Object.keys(userLayouts) : [];
   if (userKeys.length > 0 && builtinKeys.length > 0) {
     var sep = document.createElement('div');
     sep.className = 'ws-tab-sep';
@@ -789,6 +907,8 @@ function rebuildWorkspaceTabs(activeName) {
     uTab.appendChild(closeBtn);
     container.appendChild(uTab);
   }
+
+  updateActiveTabDirty();
 }
 
 var toastTimer = null;
@@ -800,10 +920,26 @@ function toast(html) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(function () { el.classList.remove('show'); }, 2000);
 }
+window.toast = toast;
 
 document.addEventListener('keydown', function (e) {
-  if (e.ctrlKey && e.shiftKey && e.key === 'R') { e.preventDefault(); resetLayout(); }
-  if (e.ctrlKey && e.shiftKey && e.key === 'L') { e.preventDefault(); openSaveModal(); }
+  if (!isAdvancedMode()) return;
+  // Read user-configured layout shortcuts; fall back to defaults if registry unavailable.
+  var kb = (window.userConfig && window.userConfig.keybinds) || {};
+  var resetBind = kb.resetLayout || 'ctrl+shift+r';
+  var saveBind  = kb.saveLayout  || 'ctrl+shift+l';
+  var match = (window.Player && window.Player.keybinds && window.Player.keybinds.matchKeybind)
+    || function (ev, bind) {
+      if (!bind) return false;
+      var parts = String(bind).toLowerCase().split('+');
+      var key = parts[parts.length - 1];
+      if ((parts.indexOf('ctrl')  !== -1) !== ev.ctrlKey)  return false;
+      if ((parts.indexOf('shift') !== -1) !== ev.shiftKey) return false;
+      if ((parts.indexOf('alt')   !== -1) !== ev.altKey)   return false;
+      return ev.key.toLowerCase() === key;
+    };
+  if (match(e, resetBind)) { e.preventDefault(); resetLayout(); return; }
+  if (match(e, saveBind))  { e.preventDefault(); openSaveModal(); return; }
 });
 
 var layoutInput = document.getElementById('layoutNameInput');
@@ -827,22 +963,6 @@ document.querySelectorAll('.media-tab').forEach(function (tab) {
 (function () {
   var reg = window._panelRegistry;
   if (!reg || !reg.registerLifecycle) return;
-
-  // Timeline: subscribe to player:timeupdate via bus on mount, clean up on unmount
-  var _tlUnsub = null;
-  reg.registerLifecycle('timeline', {
-    mount: function () {
-      if (!_tlUnsub && window._panelBus) {
-        _tlUnsub = window._panelBus.on('player:timeupdate', function () {
-          // Marker rendering handled by renderer.js internally;
-          // bus subscription decouples future timeline features from Player.
-        });
-      }
-    },
-    unmount: function () {
-      if (_tlUnsub) { _tlUnsub(); _tlUnsub = null; }
-    }
-  });
 
   // Clips Queue: mount hook placeholder for when renderPendingClips() is exposed
   reg.registerLifecycle('clips', {
@@ -901,6 +1021,7 @@ if (window.clipper && window.clipper.onFloatMessage) {
 }
 
 function startFloatDockDrag(floatId, info) {
+  if (!isAdvancedMode()) return;
   var SL = window._splitLayout;
   var ST = window._splitTree;
   if (!SL || !ST) return;
@@ -1025,14 +1146,18 @@ function startFloatDockDrag(floatId, info) {
   document.addEventListener('mouseup', onUp);
 }
 
-rebuildViewMenu();
+// Note: rebuildViewMenu() intentionally NOT called — the new View menu is layout-only
+// (panel toggles live in layouts themselves). Function kept for API back-compat.
 updateViewChecks();
 
 loadBuiltinLayouts().then(function () {
   buildSavedLayoutsMenu();
+  buildBuiltinLayoutsMenu();
   return autoRestoreLayout();
 }).then(function () {
   buildSavedLayoutsMenu();
+  buildBuiltinLayoutsMenu();
+  applyPanelSystemMode();
 }).catch(function () {});
 
 window._panels = {
@@ -1057,6 +1182,10 @@ window._panels = {
   rebuildWorkspaceTabs: rebuildWorkspaceTabs,
   autoSaveLayout: autoSaveLayout,
   rebuildViewMenu: rebuildViewMenu,
+  buildBuiltinLayoutsMenu: buildBuiltinLayoutsMenu,
+  buildSavedLayoutsMenu: buildSavedLayoutsMenu,
+  applyPanelSystemMode: applyPanelSystemMode,
+  isAdvancedMode: isAdvancedMode,
   toast: toast
 };
 

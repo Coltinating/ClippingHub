@@ -10,7 +10,6 @@ describe('panel-registry', () => {
     expect(all).toContain('media');
     expect(all).toContain('clipper');
     expect(all).toContain('viewer');
-    expect(all).toContain('timeline');
     expect(all).toContain('clips');
   });
 
@@ -24,7 +23,7 @@ describe('panel-registry', () => {
     expect(groups.map(g => g.key)).toEqual(['players', 'core', 'collab']);
     expect(groups[0].options.some(o => o.type === 'clipper')).toBe(true);
     expect(groups[0].options.some(o => o.type === 'viewer')).toBe(true);
-    expect(groups[1].options.some(o => o.type === 'timeline')).toBe(true);
+    expect(groups[1].options.some(o => o.type === 'clips')).toBe(true);
     expect(groups[2].options.some(o => o.type === 'collab')).toBe(true);
   });
 
@@ -32,6 +31,7 @@ describe('panel-registry', () => {
     expect(registry.isPanelType('clipper')).toBe(true);
     expect(registry.isPanelType('preview')).toBe(true); // legacy alias
     expect(registry.isPanelType('badType')).toBe(false);
+    expect(registry.isPanelType('timeline')).toBe(false);
   });
 
   describe('registerLifecycle', () => {
@@ -42,8 +42,8 @@ describe('panel-registry', () => {
         saveState: () => ({ draft: 'hello' }),
         restoreState: () => {}
       };
-      registry.registerLifecycle('timeline', hooks);
-      const info = registry.getPanelInfo('timeline');
+      registry.registerLifecycle('clips', hooks);
+      const info = registry.getPanelInfo('clips');
       expect(info.lifecycle).toBe(hooks);
       expect(typeof info.lifecycle.mount).toBe('function');
       expect(typeof info.lifecycle.saveState).toBe('function');

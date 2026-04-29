@@ -8,32 +8,32 @@ describe('split-tree data model', () => {
   describe('default tree', () => {
     it('has correct leaf count', () => {
       tree.deserialize(tree.DEFAULT_TREE);
-      expect(tree.getAllLeaves()).toHaveLength(4);
+      expect(tree.getAllLeaves()).toHaveLength(2);
     });
 
-    it('contains all panel types', () => {
+    it('contains expected panel types', () => {
       tree.deserialize(tree.DEFAULT_TREE);
       var types = tree.getAllLeaves().map(l => l.panelType).sort();
-      expect(types).toEqual(['clipper', 'clips', 'media', 'timeline']);
+      expect(types).toEqual(['clipper', 'clips']);
     });
   });
 
   describe('splitArea', () => {
     it('splits a leaf into branch + 2 leaves', () => {
       tree.deserialize(tree.DEFAULT_TREE);
-      var media = tree.getLeafByPanelType('media');
-      var result = tree.splitArea(media.id, 'vertical', 0.5);
+      var clipper = tree.getLeafByPanelType('clipper');
+      var result = tree.splitArea(clipper.id, 'vertical', 0.5);
       expect(result).not.toBeNull();
-      expect(tree.getAllLeaves()).toHaveLength(5);
-      var parent = tree.findParent(media.id);
+      expect(tree.getAllLeaves()).toHaveLength(3);
+      var parent = tree.findParent(clipper.id);
       expect(parent.type).toBe('branch');
       expect(parent.direction).toBe('vertical');
     });
 
     it('new leaf has panelType empty', () => {
       tree.deserialize(tree.DEFAULT_TREE);
-      var media = tree.getLeafByPanelType('media');
-      var result = tree.splitArea(media.id, 'horizontal', 0.5);
+      var clipper = tree.getLeafByPanelType('clipper');
+      var result = tree.splitArea(clipper.id, 'horizontal', 0.5);
       var newLeaf = tree.findNode(result.newLeafId);
       expect(newLeaf.panelType).toBe('empty');
     });
@@ -42,65 +42,42 @@ describe('split-tree data model', () => {
   describe('joinAreas', () => {
     it('removes sibling and promotes kept leaf', () => {
       tree.deserialize(tree.DEFAULT_TREE);
-      var preview = tree.getLeafByPanelType('clipper');
-      var timeline = tree.getLeafByPanelType('timeline');
-      tree.joinAreas(preview.id, timeline.id);
-      expect(tree.getAllLeaves()).toHaveLength(3);
-      expect(tree.getLeafByPanelType('timeline')).toBeNull();
+      var clipper = tree.getLeafByPanelType('clipper');
+      var clips = tree.getLeafByPanelType('clips');
+      tree.joinAreas(clipper.id, clips.id);
+      expect(tree.getAllLeaves()).toHaveLength(1);
+      expect(tree.getLeafByPanelType('clips')).toBeNull();
       expect(tree.getLeafByPanelType('clipper')).not.toBeNull();
-    });
-
-    it('promotes branch sibling when leaf is removed', () => {
-      tree.deserialize(tree.DEFAULT_TREE);
-      var mediaLeaf = tree.getLeafByPanelType('media');
-      var rightBranch = tree.findSibling(mediaLeaf.id);
-      expect(rightBranch.type).toBe('branch');
-
-      tree.joinAreas(rightBranch.id, mediaLeaf.id);
-      var newRoot = tree.getRoot();
-      expect(newRoot.type).toBe('branch');
-      expect(newRoot.direction).toBe('horizontal');
-      var leaves = tree.getAllLeaves();
-      var types = leaves.map(function (l) { return l.panelType; }).sort();
-      expect(types).toEqual(['clipper', 'clips', 'timeline']);
     });
   });
 
   describe('swapAreas', () => {
     it('exchanges panel types', () => {
       tree.deserialize(tree.DEFAULT_TREE);
-      var media = tree.getLeafByPanelType('media');
+      var clipper = tree.getLeafByPanelType('clipper');
       var clips = tree.getLeafByPanelType('clips');
-      var mediaId = media.id;
+      var clipperId = clipper.id;
       var clipsId = clips.id;
-      tree.swapAreas(mediaId, clipsId);
-      expect(tree.findNode(mediaId).panelType).toBe('clips');
-      expect(tree.findNode(clipsId).panelType).toBe('media');
+      tree.swapAreas(clipperId, clipsId);
+      expect(tree.findNode(clipperId).panelType).toBe('clips');
+      expect(tree.findNode(clipsId).panelType).toBe('clipper');
     });
   });
 
   describe('findAdjacentLeaf', () => {
-    it('finds right neighbor of media', () => {
+    it('finds right neighbor of clipper', () => {
       tree.deserialize(tree.DEFAULT_TREE);
-      var media = tree.getLeafByPanelType('media');
-      var adj = tree.findAdjacentLeaf(media.id, 'right');
+      var clipper = tree.getLeafByPanelType('clipper');
+      var adj = tree.findAdjacentLeaf(clipper.id, 'right');
       expect(adj).not.toBeNull();
-      expect(adj.panelType).toBe('clipper');
+      expect(adj.panelType).toBe('clips');
     });
 
     it('returns null at left edge', () => {
       tree.deserialize(tree.DEFAULT_TREE);
-      var media = tree.getLeafByPanelType('media');
-      var adj = tree.findAdjacentLeaf(media.id, 'left');
+      var clipper = tree.getLeafByPanelType('clipper');
+      var adj = tree.findAdjacentLeaf(clipper.id, 'left');
       expect(adj).toBeNull();
-    });
-
-    it('finds down neighbor of preview', () => {
-      tree.deserialize(tree.DEFAULT_TREE);
-      var preview = tree.getLeafByPanelType('clipper');
-      var adj = tree.findAdjacentLeaf(preview.id, 'down');
-      expect(adj).not.toBeNull();
-      expect(adj.panelType).toBe('timeline');
     });
   });
 
@@ -109,9 +86,9 @@ describe('split-tree data model', () => {
       tree.deserialize(tree.DEFAULT_TREE);
       var serialized = tree.serialize();
       tree.deserialize(serialized);
-      expect(tree.getAllLeaves()).toHaveLength(4);
+      expect(tree.getAllLeaves()).toHaveLength(2);
       var types = tree.getAllLeaves().map(l => l.panelType).sort();
-      expect(types).toEqual(['clipper', 'clips', 'media', 'timeline']);
+      expect(types).toEqual(['clipper', 'clips']);
     });
   });
 

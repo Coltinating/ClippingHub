@@ -1,0 +1,24 @@
+{
+  "name": "Collaboration",
+  "version": 1,
+  "tree": {
+    "type": "branch",
+    "id": "b_root",
+    "direction": "horizontal",
+    "ratio": 0.2,
+    "children": [
+      { "type": "leaf", "id": "a_collab", "panelType": "collab" },
+      {
+        "type": "branch",
+        "id": "b_main",
+        "direction": "horizontal",
+        "ratio": 0.8,
+        "children": [
+          { "type": "leaf", "id": "a_clipper", "panelType": "clipper" },
+          { "type": "leaf", "id": "a_clips",   "panelType": "clips"   }
+        ]
+      }
+    ]
+  },
+  "floating": []
+}

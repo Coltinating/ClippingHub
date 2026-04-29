@@ -2,10 +2,14 @@
   "name": "Minimal",
   "version": 1,
   "tree": {
-    "type": "branch", "direction": "vertical", "ratio": 0.78,
+    "type": "branch",
+    "id": "b_root",
+    "direction": "horizontal",
+    "ratio": 0.77,
     "children": [
-      { "type": "leaf", "panelType": "clipper" },
-      { "type": "leaf", "panelType": "timeline" }
+      { "type": "leaf", "id": "a_clipper", "panelType": "clipper" },
+      { "type": "leaf", "id": "a_clips",   "panelType": "clips"   }
     ]
-  }
+  },
+  "floating": []
 }
