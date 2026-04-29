@@ -20,7 +20,7 @@ export const Inbound = z.discriminatedUnion('type', [
   z.object({ type: z.literal('lobby:leave') }),
   z.object({ type: z.literal('chat:send'),    text: z.string().min(1).max(2000) }),
   z.object({ type: z.literal('member:set-role'),   memberId: z.string(), role: z.enum(['clipper', 'helper', 'viewer']) }),
-  z.object({ type: z.literal('member:set-assist'), assistUserId: z.string().nullable() }),
+  z.object({ type: z.literal('member:set-assist'), assistUserId: z.string().nullable(), role: z.enum(['clipper', 'helper', 'viewer']).optional() }),
   z.object({ type: z.literal('clip:upsert-range'), range: z.record(z.any()) }),
   z.object({ type: z.literal('clip:remove-range'), id: z.string() }),
   z.object({ type: z.literal('clip:delivery-create'),  delivery: z.record(z.any()) }),

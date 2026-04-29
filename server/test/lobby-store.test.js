@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, test, expect, beforeEach } from 'vitest';
 import { openDb } from '../src/db.js';
 import { LobbyStore } from '../src/lobby-store.js';
+
+function buildTestDb() { return openDb(':memory:'); }
 
 describe('LobbyStore', () => {
   let store;
@@ -52,5 +54,86 @@ describe('LobbyStore', () => {
     expect(d1.id).toBe(d2.id);
     const undelivered = store.pendingDeliveriesFor(a.code, 'u2');
     expect(undelivered).toHaveLength(1);
+  });
+});
+
+describe('cleanupHelpersOf', () => {
+  test('returns affected helper rows and demotes them to viewer', () => {
+    const db = buildTestDb();
+    const store = new LobbyStore(db);
+    const lobby = store.createLobby({ name: 'T', password: '', user: { id: 'host', name: 'Host' } });
+    store.joinLobby({ code: lobby.code, password: '', user: { id: 'h1', name: 'H1' } });
+    store.setMemberRole(lobby.code, 'h1', 'helper');
+    // manually set assist_user_id to 'host'
+    db.prepare("UPDATE members SET assist_user_id=? WHERE lobby_code=? AND id=?").run('host', lobby.code, 'h1');
+
+    const affected = store.cleanupHelpersOf(lobby.code, 'host');
+    expect(affected).toHaveLength(1);
+    expect(affected[0].id).toBe('h1');
+    expect(affected[0].role).toBe('viewer');
+    expect(affected[0].assistUserId).toBeNull();
+  });
+
+  test('returns empty array when no helpers assigned to clipper', () => {
+    const db = buildTestDb();
+    const store = new LobbyStore(db);
+    const lobby = store.createLobby({ name: 'T', password: '', user: { id: 'host', name: 'Host' } });
+    const result = store.cleanupHelpersOf(lobby.code, 'host');
+    expect(result).toEqual([]);
+  });
+});
+
+describe('setMemberAssist with role', () => {
+  test('updates both role and assist_user_id atomically', () => {
+    const db = buildTestDb();
+    const store = new LobbyStore(db);
+    const lobby = store.createLobby({ name: 'T', password: '', user: { id: 'clipper1', name: 'C1' } });
+    store.joinLobby({ code: lobby.code, password: '', user: { id: 'u2', name: 'U2' } });
+
+    const updated = store.setMemberAssist(lobby.code, 'u2', 'clipper1', 'helper');
+    expect(updated.role).toBe('helper');
+    expect(updated.assistUserId).toBe('clipper1');
+  });
+
+  test('backward compat: omitting role does not change role', () => {
+    const db = buildTestDb();
+    const store = new LobbyStore(db);
+    const lobby = store.createLobby({ name: 'T', password: '', user: { id: 'clipper1', name: 'C1' } });
+    store.joinLobby({ code: lobby.code, password: '', user: { id: 'u2', name: 'U2' } });
+    store.setMemberRole(lobby.code, 'u2', 'helper');
+
+    const updated = store.setMemberAssist(lobby.code, 'u2', 'clipper1'); // no role param
+    expect(updated.role).toBe('helper'); // unchanged
+    expect(updated.assistUserId).toBe('clipper1');
+  });
+});
+
+describe('leaveLobby returns affectedHelpers', () => {
+  test('demotes helpers when their clipper leaves', () => {
+    const db = buildTestDb();
+    const store = new LobbyStore(db);
+    const lobby = store.createLobby({ name: 'T', password: '', user: { id: 'clipper1', name: 'C1' } });
+    store.joinLobby({ code: lobby.code, password: '', user: { id: 'h1', name: 'H1' } });
+    store.setMemberAssist(lobby.code, 'h1', 'clipper1', 'helper');
+
+    const result = store.leaveLobby(lobby.code, 'clipper1');
+    expect(result.affectedHelpers).toHaveLength(1);
+    expect(result.affectedHelpers[0].id).toBe('h1');
+    expect(result.affectedHelpers[0].role).toBe('viewer');
+  });
+});
+
+describe('setMemberRole returns affectedHelpers', () => {
+  test('auto-detaches helpers when clipper is demoted', () => {
+    const db = buildTestDb();
+    const store = new LobbyStore(db);
+    const lobby = store.createLobby({ name: 'T', password: '', user: { id: 'clipper1', name: 'C1' } });
+    store.joinLobby({ code: lobby.code, password: '', user: { id: 'h1', name: 'H1' } });
+    store.setMemberAssist(lobby.code, 'h1', 'clipper1', 'helper');
+
+    const result = store.setMemberRole(lobby.code, 'clipper1', 'viewer');
+    expect(result.affectedHelpers).toHaveLength(1);
+    expect(result.affectedHelpers[0].id).toBe('h1');
+    expect(result.affectedHelpers[0].role).toBe('viewer');
   });
 });

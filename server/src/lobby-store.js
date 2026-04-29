@@ -25,6 +25,13 @@ export class LobbyStore {
           assist_user_id=excluded.assist_user_id, is_admin=excluded.is_admin`),
       updateMemberRole: this.db.prepare(`UPDATE members SET role=?, last_seen_at=? WHERE lobby_code=? AND id=?`),
       updateMemberAssist: this.db.prepare(`UPDATE members SET assist_user_id=?, last_seen_at=? WHERE lobby_code=? AND id=?`),
+      updateMemberAssistAndRole: this.db.prepare(
+        `UPDATE members SET assist_user_id=?, role=?, last_seen_at=? WHERE lobby_code=? AND id=?`
+      ),
+      cleanupHelpers: this.db.prepare(
+        `UPDATE members SET assist_user_id=NULL, role='viewer', last_seen_at=?
+         WHERE lobby_code=? AND assist_user_id=? RETURNING *`
+      ),
       memberById: this.db.prepare('SELECT * FROM members WHERE lobby_code=? AND id=?'),
       members: this.db.prepare('SELECT * FROM members WHERE lobby_code=? ORDER BY joined_at ASC'),
       deleteMember: this.db.prepare('DELETE FROM members WHERE lobby_code=? AND id=?'),
@@ -94,6 +101,7 @@ export class LobbyStore {
 
   leaveLobby(code, userId) {
     const c = sanitizeCode(code);
+    const affectedHelpers = this.cleanupHelpersOf(c, userId);  // before delete
     this.q.deleteMember.run(c, userId);
     const lobby = this.q.lobbyByCode.get(c);
     if (lobby && lobby.host_id === userId) {
@@ -103,18 +111,36 @@ export class LobbyStore {
     } else {
       this.q.bumpLobby.run(Date.now(), c);
     }
+    return { removedId: userId, affectedHelpers };
   }
 
   setMemberRole(code, memberId, role) {
     const c = sanitizeCode(code);
+    const prev = this.getMember(c, memberId);
     this.q.updateMemberRole.run(role, Date.now(), c, memberId);
+    const updatedMember = this.getMember(c, memberId);
+    const affectedHelpers = (prev && prev.role === 'clipper' && role !== 'clipper')
+      ? this.cleanupHelpersOf(c, memberId)
+      : [];
+    return { updatedMember, affectedHelpers };
+  }
+
+  setMemberAssist(code, memberId, assistUserId, role) {
+    const c = sanitizeCode(code);
+    if (role != null) {
+      this.db.transaction(() => {
+        this.q.updateMemberAssistAndRole.run(assistUserId, role, Date.now(), c, memberId);
+      })();
+    } else {
+      this.q.updateMemberAssist.run(assistUserId, Date.now(), c, memberId);
+    }
     return this.getMember(c, memberId);
   }
 
-  setMemberAssist(code, memberId, assistUserId) {
+  cleanupHelpersOf(code, clipperId) {
     const c = sanitizeCode(code);
-    this.q.updateMemberAssist.run(assistUserId, Date.now(), c, memberId);
-    return this.getMember(c, memberId);
+    const rows = this.q.cleanupHelpers.all(Date.now(), c, clipperId);
+    return rows.map(r => this._memberRow(r));
   }
 
   getMember(code, memberId) {
