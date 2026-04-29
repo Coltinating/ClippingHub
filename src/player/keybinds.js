@@ -95,6 +95,24 @@
       return true;
     }
 
+    // Speed step down (Shift+,)
+    if (matchKeybind(e, kb.playbackSpeedDown || 'shift+,')) {
+      e.preventDefault(); log('keybind: playbackSpeedDown'); P.controls.stepSpeed(-1); return true;
+    }
+    // Speed step up (Shift+.)
+    if (matchKeybind(e, kb.playbackSpeedUp || 'shift+.')) {
+      e.preventDefault(); log('keybind: playbackSpeedUp'); P.controls.stepSpeed(+1); return true;
+    }
+
+    // Frame step back (,)
+    if (matchKeybind(e, kb.frameStepBack || ',')) {
+      e.preventDefault(); log('keybind: frameStepBack'); P.controls.frameStep(-1); return true;
+    }
+    // Frame step forward (.)
+    if (matchKeybind(e, kb.frameStepForward || '.')) {
+      e.preventDefault(); log('keybind: frameStepForward'); P.controls.frameStep(+1); return true;
+    }
+
     // Catch-up mode
     if (matchKeybind(e, kb.toggleCatchUp || 'c')) {
       e.preventDefault();

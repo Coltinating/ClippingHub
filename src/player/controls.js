@@ -37,13 +37,30 @@
     log('toggleMute', { muted: vid.muted, volume: vid.volume });
   }
 
-  function cycleSpeed() {
+  function setSpeedIdx(idx) {
     var S = P.state;
     var vid = P.els.vid;
-    S.speedIdx = (S.speedIdx + 1) % S.speeds.length;
+    S.speedIdx = Math.max(0, Math.min(S.speeds.length - 1, idx));
     vid.playbackRate = S.speeds[S.speedIdx];
     P.els.speedBtn.textContent = S.speeds[S.speedIdx] + 'x';
-    log('cycleSpeed', { speed: S.speeds[S.speedIdx], index: S.speedIdx });
+    log('setSpeedIdx', { speed: S.speeds[S.speedIdx], index: S.speedIdx });
+  }
+
+  function cycleSpeed() {
+    var S = P.state;
+    setSpeedIdx((S.speedIdx + 1) % S.speeds.length);
+  }
+
+  function stepSpeed(dir) {
+    setSpeedIdx(P.state.speedIdx + (dir > 0 ? 1 : -1));
+  }
+
+  function frameStep(dir) {
+    var vid = P.els.vid;
+    if (!vid.paused) vid.pause();
+    var step = (dir > 0 ? 1 : -1) / 30;
+    vid.currentTime = Math.max(0, Math.min(vid.duration || Infinity, vid.currentTime + step));
+    log('frameStep', { dir: dir, currentTime: vid.currentTime });
   }
 
   function toggleCatchUp(catchUpSpeed) {
@@ -215,6 +232,9 @@
     setVolume: setVolume,
     toggleMute: toggleMute,
     cycleSpeed: cycleSpeed,
+    setSpeedIdx: setSpeedIdx,
+    stepSpeed: stepSpeed,
+    frameStep: frameStep,
     toggleCatchUp: toggleCatchUp,
     togglePiP: togglePiP,
     toggleFullscreen: toggleFullscreen,

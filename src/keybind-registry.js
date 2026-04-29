@@ -42,6 +42,11 @@
     { id: 'mute',             label: 'Mute / Unmute',      category: 'Playback', default: 'm' },
     { id: 'fullscreen',       label: 'Toggle Fullscreen',  category: 'Playback', default: 'f' },
     { id: 'cycleSpeed',       label: 'Cycle Playback Speed', category: 'Playback', default: 's' },
+    { id: 'playbackSpeedDown',label: 'Decrease Playback Speed', category: 'Playback', default: 'shift+,', description: 'Step down through the speed list' },
+    { id: 'playbackSpeedUp',  label: 'Increase Playback Speed', category: 'Playback', default: 'shift+.', description: 'Step up through the speed list' },
+    { id: 'frameStepBack',    label: 'Frame Step Back',         category: 'Playback', default: ',',       description: 'Nudge one frame backward (paused only)' },
+    { id: 'frameStepForward', label: 'Frame Step Forward',      category: 'Playback', default: '.',       description: 'Nudge one frame forward (paused only)' },
+    { id: 'toggleShortcutsOverlay', label: 'Toggle Shortcuts Overlay', category: 'Playback', default: '?', description: 'Show/hide the in-player cheat sheet' },
     { id: 'toggleCatchUp',    label: 'Toggle Catch-Up Mode', category: 'Playback', default: 'c', description: 'Speed override (configurable in Settings)' },
     { id: 'toggleTranscript', label: 'Toggle Live Transcript', category: 'Playback', default: 't' },
 

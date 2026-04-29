@@ -807,6 +807,12 @@ function escName(v) {
   return esc(s);
 }
 
+function roleColor(role) {
+  if (role === 'clipper') return 'var(--accent-l, #b58cff)';
+  if (role === 'helper')  return 'var(--green, #33d69f)';
+  return 'var(--dim, #8b9099)';
+}
+
 function renderMembers(listEl) {
   if (!listEl) return;
   if (!state.members.length) {
@@ -820,46 +826,51 @@ function renderMembers(listEl) {
   function memberRow(m, indent, isMe) {
     var color = m.color || getUserColor(m.id, m.name);
     var avatarStyle = m.pfpDataUrl ? "background-image:url('" + m.pfpDataUrl + "');" : 'background:' + color + ';';
-    var roleClass = esc(m.role || 'viewer');
-    var nameCls = 'collab-member-name' + (isMe ? ' is-me' : '');
+    var nameColor = roleColor(m.role || 'viewer');
     var indentClass = indent ? ' collab-member-row--indented' : '';
-    var connectorHtml = indent ? '<span class="collab-member-connector">└─</span>' : '';
-    var helperIcon = m.role === 'helper' ? '<span class="collab-role-icon">🤝</span>' : (m.role === 'clipper' ? '<span class="collab-role-icon">🎬</span>' : '<span class="collab-role-icon">👁</span>');
+    var statusDot = m.role === 'helper'
+      ? '<span class="collab-status-dot collab-status-helper" title="Assisting"></span>'
+      : '';
     return '<div class="collab-member-row' + indentClass + '" data-user-id="' + esc(m.id) + '">' +
-      connectorHtml +
-      helperIcon +
       '<div class="collab-member-avatar" style="' + avatarStyle + '"></div>' +
       '<div class="collab-member-meta">' +
-        '<div class="' + nameCls + '" style="color:' + color + '">' + escName(m.name) +
-          (isMe ? ' <span class="collab-you-tag">you</span>' : '') +
-          '<span class="collab-role-badge ' + roleClass + '">' + esc(m.role || 'viewer') + '</span>' +
+        '<div class="collab-member-name" style="color:' + nameColor + '">' +
+          escName(m.name) +
+          statusDot +
+          (isMe ? '<span class="collab-you-tag">you</span>' : '') +
         '</div>' +
         (m.xHandle ? '<div class="collab-member-handle">@' + esc(m.xHandle) + '</div>' : '') +
       '</div>' +
     '</div>';
   }
 
-  // Clippers + their helpers
-  for (var ci = 0; ci < g.clippers.length; ci++) {
-    var c = g.clippers[ci];
-    html.push(memberRow(c, false, c.id === meId));
-    for (var hi = 0; hi < c.helpers.length; hi++) {
-      var h = c.helpers[hi];
-      html.push(memberRow(h, true, h.id === meId));
+  function sectionHeader(label, count) {
+    return '<div class="collab-group-title">' +
+      '<span>' + esc(label) + '</span>' +
+      '<span class="collab-group-count">' + count + '</span>' +
+    '</div>';
+  }
+
+  // CLIPPERS section (clippers + their indented helpers)
+  if (g.clippers.length || g.orphanHelpers.length) {
+    html.push(sectionHeader('CLIPPERS', g.clippers.length));
+    for (var ci = 0; ci < g.clippers.length; ci++) {
+      var c = g.clippers[ci];
+      html.push(memberRow(c, false, c.id === meId));
+      for (var hi = 0; hi < c.helpers.length; hi++) {
+        var h = c.helpers[hi];
+        html.push(memberRow(h, true, h.id === meId));
+      }
+    }
+    for (var oi = 0; oi < g.orphanHelpers.length; oi++) {
+      var oh = g.orphanHelpers[oi];
+      html.push(memberRow(oh, false, oh.id === meId));
     }
   }
 
-  // Orphan helpers (defensive render)
-  for (var oi = 0; oi < g.orphanHelpers.length; oi++) {
-    var oh = g.orphanHelpers[oi];
-    html.push(memberRow(oh, false, oh.id === meId));
-  }
-
-  // Viewers section
+  // VIEWERS section
   if (g.viewers.length) {
-    if (g.clippers.length || g.orphanHelpers.length) {
-      html.push('<div class="collab-section-divider"></div>');
-    }
+    html.push(sectionHeader('VIEWERS', g.viewers.length));
     for (var vi = 0; vi < g.viewers.length; vi++) {
       html.push(memberRow(g.viewers[vi], false, g.viewers[vi].id === meId));
     }

@@ -214,6 +214,11 @@ let userConfig = {
     mute: 'm',
     fullscreen: 'f',
     cycleSpeed: 's',
+    playbackSpeedDown: 'shift+,',
+    playbackSpeedUp: 'shift+.',
+    frameStepBack: ',',
+    frameStepForward: '.',
+    toggleShortcutsOverlay: '?',
     toggleCatchUp: 'c',
     toggleTranscript: 't',
     // Seeking
@@ -240,6 +245,7 @@ let userConfig = {
     keepTempFiles: false,
     logFfmpegCommands: false,
     advancedPanelSystem: false,
+    frameAccurateClipping: false, // experimental — uses alt arg builder when true; off = main pipeline untouched
   },
 };
 
@@ -496,6 +502,18 @@ document.addEventListener('keydown', e => {
     $('batchPanel').style.display = batchModeActive ? '' : 'none';
     dbg('ACTION', 'Batch mode ' + (batchModeActive ? 'ON' : 'OFF'));
     return;
+  }
+
+  // Shortcuts cheat-sheet toggle (UI concern — must come before player handler so '?' isn't swallowed)
+  if (matchKeybind(e, kb.toggleShortcutsOverlay || '?')) {
+    e.preventDefault();
+    toggleShortcutsCheatsheet();
+    return;
+  }
+  // Esc closes the cheat-sheet if it's open
+  if (e.key === 'Escape') {
+    var _cs = document.getElementById('shortcutsCheatsheet');
+    if (_cs && !_cs.hidden) { e.preventDefault(); toggleShortcutsCheatsheet(false); return; }
   }
 
   // All other player keybinds (play/pause, seek, volume, speed, fullscreen, PiP, catch-up)
@@ -2613,6 +2631,7 @@ function openConfigModal() {
           <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgKeepTempFiles" ${cfg.devFeatures?.keepTempFiles?'checked':''}> <span>Keep temp files after clip download</span></label>
           <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgLogFfmpegCommands" ${cfg.devFeatures?.logFfmpegCommands?'checked':''}> <span>Output all FFmpeg commands to debug log</span></label>
           <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgAdvancedPanels" ${cfg.devFeatures?.advancedPanelSystem?'checked':''}> <span>Enable advanced panel system</span> <span class="config-default">(drag, split, dock, undock, custom layouts &mdash; off for a simpler experience)</span></label>
+          <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgFrameAccurateClipping" ${cfg.devFeatures?.frameAccurateClipping?'checked':''}> <span>Frame-accurate clipping</span> <span class="config-default">(experimental &mdash; off keeps the main pipeline untouched; tests live in tests/unit/frame-accurate-clip.test.js)</span></label>
         </div>
 
       </div>
@@ -2765,6 +2784,7 @@ function openConfigModal() {
     userConfig.devFeatures.keepTempFiles = overlay.querySelector('#cfgKeepTempFiles').checked;
     userConfig.devFeatures.logFfmpegCommands = overlay.querySelector('#cfgLogFfmpegCommands').checked;
     userConfig.devFeatures.advancedPanelSystem = overlay.querySelector('#cfgAdvancedPanels').checked;
+    userConfig.devFeatures.frameAccurateClipping = overlay.querySelector('#cfgFrameAccurateClipping').checked;
 
     dbg('ACTION', 'Settings saved', { videoCodec: userConfig.ffmpeg.videoCodec, hwaccel: userConfig.ffmpeg.hwaccel || 'none', catchUpSpeed: userConfig.catchUpSpeed, batchEnabled: batchModeEnabled, ffmpegLogs: userConfig.devFeatures.ffmpegLogs, keepTempFiles: userConfig.devFeatures.keepTempFiles, logFfmpegCommands: userConfig.devFeatures.logFfmpegCommands });
     await saveConfig();
@@ -3186,6 +3206,85 @@ const _aboutClose = $('aboutClose');
 if (_aboutClose) _aboutClose.addEventListener('click', () => window.HeaderModals && window.HeaderModals.closeModal('aboutModal'));
 const _shortcutsClose = $('shortcutsClose');
 if (_shortcutsClose) _shortcutsClose.addEventListener('click', () => window.HeaderModals && window.HeaderModals.closeModal('shortcutsModal'));
+
+/* ─── In-player keyboard shortcuts cheat-sheet ─────────────────
+   Quick reference overlay rendered inside .player-wrap. Reads live
+   from KeybindRegistry + userConfig so it always shows current binds. */
+const CHEATSHEET_GROUPS = [
+  { name: 'Playback', ids: ['playPause', 'mute', 'volumeUp', 'volumeDown', 'cycleSpeed', 'playbackSpeedDown', 'playbackSpeedUp', 'frameStepBack', 'frameStepForward', 'fullscreen'] },
+  { name: 'Seeking',  ids: ['seekBackSmall', 'seekForwardSmall', 'seekBackMedium', 'seekForwardMedium', 'seekBackLarge', 'seekForwardLarge'] },
+  { name: 'Clipping', ids: ['markIn', 'markOut', 'editIn', 'editOut'] },
+  { name: 'Help',     ids: ['toggleShortcutsOverlay'] },
+];
+
+function renderCheatsheetBody() {
+  const body = document.getElementById('cheatsheetBody');
+  const Reg = window.KeybindRegistry;
+  if (!body || !Reg) return;
+  const live = (window.userConfig && window.userConfig.keybinds) || {};
+  const lookup = {};
+  Reg.REGISTRY.forEach(d => { lookup[d.id] = d; });
+
+  let html = '';
+  CHEATSHEET_GROUPS.forEach(group => {
+    const rows = group.ids
+      .map(id => {
+        const def = lookup[id];
+        if (!def) return null;
+        const bind = (live[id] != null) ? live[id] : def.default;
+        return { label: def.label, key: Reg.formatBinding(bind) };
+      })
+      .filter(Boolean);
+    if (!rows.length) return;
+    html += `<div class="cheatsheet-subhead">${group.name}</div>`;
+    rows.forEach(r => {
+      html += `<div class="cheatsheet-row"><span class="cs-label">${r.label}</span><kbd>${r.key}</kbd></div>`;
+    });
+  });
+  body.innerHTML = html;
+}
+
+function toggleShortcutsCheatsheet(forceState) {
+  const el = document.getElementById('shortcutsCheatsheet');
+  const btn = document.getElementById('shortcutsToggleBtn');
+  if (!el) return;
+  const willOpen = (forceState !== undefined) ? !!forceState : el.hidden;
+  if (willOpen) {
+    renderCheatsheetBody();
+    el.hidden = false;
+    el.classList.add('open');
+    if (btn) btn.classList.add('active');
+  } else {
+    el.classList.remove('open');
+    el.hidden = true;
+    if (btn) btn.classList.remove('active');
+  }
+}
+
+const _shortcutsToggleBtn = $('shortcutsToggleBtn');
+if (_shortcutsToggleBtn) {
+  _shortcutsToggleBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleShortcutsCheatsheet();
+  });
+}
+const _cheatsheetClose = $('cheatsheetClose');
+if (_cheatsheetClose) {
+  _cheatsheetClose.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleShortcutsCheatsheet(false);
+  });
+}
+// Click anywhere on the player area outside the panel closes it
+if (playerWrapEl) {
+  playerWrapEl.addEventListener('click', (e) => {
+    const cs = document.getElementById('shortcutsCheatsheet');
+    if (!cs || cs.hidden) return;
+    if (cs.contains(e.target)) return;
+    if (e.target.closest && e.target.closest('#shortcutsToggleBtn')) return;
+    toggleShortcutsCheatsheet(false);
+  });
+}
 
 // Top-right Clips button (replaces old caption editor icon button)
 const _clipsBtn = $('clipsBtn');
