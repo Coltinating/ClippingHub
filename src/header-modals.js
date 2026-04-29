@@ -63,9 +63,72 @@
   // committed to userConfig + persisted on Save, discarded on Cancel.
   var _draft = null;
   var _capturingId = null; // id of the binding currently being captured
+  var _activeTab = 'Seeking'; // sidebar selection — defaults to most-used category
+
+  // Sidebar metadata (icons + subtitles match the settings menu visual language)
+  var TAB_META = {
+    'Seeking':  { icon: '⏱', subtitle: 'Time-jump bindings and step sizes' },
+    'Clipping': { icon: '✂', subtitle: 'Mark and edit IN/OUT for new clips' },
+    'Playback': { icon: '▶', subtitle: 'Play, volume, speed, fullscreen' },
+    'Layout':   { icon: '◫', subtitle: 'Reset and save panel layouts' },
+    'Header':   { icon: '⌘', subtitle: 'Optional header shortcuts (unbound by default)' },
+  };
 
   function _liveKb() {
     return (window.userConfig && window.userConfig.keybinds) || {};
+  }
+
+  function _bindingRowHtml(def, conflictSet) {
+    var Reg = window.KeybindRegistry;
+    var bind = _draft[def.id] || '';
+    var formatted = Reg.formatBinding(bind);
+    var capturing = (_capturingId === def.id);
+    var conflict = conflictSet[def.id];
+    var btnLabel = capturing ? 'Press a key…' : (bind ? formatted : 'Set shortcut');
+    return '<div class="kb-row' + (conflict ? ' kb-conflict' : '') + (capturing ? ' kb-capturing' : '') + '">' +
+              '<div class="kb-row-label">' +
+                '<div class="kb-row-name">' + _esc(def.label) + '</div>' +
+                (def.description ? '<div class="kb-row-desc">' + _esc(def.description) + '</div>' : '') +
+              '</div>' +
+              '<div class="kb-row-actions">' +
+                '<button class="kb-bind-btn' + (capturing ? ' capturing' : '') + (bind ? '' : ' unbound') + '" data-action="capture" data-id="' + _esc(def.id) + '">' +
+                  _esc(btnLabel) +
+                '</button>' +
+                '<button class="kb-clear-btn" data-action="clear" data-id="' + _esc(def.id) + '" title="Clear">&times;</button>' +
+                '<button class="kb-reset-btn" data-action="reset" data-id="' + _esc(def.id) + '" title="Reset to default (' + _esc(Reg.formatBinding(def.default)) + ')">↺</button>' +
+              '</div>' +
+            '</div>';
+  }
+
+  function _jumpSizesHtml() {
+    var Reg = window.KeybindRegistry;
+    var html = '<div class="kb-subhead">Jump Sizes (seconds)</div>';
+    Reg.JUMP_SIZES.forEach(function (def) {
+      var v = _draft[def.id];
+      if (v == null) v = def.default;
+      html += '<div class="kb-row">' +
+                '<div class="kb-row-label"><div class="kb-row-name">' + _esc(def.label) + '</div></div>' +
+                '<div class="kb-row-actions">' +
+                  '<input type="number" class="kb-num-input" data-id="' + _esc(def.id) + '" value="' + Number(v) + '" min="' + def.min + '" max="' + def.max + '">' +
+                '</div>' +
+              '</div>';
+    });
+    return html;
+  }
+
+  function _renderSidebar(groups) {
+    var sidebar = document.getElementById('shortcutsSidebar');
+    if (!sidebar) return;
+    var html = '<div class="shortcuts-sidebar-title">Shortcuts</div>';
+    groups.forEach(function (g) {
+      var meta = TAB_META[g.name] || { icon: '·', subtitle: '' };
+      var active = (g.name === _activeTab) ? ' active' : '';
+      html += '<div class="shortcuts-tab' + active + '" data-tab="' + _esc(g.name) + '">' +
+                '<span class="shortcuts-tab-icon">' + meta.icon + '</span>' +
+                '<span class="shortcuts-tab-label">' + _esc(g.name) + '</span>' +
+              '</div>';
+    });
+    sidebar.innerHTML = html;
   }
 
   function _renderShortcuts() {
@@ -79,55 +142,47 @@
     var conflictSet = {};
     conflicts.forEach(function (c) { c.ids.forEach(function (id) { conflictSet[id] = c.binding; }); });
 
-    var html = '';
-    groups.forEach(function (group) {
-      var rows = group.items.filter(function (def) {
-        if (!query) return true;
-        var hay = (def.label + ' ' + def.id + ' ' + (def.description || '') + ' ' + (_draft[def.id] || '')).toLowerCase();
-        return hay.indexOf(query) !== -1;
-      });
-      if (rows.length === 0) return;
-      html += '<div class="kb-group"><h4 class="kb-group-title">' + _esc(group.name) + '</h4>';
-      rows.forEach(function (def) {
-        var bind = _draft[def.id] || '';
-        var formatted = Reg.formatBinding(bind);
-        var capturing = (_capturingId === def.id);
-        var conflict = conflictSet[def.id];
-        var btnLabel = capturing ? 'Press a key…' : (bind ? formatted : 'Set shortcut');
-        html += '<div class="kb-row' + (conflict ? ' kb-conflict' : '') + (capturing ? ' kb-capturing' : '') + '">' +
-                  '<div class="kb-row-label">' +
-                    '<div class="kb-row-name">' + _esc(def.label) + '</div>' +
-                    (def.description ? '<div class="kb-row-desc">' + _esc(def.description) + '</div>' : '') +
-                  '</div>' +
-                  '<div class="kb-row-actions">' +
-                    '<button class="kb-bind-btn' + (capturing ? ' capturing' : '') + (bind ? '' : ' unbound') + '" data-action="capture" data-id="' + _esc(def.id) + '">' +
-                      _esc(btnLabel) +
-                    '</button>' +
-                    '<button class="kb-clear-btn" data-action="clear" data-id="' + _esc(def.id) + '" title="Clear">&times;</button>' +
-                    '<button class="kb-reset-btn" data-action="reset" data-id="' + _esc(def.id) + '" title="Reset to default (' + _esc(Reg.formatBinding(def.default)) + ')">↺</button>' +
-                  '</div>' +
-                '</div>';
-      });
-      html += '</div>';
-    });
-
-    // Jump-size numeric inputs — also editable here for convenience
-    if (!query || ('seek jump'.indexOf(query) !== -1)) {
-      html += '<div class="kb-group"><h4 class="kb-group-title">Jump Sizes (seconds)</h4>';
-      Reg.JUMP_SIZES.forEach(function (def) {
-        var v = _draft[def.id];
-        if (v == null) v = def.default;
-        html += '<div class="kb-row">' +
-                  '<div class="kb-row-label"><div class="kb-row-name">' + _esc(def.label) + '</div></div>' +
-                  '<div class="kb-row-actions">' +
-                    '<input type="number" class="kb-num-input" data-id="' + _esc(def.id) + '" value="' + Number(v) + '" min="' + def.min + '" max="' + def.max + '">' +
-                  '</div>' +
-                '</div>';
-      });
-      html += '</div>';
+    // If active tab no longer exists (shouldn't happen, but safe), fall back to first
+    if (!groups.some(function (g) { return g.name === _activeTab; })) {
+      _activeTab = groups[0] ? groups[0].name : 'Seeking';
     }
 
-    if (!html) html = '<div class="kb-empty">No shortcuts match "' + _esc(query) + '"</div>';
+    _renderSidebar(groups);
+
+    var titleEl = document.getElementById('shortcutsPaneTitle');
+    var subEl   = document.getElementById('shortcutsPaneSubtitle');
+
+    var html = '';
+    if (query) {
+      // Flat search results across every category
+      if (titleEl) titleEl.textContent = 'Search';
+      if (subEl)   subEl.textContent   = 'Showing matches for "' + query + '"';
+      groups.forEach(function (group) {
+        var rows = group.items.filter(function (def) {
+          var hay = (def.label + ' ' + def.id + ' ' + (def.description || '') + ' ' + (_draft[def.id] || '')).toLowerCase();
+          return hay.indexOf(query) !== -1;
+        });
+        if (rows.length === 0) return;
+        html += '<div class="kb-subhead">' + _esc(group.name) + '</div>';
+        rows.forEach(function (def) { html += _bindingRowHtml(def, conflictSet); });
+      });
+      if ('jump sizes seconds seek'.indexOf(query) !== -1 || 'seeking'.indexOf(query) !== -1) {
+        html += _jumpSizesHtml();
+      }
+      if (!html) html = '<div class="kb-empty">No shortcuts match "' + _esc(query) + '"</div>';
+    } else {
+      // Single-category pane (matches Settings menu sidebar+pane pattern)
+      var meta = TAB_META[_activeTab] || { subtitle: '' };
+      if (titleEl) titleEl.textContent = _activeTab;
+      if (subEl)   subEl.textContent   = meta.subtitle;
+      var group = groups.find(function (g) { return g.name === _activeTab; });
+      if (group) {
+        group.items.forEach(function (def) { html += _bindingRowHtml(def, conflictSet); });
+      }
+      // Jump-size inputs live in the Seeking pane — they belong with the time-jump bindings
+      if (_activeTab === 'Seeking') html += _jumpSizesHtml();
+    }
+
     body.innerHTML = html;
 
     // Status line: conflict summary
@@ -236,6 +291,9 @@
     Reg.REGISTRY.forEach(function (d) { _draft[d.id] = (live[d.id] != null) ? live[d.id] : d.default; });
     Reg.JUMP_SIZES.forEach(function (d) { _draft[d.id] = (live[d.id] != null) ? live[d.id] : d.default; });
     _capturingId = null;
+    _activeTab = 'Seeking'; // most-used category opens first
+    var searchEl = document.getElementById('shortcutsSearch');
+    if (searchEl) searchEl.value = '';
     _renderShortcuts();
     _showModal(document.getElementById('shortcutsModal'));
   }
@@ -268,6 +326,18 @@
       body.addEventListener('change', _onShortcutsBodyChange);
       body.addEventListener('input', _onShortcutsBodyChange);
     }
+    var sidebar = document.getElementById('shortcutsSidebar');
+    if (sidebar) {
+      sidebar.addEventListener('click', function (e) {
+        var tab = e.target.closest('.shortcuts-tab');
+        if (!tab) return;
+        _activeTab = tab.getAttribute('data-tab') || 'Seeking';
+        var search = document.getElementById('shortcutsSearch');
+        if (search) search.value = '';
+        _capturingId = null;
+        _renderShortcuts();
+      });
+    }
     var search = document.getElementById('shortcutsSearch');
     if (search) search.addEventListener('input', _renderShortcuts);
     var resetAll = document.getElementById('shortcutsResetAll');
@@ -276,6 +346,8 @@
     if (save) save.addEventListener('click', _saveShortcuts);
     var cancel = document.getElementById('shortcutsCancel');
     if (cancel) cancel.addEventListener('click', function () { _hideModal(document.getElementById('shortcutsModal')); });
+    var close = document.getElementById('shortcutsClose');
+    if (close) close.addEventListener('click', function () { _hideModal(document.getElementById('shortcutsModal')); });
     document.addEventListener('keydown', _onShortcutsKeydown, true /* capture before app handlers */);
   }
   if (document.readyState === 'loading') {

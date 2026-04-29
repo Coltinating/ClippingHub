@@ -193,6 +193,18 @@ html, body {
 .dd-row-with-action:hover { background: var(--accent-dim); }
 .dd-row-with-action .dd-label { flex: 1; font-size: 12px; color: var(--text-primary); }
 
+/* Split row — label and button are independent click targets, so suppress
+   the row-level hover and give the label its own hover affordance. */
+.dd-row-split { background: transparent !important; }
+.dd-label-clickable {
+  cursor: pointer;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  border-radius: 3px;
+  transition: background 0.12s, color 0.12s;
+}
+.dd-label-clickable:hover { background: var(--accent-dim); color: var(--text-primary); }
+
 /* Wide dropdown for Edit menu (holds Stream Settings pane) */
 .dropdown.wide { min-width: 480px; }
 
@@ -2620,6 +2632,26 @@ body.basic-panels .area-header { cursor: default; }
 .ws-tab.active:hover { filter: brightness(1.15); }
 .btn-primary:disabled { animation: none; filter: saturate(0.3); opacity: 0.4; }
 
+/* ── Danger gradient — red analog of the brand gradient ──
+   Used on destructive buttons that share the visual weight of a primary
+   (e.g. "Set Defaults" in the Keyboard Shortcuts editor). Same animated
+   3-stop treatment as .btn-primary so it reads as a peer, not a footnote,
+   but in reds so users hesitate before clicking. */
+.btn-danger-grad {
+  background: linear-gradient(to right, #991b1b, #ef4444, #f97316);
+  background-size: 400% 400%;
+  animation: 10s infinite gradient-shift;
+  border: 1px solid transparent;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-danger-grad:hover { filter: brightness(1.15); }
+.btn-danger-grad:disabled { animation: none; filter: saturate(0.3); opacity: 0.4; }
+@media (prefers-reduced-motion: reduce) {
+  .btn-danger-grad { animation: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .gradient-brand-animated,
   .btn-primary,
@@ -2631,42 +2663,93 @@ body.basic-panels .area-header { cursor: default; }
   .ws-tab.active { animation: none !important; }
 }
 
-/* ─── Keyboard Shortcuts editor (Help > Keyboard Shortcuts) ── */
-.modal.modal-lg { min-width: 640px; max-width: 760px; padding: 0; }
-.shortcuts-modal .modal-header {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border);
+/* ─── Keyboard Shortcuts editor (sidebar+pane, matches Settings) ── */
+.shortcuts-modal-redesign {
+  display: grid; grid-template-columns: 200px 1fr;
+  width: 780px; max-width: 92vw; height: 72vh; max-height: 660px;
+  padding: 0; overflow: hidden;
 }
-.shortcuts-toolbar { display: flex; align-items: center; gap: 8px; }
-.shortcuts-search {
-  height: 24px; padding: 0 8px; font-size: 11px;
-  background: var(--bg-input); color: var(--text-primary);
-  border: 1px solid var(--border-light); border-radius: 4px;
-  width: 180px; outline: none;
+.shortcuts-sidebar {
+  background: var(--bg-panel-dark); border-right: 1px solid var(--border);
+  overflow-y: auto; padding: 8px 0;
 }
-.shortcuts-search:focus { border-color: var(--accent); }
-.shortcuts-body { max-height: 60vh; overflow-y: auto; padding: 8px 0; }
-.shortcuts-footer {
+.shortcuts-sidebar-title {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-muted); padding: 12px 14px 6px;
+}
+.shortcuts-tab {
+  position: relative;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; font-size: 12px; color: var(--text-secondary);
+  cursor: pointer; border-left: 2px solid transparent; user-select: none;
+  transition: background 0.12s, color 0.12s;
+}
+.shortcuts-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
+.shortcuts-tab.active {
+  background: var(--accent-dim); color: var(--text-primary);
+  border-left-color: transparent;
+}
+/* Gradient indicator on the active tab — subtle brand accent */
+.shortcuts-tab.active::before,
+.settings-tab.active::before {
+  content: ''; position: absolute; left: 0; top: 4px; bottom: 4px;
+  width: 3px; border-radius: 0 2px 2px 0;
+  background: linear-gradient(180deg, var(--gradient-brand-start), var(--gradient-brand-middle), var(--gradient-brand-end));
+}
+.settings-tab { position: relative; }
+.settings-tab.active { border-left-color: transparent; }
+.shortcuts-tab-icon { font-size: 13px; opacity: 0.85; width: 16px; text-align: center; }
+
+.shortcuts-pane { display: flex; flex-direction: column; min-height: 0; }
+.shortcuts-pane-header {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; padding: 10px 16px; border-top: 1px solid var(--border);
+  padding: 12px 18px; border-bottom: 1px solid var(--border);
+  background: var(--bg-panel); position: relative;
+}
+/* Hairline gradient under the pane header (and settings pane header) — tasteful brand cue */
+.shortcuts-pane-header::after,
+.settings-pane-header::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gradient-brand-start), var(--gradient-brand-middle), var(--gradient-brand-end), transparent);
+  opacity: 0.35; pointer-events: none;
+}
+.settings-pane-header { position: relative; }
+.shortcuts-pane-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.shortcuts-pane-subtitle { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.shortcuts-pane-body { padding: 8px 0; overflow-y: auto; flex: 1; }
+.shortcuts-pane-footer {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 10px 18px; border-top: 1px solid var(--border);
   background: var(--bg-panel-dark);
 }
+
+.shortcuts-toolbar { display: flex; align-items: center; gap: 8px; }
+.shortcuts-search {
+  height: 26px; padding: 0 8px; font-size: 11px;
+  background: var(--bg-input); color: var(--text-primary);
+  border: 1px solid var(--border-light); border-radius: 4px;
+  width: 180px; outline: none; transition: border-color 0.12s;
+}
+.shortcuts-search:focus { border-color: var(--accent); }
 .shortcuts-status { font-size: 11px; color: var(--text-muted); flex: 1; }
 .shortcuts-status.has-conflict { color: var(--accent-red); font-weight: 500; }
 .shortcuts-actions { display: flex; gap: 6px; }
+
 .kb-empty { padding: 24px; text-align: center; color: var(--text-muted); font-size: 12px; }
-.kb-group { padding: 4px 0 8px; }
-.kb-group-title {
+.kb-subhead {
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
-  color: var(--text-muted); padding: 8px 16px 4px; margin: 0;
-  background: var(--bg-panel-dark); border-top: 1px solid var(--border);
+  color: var(--text-muted); padding: 14px 18px 6px; margin: 0;
 }
-.kb-row { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--border); }
+.kb-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 18px; border-bottom: 1px solid var(--border);
+}
 .kb-row:hover { background: var(--bg-hover); }
 .kb-row-label { flex: 1; min-width: 0; }
 .kb-row-name { font-size: 12px; color: var(--text-primary); }
 .kb-row-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 .kb-row-actions { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
+
 .kb-bind-btn {
   min-width: 130px; height: 26px; padding: 0 12px;
   background: var(--bg-input); border: 1px solid var(--border-light);
@@ -2685,14 +2768,17 @@ body.basic-panels .area-header { cursor: default; }
   50%      { box-shadow: 0 0 0 4px rgba(123,97,255,0); }
 }
 .kb-conflict .kb-bind-btn { border-color: var(--accent-red); color: var(--accent-red); }
+
 .kb-clear-btn, .kb-reset-btn {
   width: 24px; height: 24px;
   background: transparent; border: 1px solid var(--border-light);
   color: var(--text-muted); cursor: pointer; border-radius: 4px; font-size: 12px;
   display: inline-flex; align-items: center; justify-content: center;
+  transition: border-color 0.12s, color 0.12s;
 }
 .kb-clear-btn:hover { color: var(--accent-red); border-color: var(--accent-red); }
 .kb-reset-btn:hover { color: var(--accent); border-color: var(--accent); }
+
 .kb-num-input {
   width: 70px; height: 26px; padding: 0 8px; font-size: 11px;
   background: var(--bg-input); border: 1px solid var(--border-light);

@@ -21,6 +21,14 @@
 
   /** @type {KeybindDef[]} */
   var REGISTRY = [
+    // ─── Seeking (most-used, on top) ─────────────────────
+    { id: 'seekBackSmall',     label: 'Seek Back (Small)',     category: 'Seeking', default: 'ArrowLeft',        description: 'Jump backward by Small interval' },
+    { id: 'seekForwardSmall',  label: 'Seek Forward (Small)',  category: 'Seeking', default: 'ArrowRight',       description: 'Jump forward by Small interval' },
+    { id: 'seekBackMedium',    label: 'Seek Back (Medium)',    category: 'Seeking', default: 'shift+ArrowLeft',  description: 'Jump backward by Medium interval' },
+    { id: 'seekForwardMedium', label: 'Seek Forward (Medium)', category: 'Seeking', default: 'shift+ArrowRight', description: 'Jump forward by Medium interval' },
+    { id: 'seekBackLarge',     label: 'Seek Back (Large)',     category: 'Seeking', default: 'ctrl+ArrowLeft',   description: 'Jump backward by Large interval' },
+    { id: 'seekForwardLarge',  label: 'Seek Forward (Large)',  category: 'Seeking', default: 'ctrl+ArrowRight',  description: 'Jump forward by Large interval' },
+
     // ─── Clipping ────────────────────────────────────────
     { id: 'markIn',  label: 'Mark IN',  category: 'Clipping', default: 'g', description: 'Set the in-point for a new clip' },
     { id: 'markOut', label: 'Mark OUT', category: 'Clipping', default: 'k', description: 'Set the out-point and queue the clip' },
@@ -36,14 +44,6 @@
     { id: 'cycleSpeed',       label: 'Cycle Playback Speed', category: 'Playback', default: 's' },
     { id: 'toggleCatchUp',    label: 'Toggle Catch-Up Mode', category: 'Playback', default: 'c', description: 'Speed override (configurable in Settings)' },
     { id: 'toggleTranscript', label: 'Toggle Live Transcript', category: 'Playback', default: 't' },
-
-    // ─── Seeking ─────────────────────────────────────────
-    { id: 'seekBackSmall',     label: 'Seek Back (Small)',     category: 'Seeking', default: 'ArrowLeft',        description: 'Jump backward by Small interval' },
-    { id: 'seekForwardSmall',  label: 'Seek Forward (Small)',  category: 'Seeking', default: 'ArrowRight',       description: 'Jump forward by Small interval' },
-    { id: 'seekBackMedium',    label: 'Seek Back (Medium)',    category: 'Seeking', default: 'shift+ArrowLeft' },
-    { id: 'seekForwardMedium', label: 'Seek Forward (Medium)', category: 'Seeking', default: 'shift+ArrowRight' },
-    { id: 'seekBackLarge',     label: 'Seek Back (Large)',     category: 'Seeking', default: 'ctrl+ArrowLeft' },
-    { id: 'seekForwardLarge',  label: 'Seek Forward (Large)',  category: 'Seeking', default: 'ctrl+ArrowRight' },
 
     // ─── Layout (Advanced panel system) ─────────────────
     { id: 'resetLayout', label: 'Reset Layout',  category: 'Layout', default: 'ctrl+shift+r' },

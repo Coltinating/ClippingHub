@@ -62,10 +62,9 @@
               <span class="dd-label">Rumble Browser</span>
               <button class="dd-action-btn muted" id="ddRumbleBtn">Rumble</button>
             </div>
-            <div class="dd-item" id="ddSettings">Settings</div>
-            <div class="dd-row-with-action">
-              <span class="dd-label">Connect</span>
-              <button class="dd-action-btn warn" id="ddGoOnlineBtn">Go Online</button>
+            <div class="dd-row-with-action dd-row-split">
+              <span class="dd-label dd-label-clickable" id="ddSettings">Settings</span>
+              <button class="dd-action-btn warn" id="ddGoOnlineBtn">Collaboration</button>
             </div>
             <div class="dd-sep"></div>
             <div class="dd-item" id="ddExit">Exit</div>
@@ -178,23 +177,35 @@
   </div>
 
   <div class="modal-overlay" id="shortcutsModal" hidden>
-    <div class="modal modal-lg shortcuts-modal">
-      <div class="modal-header">
-        <span>Keyboard Shortcuts</span>
-        <div class="shortcuts-toolbar">
-          <input type="text" id="shortcutsSearch" placeholder="Search shortcuts…" class="shortcuts-search">
-          <button class="btn btn-xs" id="shortcutsResetAll" title="Reset every shortcut to its default">Reset All</button>
-          <button class="modal-close" id="shortcutsClose">&times;</button>
+    <div class="modal shortcuts-modal-redesign">
+      <!-- Sidebar (categories) -->
+      <div class="shortcuts-sidebar" id="shortcutsSidebar">
+        <div class="shortcuts-sidebar-title">Shortcuts</div>
+        <!-- tabs injected by header-modals.js -->
+      </div>
+
+      <!-- Right pane: header + scrollable body + footer -->
+      <div class="shortcuts-pane">
+        <div class="shortcuts-pane-header">
+          <div>
+            <div class="shortcuts-pane-title" id="shortcutsPaneTitle">Seeking</div>
+            <div class="shortcuts-pane-subtitle" id="shortcutsPaneSubtitle">Time-jump bindings and step sizes</div>
+          </div>
+          <div class="shortcuts-toolbar">
+            <input type="text" id="shortcutsSearch" placeholder="Search shortcuts…" class="shortcuts-search">
+            <button class="modal-close" id="shortcutsClose">&times;</button>
+          </div>
         </div>
-      </div>
-      <div class="modal-body shortcuts-body" id="shortcutsBody">
-        <!-- Built dynamically from window.KeybindRegistry by header-modals.js -->
-      </div>
-      <div class="modal-footer shortcuts-footer">
-        <span class="shortcuts-status" id="shortcutsStatus"></span>
-        <div class="shortcuts-actions">
-          <button class="btn btn-xs" id="shortcutsCancel">Cancel</button>
-          <button class="btn btn-primary btn-xs" id="shortcutsSave">Save</button>
+        <div class="shortcuts-pane-body" id="shortcutsBody">
+          <!-- Built dynamically from window.KeybindRegistry by header-modals.js -->
+        </div>
+        <div class="shortcuts-pane-footer">
+          <button class="btn btn-xs btn-danger-grad" id="shortcutsResetAll" title="Reset every shortcut to its default">Set Defaults</button>
+          <span class="shortcuts-status" id="shortcutsStatus"></span>
+          <div class="shortcuts-actions">
+            <button class="btn btn-xs" id="shortcutsCancel">Cancel</button>
+            <button class="btn btn-primary btn-xs" id="shortcutsSave">Save</button>
+          </div>
         </div>
       </div>
     </div>

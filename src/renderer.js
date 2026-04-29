@@ -3036,35 +3036,40 @@ _wireDdRow('ddRumbleBtn', () => {
   else if (window.showBrowserView) window.showBrowserView();
 });
 
-// File > Settings
+// File > Settings (label half of the split row)
 const _ddSettings = $('ddSettings');
 if (_ddSettings) {
-  _ddSettings.addEventListener('click', () => {
+  _ddSettings.addEventListener('click', (e) => {
+    e.stopPropagation();
     dbg('ACTION', 'File > Settings');
     openConfigModal();
     closeAllMenus();
   });
 }
 
-// File > Connect > Go Online
-_wireDdRow('ddGoOnlineBtn', async () => {
-  dbg('ACTION', 'File > Connect > Go Online');
-  closeAllMenus();
-  if (!window.CollabUI || typeof window.CollabUI.connect !== 'function') {
-    if (window.toast) window.toast('Collab not initialized');
-    return;
-  }
-  let url = '';
-  try {
-    const cfg = (window.clipper && window.clipper.serverGetConfig) ? await window.clipper.serverGetConfig() : null;
-    url = (cfg && cfg.url) || '';
-  } catch (_) { url = ''; }
-  if (!url) {
-    if (window.toast) window.toast('Configure server URL in Settings, then Go Online');
-    return;
-  }
-  window.CollabUI.connect(url, { autoConnect: true });
-});
+// File > Collaboration (button half — direct listener so the label half is unaffected)
+const _ddCollab = $('ddGoOnlineBtn');
+if (_ddCollab) {
+  _ddCollab.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    dbg('ACTION', 'File > Collaboration');
+    closeAllMenus();
+    if (!window.CollabUI || typeof window.CollabUI.connect !== 'function') {
+      if (window.toast) window.toast('Collab not initialized');
+      return;
+    }
+    let url = '';
+    try {
+      const cfg = (window.clipper && window.clipper.serverGetConfig) ? await window.clipper.serverGetConfig() : null;
+      url = (cfg && cfg.url) || '';
+    } catch (_) { url = ''; }
+    if (!url) {
+      if (window.toast) window.toast('Configure server URL in Settings, then go online');
+      return;
+    }
+    window.CollabUI.connect(url, { autoConnect: true });
+  });
+}
 
 // File > Exit
 const _ddExit = $('ddExit');
