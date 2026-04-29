@@ -1196,23 +1196,53 @@ window._panels = {
   var api = window.clipper;
   if (!api || !api.onUpdateAvailable) return;
 
-  var popup      = document.getElementById('update-popup');
-  var popupMsg   = document.getElementById('update-popup-msg');
-  var applyBtn   = document.getElementById('update-popup-apply');
-  var dismissBtn = document.getElementById('update-popup-dismiss');
+  var banner     = document.getElementById('update-banner');
+  var iconEl     = document.getElementById('update-banner-icon');
+  var textEl     = document.getElementById('update-banner-text');
+  var applyBtn   = document.getElementById('update-banner-apply');
+  var restartBtn = document.getElementById('update-banner-restart');
+  var dismissBtn = document.getElementById('update-banner-dismiss');
   var menuSep    = document.getElementById('menu-file-update-sep');
   var menuItem   = document.getElementById('menu-file-update');
 
+  if (!banner) return;
+
   var pending = null;
   var downloading = false;
+  var autoHideTimer = null;
 
-  function say(msg) {
-    if (window._panels && typeof window._panels.toast === 'function') {
-      window._panels.toast(msg);
+  var ICONS = {
+    'checking':    '↻',
+    'up-to-date':  '✓',
+    'available':   '↑',
+    'downloading': '⬇',
+    'ready':       '✓',
+    'error':       '⚠'
+  };
+
+  function clearAutoHide() {
+    if (autoHideTimer) { clearTimeout(autoHideTimer); autoHideTimer = null; }
+  }
+  function setBanner(state, html, opts) {
+    clearAutoHide();
+    banner.dataset.state = state;
+    banner.hidden = false;
+    if (iconEl) iconEl.textContent = ICONS[state] || '';
+    if (textEl) textEl.innerHTML = html;
+    var showApply   = !!(opts && opts.showApply);
+    var showRestart = !!(opts && opts.showRestart);
+    var showDismiss = !!(opts && opts.showDismiss);
+    if (applyBtn)   applyBtn.hidden   = !showApply;
+    if (restartBtn) restartBtn.hidden = !showRestart;
+    if (dismissBtn) dismissBtn.hidden = !showDismiss;
+    if (opts && opts.autoHide) {
+      autoHideTimer = setTimeout(hideBanner, opts.autoHide);
     }
   }
-  function showPopup() { if (popup) popup.hidden = false; }
-  function hidePopup() { if (popup) popup.hidden = true; }
+  function hideBanner() {
+    clearAutoHide();
+    banner.hidden = true;
+  }
   function showMenuItem() {
     if (menuItem) menuItem.style.display = '';
     if (menuSep)  menuSep.style.display  = '';
@@ -1220,31 +1250,48 @@ window._panels = {
   function startDownload() {
     if (!pending || downloading) return;
     downloading = true;
-    say('Downloading update&hellip;');
+    setBanner('downloading', 'Downloading update… 0%', {});
     api.downloadUpdate();
   }
 
+  api.onUpdateChecking(function () {
+    setBanner('checking', 'Checking for updates…', { showDismiss: true });
+  });
   api.onUpdateAvailable(function (info) {
     pending = info;
-    if (popupMsg) popupMsg.textContent = 'ClippingHub v' + info.version + ' is available.';
-    showPopup();
+    setBanner(
+      'available',
+      '<strong>Update available:</strong> ClippingHub v' + (info.version || '') + ' is ready to install.',
+      { showApply: true, showDismiss: true }
+    );
+  });
+  api.onUpdateNone(function () {
+    setBanner('up-to-date', 'You’re on the latest version.', { showDismiss: true, autoHide: 4000 });
   });
   api.onUpdateProgress(function (p) {
-    say('Downloading update&hellip; ' + p.percent + '%');
+    setBanner('downloading', 'Downloading update… ' + p.percent + '%', {});
   });
   api.onUpdateDownloaded(function () {
-    say('Update ready \u2014 restarting\u2026');
-    setTimeout(function () { api.installUpdate(); }, 800);
+    downloading = false;
+    setBanner(
+      'ready',
+      '<strong>Update ready.</strong> Restart to apply.',
+      { showRestart: true, showDismiss: true }
+    );
   });
   api.onUpdateError(function (msg) {
     downloading = false;
-    say('Update failed: ' + msg);
+    setBanner('error', 'Update check failed: ' + (msg || 'unknown error'), { showDismiss: true, autoHide: 6000 });
   });
 
-  if (applyBtn)   applyBtn.addEventListener('click', function () { hidePopup(); startDownload(); });
-  if (dismissBtn) dismissBtn.addEventListener('click', function () { hidePopup(); showMenuItem(); });
+  if (applyBtn)   applyBtn.addEventListener('click', startDownload);
+  if (restartBtn) restartBtn.addEventListener('click', function () { api.installUpdate(); });
+  if (dismissBtn) dismissBtn.addEventListener('click', function () {
+    hideBanner();
+    if (pending && !downloading) showMenuItem();
+  });
 
   window._update = {
-    applyFromMenu: function () { hidePopup(); startDownload(); }
+    applyFromMenu: function () { startDownload(); }
   };
 })();

@@ -37,13 +37,16 @@
 
 <div class="app">
 
-  <!-- ── Update popup (top-left, hidden unless update available) ── -->
-  <div id="update-popup" class="update-popup" hidden>
-    <div class="update-popup-title">Update available</div>
-    <div class="update-popup-msg" id="update-popup-msg">A new version is ready.</div>
-    <div class="update-popup-actions">
-      <button class="btn btn-primary btn-xs" id="update-popup-apply">Update</button>
-      <button class="btn btn-xs" id="update-popup-dismiss">Dismiss</button>
+  <!-- ── Update banner (top of app, slides down when state changes) ── -->
+  <div id="update-banner" class="update-banner" hidden data-state="idle">
+    <div class="update-banner-inner">
+      <span class="update-banner-icon" id="update-banner-icon">⬆</span>
+      <span class="update-banner-text" id="update-banner-text">Checking for updates&hellip;</span>
+      <div class="update-banner-actions" id="update-banner-actions">
+        <button class="btn btn-primary btn-xs" id="update-banner-apply" hidden>Update Now</button>
+        <button class="btn btn-primary btn-xs" id="update-banner-restart" hidden>Restart to Apply</button>
+        <button class="btn btn-ghost btn-xs" id="update-banner-dismiss" hidden>Dismiss</button>
+      </div>
     </div>
   </div>
 

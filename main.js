@@ -1958,10 +1958,11 @@ function setupAutoUpdater() {
     }
   };
 
+  autoUpdater.on('checking-for-update', () => send('update:checking'));
   autoUpdater.on('update-available', (info) => {
     send('update:available', { version: info.version });
   });
-  autoUpdater.on('update-not-available', () => send('update:none'));
+  autoUpdater.on('update-not-available', (info) => send('update:none', { version: info && info.version }));
   autoUpdater.on('error', (err) => send('update:error', String(err && err.message || err)));
   autoUpdater.on('download-progress', (p) =>
     send('update:progress', { percent: Math.round(p.percent || 0) })

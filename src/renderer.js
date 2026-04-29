@@ -3129,16 +3129,14 @@ _wireDdRow('ddExportConfig', () => {
   closeAllMenus();
 });
 
-// Help > Check for update
+// Help > Check for update — banner provides all visual feedback (checking → result)
 const _ddCheckUpdate = $('ddCheckUpdate');
 if (_ddCheckUpdate) {
   _ddCheckUpdate.addEventListener('click', () => {
     dbg('ACTION', 'Help > Check for update');
     closeAllMenus();
     if (window.clipper && window.clipper.checkForUpdate) {
-      window.clipper.checkForUpdate().then((r) => {
-        if (window.toast) window.toast(r && r.updateInfo ? 'Update check started' : 'You are up to date');
-      }).catch(() => { if (window.toast) window.toast('Update check failed'); });
+      window.clipper.checkForUpdate().catch(() => {});
     }
   });
 }
