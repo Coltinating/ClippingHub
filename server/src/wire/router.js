@@ -69,8 +69,13 @@ export function makeRouter({ store, presence, handlers, logger }) {
     const code = presence.detach(ws);
     if (code && who) {
       logger?.info?.({ evt: 'ws:close', code, userId: who.userId });
-      try { store.leaveLobby(code, who.userId); } catch {}
+      let affectedHelpers = [];
+      try {
+        const result = store.leaveLobby(code, who.userId);
+        affectedHelpers = result.affectedHelpers || [];
+      } catch {}
       broadcast(code, { type: 'member:left', memberId: who.userId });
+      for (const m of affectedHelpers) broadcast(code, { type: 'member:updated', member: m });
     }
   }
   return { onMessage, onClose, send, broadcast };
