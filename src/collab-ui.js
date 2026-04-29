@@ -140,6 +140,25 @@ function myAssistUserId() {
   return (myMember() && myMember().assistUserId) || null;
 }
 
+function groupMembers(members) {
+  var clipperById = new Map();
+  var orphanHelpers = [];
+  var viewers = [];
+  for (var i = 0; i < members.length; i++) {
+    var m = members[i];
+    if (m.role === 'clipper') clipperById.set(m.id, Object.assign({}, m, { helpers: [] }));
+    else if (m.role === 'viewer') viewers.push(m);
+  }
+  for (var i = 0; i < members.length; i++) {
+    var m = members[i];
+    if (m.role !== 'helper') continue;
+    var target = clipperById.get(m.assistUserId);
+    if (target) target.helpers.push(m);
+    else orphanHelpers.push(m);
+  }
+  return { clippers: Array.from(clipperById.values()), orphanHelpers: orphanHelpers, viewers: viewers };
+}
+
 function getMarkContext() {
   var meName = normalizeName(state.me.name || 'You') || 'You';
   var meId = state.me.id;
@@ -680,20 +699,60 @@ function renderMembers(listEl) {
     listEl.innerHTML = '<div class="collab-empty">No editors yet</div>';
     return;
   }
-  listEl.innerHTML = state.members.map(function (m) {
-    var color = (m.color) || getUserColor(m.id, m.name);
-    var avatarStyle = m.pfpDataUrl ? "background-image:url('" + m.pfpDataUrl + "');" : '';
-    var handle = m.xHandle ? '<div class="collab-member-handle">@' + esc(m.xHandle) + '</div>' : '';
-    return '<div class="collab-member-row" data-user-id="' + esc(m.id) + '">' +
+  var g = groupMembers(state.members);
+  var meId = state.me.id;
+  var html = [];
+
+  function memberRow(m, indent, isMe) {
+    var color = m.color || getUserColor(m.id, m.name);
+    var avatarStyle = m.pfpDataUrl ? "background-image:url('" + m.pfpDataUrl + "');" : 'background:' + color + ';';
+    var roleClass = esc(m.role || 'viewer');
+    var nameCls = 'collab-member-name' + (isMe ? ' is-me' : '');
+    var indentClass = indent ? ' collab-member-row--indented' : '';
+    var connectorHtml = indent ? '<span class="collab-member-connector">└─</span>' : '';
+    var helperIcon = m.role === 'helper' ? '<span class="collab-role-icon">🤝</span>' : (m.role === 'clipper' ? '<span class="collab-role-icon">🎬</span>' : '<span class="collab-role-icon">👁</span>');
+    return '<div class="collab-member-row' + indentClass + '" data-user-id="' + esc(m.id) + '">' +
+      connectorHtml +
+      helperIcon +
       '<div class="collab-member-avatar" style="' + avatarStyle + '"></div>' +
       '<div class="collab-member-meta">' +
-        '<div class="collab-member-name" style="color:' + color + '">' + escName(m.name) +
-          '<span class="collab-member-role-badge ' + esc(m.role || 'viewer') + '">' + esc(m.role || 'viewer') + '</span>' +
+        '<div class="' + nameCls + '" style="color:' + color + '">' + escName(m.name) +
+          (isMe ? ' <span class="collab-you-tag">you</span>' : '') +
+          '<span class="collab-role-badge ' + roleClass + '">' + esc(m.role || 'viewer') + '</span>' +
         '</div>' +
-        handle +
+        (m.xHandle ? '<div class="collab-member-handle">@' + esc(m.xHandle) + '</div>' : '') +
       '</div>' +
     '</div>';
-  }).join('');
+  }
+
+  // Clippers + their helpers
+  for (var ci = 0; ci < g.clippers.length; ci++) {
+    var c = g.clippers[ci];
+    html.push(memberRow(c, false, c.id === meId));
+    for (var hi = 0; hi < c.helpers.length; hi++) {
+      var h = c.helpers[hi];
+      html.push(memberRow(h, true, h.id === meId));
+    }
+  }
+
+  // Orphan helpers (defensive render)
+  for (var oi = 0; oi < g.orphanHelpers.length; oi++) {
+    var oh = g.orphanHelpers[oi];
+    html.push(memberRow(oh, false, oh.id === meId));
+  }
+
+  // Viewers section
+  if (g.viewers.length) {
+    if (g.clippers.length || g.orphanHelpers.length) {
+      html.push('<div class="collab-section-divider"></div>');
+    }
+    for (var vi = 0; vi < g.viewers.length; vi++) {
+      html.push(memberRow(g.viewers[vi], false, g.viewers[vi].id === meId));
+    }
+  }
+
+  listEl.innerHTML = html.join('');
+
   if (!listEl._profileClickBound) {
     listEl.addEventListener('click', function (e) {
       var row = e.target.closest('[data-user-id]');
@@ -705,27 +764,71 @@ function renderMembers(listEl) {
 }
 
 function openProfilePopover(userId, anchorEl) {
-  var m = null;
-  for (var i = 0; i < state.members.length; i++) {
-    if (state.members[i].id === userId) { m = state.members[i]; break; }
-  }
+  var m = findMemberById(userId);
   if (!m) return;
   var existing = document.querySelector('.profile-popover');
   if (existing) existing.remove();
 
+  var isSelf = userId === state.me.id;
+  var iAmClipper = myRole() === 'clipper';
+  var iAmHelper = myRole() === 'helper';
+  var iAmAssistingThis = myAssistUserId() === userId;
+  var color = m.color || getUserColor(m.id, m.name);
+
   var pop = document.createElement('div');
   pop.className = 'profile-popover';
-  var color = (m.color) || getUserColor(m.id, m.name);
+
   var avatarHtml = m.pfpDataUrl
     ? "<div class=\"profile-popover-avatar\" style=\"background-image:url('" + m.pfpDataUrl + "');\"></div>"
-    : '<div class="profile-popover-avatar"></div>';
+    : '<div class="profile-popover-avatar" style="background:' + color + ';"></div>';
   var xHtml = m.xHandle
     ? '<a href="#" class="profile-popover-x" data-handle="' + esc(m.xHandle) + '">@' + esc(m.xHandle) + '</a>'
     : '<span class="profile-popover-x-empty">No X handle</span>';
+
   pop.innerHTML = avatarHtml +
     '<div class="profile-popover-name" style="color:' + color + '">' + esc(m.name || 'Editor') + '</div>' +
     '<div class="profile-popover-role">' + esc(m.role || '') + '</div>' +
     xHtml;
+
+  var actions = document.createElement('div');
+  actions.className = 'profile-popover-actions';
+
+  function addAction(label, btnClass, fn) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn ' + btnClass;
+    btn.textContent = label;
+    btn.addEventListener('click', function () { fn(); pop.remove(); });
+    actions.appendChild(btn);
+  }
+
+  if (isSelf) {
+    if (iAmHelper) {
+      addAction('Stop Assisting', 'btn-ghost', stopAssisting);
+    } else if (iAmClipper) {
+      addAction('Become Viewer', 'btn-ghost', becomeViewer);
+    } else {
+      addAction('Become Clipper', 'btn-primary', becomeClipper);
+    }
+  } else if (m.role === 'clipper') {
+    if (iAmAssistingThis) {
+      addAction('Stop Assisting', 'btn-ghost', stopAssisting);
+    } else {
+      addAction('Assist ' + esc(m.name || 'Clipper'), 'btn-primary', function () { assistClipper(userId); });
+    }
+    if (iAmClipper) {
+      addAction('Demote to Viewer', 'btn-ghost btn-xs', function () { setMemberRole(userId, 'viewer'); });
+    }
+  } else if (!isSelf && iAmClipper) {
+    if (m.role !== 'clipper') {
+      addAction('Promote to Clipper', 'btn-ghost btn-xs', function () { setMemberRole(userId, 'clipper'); });
+    }
+    if (m.role !== 'viewer') {
+      addAction('Demote to Viewer', 'btn-ghost btn-xs', function () { setMemberRole(userId, 'viewer'); });
+    }
+  }
+
+  if (actions.children.length) pop.appendChild(actions);
   document.body.appendChild(pop);
 
   var rect = anchorEl.getBoundingClientRect();
@@ -742,35 +845,9 @@ function openProfilePopover(userId, anchorEl) {
     });
   }
 
-  var iAmClipper = (state.me.role === 'clipper') && m.id !== state.me.id;
-  if (iAmClipper) {
-    var actions = document.createElement('div');
-    actions.className = 'profile-popover-role-actions';
-    var currentRole = m.role || 'viewer';
-    [['helper', 'Assign as my Helper'],
-     ['clipper', 'Promote to Clipper'],
-     ['viewer', 'Demote to Viewer']].forEach(function (pair) {
-      var role = pair[0], label = pair[1];
-      if (currentRole === role) return;
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'btn btn-ghost btn-xs';
-      btn.textContent = label;
-      btn.addEventListener('click', function () {
-        setMemberRole(m.id, role, role === 'helper' ? { assistUserId: state.me.id } : {});
-        pop.remove();
-      });
-      actions.appendChild(btn);
-    });
-    pop.appendChild(actions);
-  }
-
   setTimeout(function () {
     function onDoc(e) {
-      if (!pop.contains(e.target)) {
-        pop.remove();
-        document.removeEventListener('click', onDoc);
-      }
+      if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener('click', onDoc); }
     }
     document.addEventListener('click', onDoc);
   }, 0);
@@ -799,8 +876,6 @@ function renderStatus() {
 
 function renderSession() {
   var members = document.getElementById('collabMembersList');
-  var assistInput = document.getElementById('collabAssistSelect');
-  syncAssistTarget();
   renderStatus();
 
   if (state.lobby) {
@@ -810,28 +885,6 @@ function renderSession() {
     if (nameEl) nameEl.textContent = state.lobby.name || 'Lobby';
     if (codeEl) codeEl.textContent = state.lobby.code || '------';
     if (countEl) countEl.textContent = String(state.members.length || 0);
-
-    document.querySelectorAll('.lobby-role-opt').forEach(function (btn) {
-      btn.classList.toggle('active', btn.dataset.role === state.assignment.role);
-    });
-
-    var assistWrap = document.getElementById('lobbyAssistWrap');
-    if (assistWrap) assistWrap.hidden = state.assignment.role !== 'helper';
-
-    if (assistInput) {
-      var html = ['<option value="">Select Clipper</option>'];
-      for (var i = 0; i < state.members.length; i++) {
-        var member = state.members[i];
-        if (!member || member.id === state.me.id) continue;
-        var selected = member.id === state.assignment.assistUserId ? ' selected' : '';
-        html.push('<option value="' + esc(member.id) + '"' + selected + '>' + esc(member.name) + '</option>');
-      }
-      assistInput.innerHTML = html.join('');
-      assistInput.disabled = state.assignment.role !== 'helper';
-    }
-
-    var transcribeTab = document.getElementById('collabTabTranscribe');
-    if (transcribeTab) transcribeTab.hidden = state.me.role !== 'clipper';
   }
 
   renderMembers(members);
@@ -1005,7 +1058,6 @@ function bindUi() {
   var leaveBtn = document.getElementById('collabLeaveBtn');
   var sendBtn = document.getElementById('collabChatSend');
   var chatInput = document.getElementById('collabChatInput');
-  var assistInput = document.getElementById('collabAssistSelect');
   var activityList = document.getElementById('collabActivityList');
   var connectBtn = document.getElementById('collabConnectBtn');
   var disconnectBtn = document.getElementById('collabDisconnectBtn');
@@ -1044,16 +1096,6 @@ function bindUi() {
       setStatus('Code copied');
     }
   });
-
-  document.querySelectorAll('.lobby-role-opt').forEach(function (btn) {
-    btn.addEventListener('click', function () { setRole(btn.dataset.role); });
-  });
-
-  if (assistInput) {
-    assistInput.addEventListener('change', function () {
-      setAssistUserId(assistInput.value || '');
-    });
-  }
 
   function ensureProfileName() {
     var clean = normalizeName(state.me.name);
