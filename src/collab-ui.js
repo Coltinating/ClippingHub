@@ -471,6 +471,41 @@ async function createLobby(name, password, code) {
   }
 }
 
+function showNameTakenModal(opts) {
+  return new Promise(function (resolve) {
+    var modal = document.getElementById('nameTakenModal');
+    if (!modal) return resolve(null);
+    var attemptedEl = document.getElementById('nameTakenAttempt');
+    var suggestionEl = document.getElementById('nameTakenSuggestion');
+    var input = document.getElementById('nameTakenCustomInput');
+    var acceptSuggestion = document.getElementById('nameTakenAcceptSuggestion');
+    var acceptCustom = document.getElementById('nameTakenAcceptCustom');
+    var cancelBtn = document.getElementById('nameTakenCancel');
+    if (attemptedEl) attemptedEl.textContent = opts.attempted || '';
+    if (suggestionEl) suggestionEl.textContent = opts.suggestion || '';
+    if (input) input.value = '';
+    modal.hidden = false;
+    function done(name) {
+      modal.hidden = true;
+      acceptSuggestion.removeEventListener('click', onSuggestion);
+      acceptCustom.removeEventListener('click', onCustom);
+      cancelBtn.removeEventListener('click', onCancel);
+      resolve(name);
+    }
+    function onSuggestion() { done(opts.suggestion); }
+    function onCustom() {
+      var v = (input && input.value || '').trim();
+      if (!v) return;
+      done(v);
+    }
+    function onCancel() { done(null); }
+    acceptSuggestion.addEventListener('click', onSuggestion);
+    acceptCustom.addEventListener('click', onCustom);
+    cancelBtn.addEventListener('click', onCancel);
+    if (input) try { input.focus(); } catch (_) {}
+  });
+}
+
 async function joinLobby(code, password) {
   dlog('ACTION', 'joinLobby', { code: code, hasPass: !!password });
   if (!client || !client.connected) { setStatus('Not connected'); return null; }
@@ -481,6 +516,20 @@ async function joinLobby(code, password) {
     setStatus('Joined Lobby - code ' + (lobby ? lobby.code : ''));
     return lobby;
   } catch (e) {
+    if (e && e.code === 'name_taken') {
+      var newName = await showNameTakenModal({
+        attempted: state.me.name,
+        suggestion: e.suggestion
+      });
+      if (!newName) {
+        setStatus('Join cancelled');
+        return null;
+      }
+      updateLocalProfile({ name: newName });
+      // Wait one tick for profile:update-ack to round-trip so presence is fresh on retry.
+      await new Promise(function (r) { setTimeout(r, 50); });
+      return joinLobby(code, password);
+    }
     dlog('ERROR', 'joinLobby failed', { message: e && e.message });
     setStatus(e && e.message ? e.message : 'Join failed');
     return null;

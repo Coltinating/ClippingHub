@@ -2897,3 +2897,20 @@ body.basic-panels .area-header { cursor: default; }
   display: flex; flex-direction: column; gap: 4px; margin-top: 8px;
   border-top: 1px solid var(--border, rgba(255,255,255,.08)); padding-top: 8px;
 }
+
+/* ── Name-taken modal (Phase E) ─────────────────────────── */
+.name-taken-msg { margin: 0 0 10px; }
+.name-taken-msg strong { color: var(--accent, #7b61ff); }
+.name-taken-options { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.name-taken-divider {
+  text-align: center; font-size: 11px;
+  color: var(--text-muted, #777); margin: 4px 0;
+}
+#nameTakenCustomInput {
+  background: rgba(255,255,255,0.06);
+  color: var(--text, #e8e8ea);
+  border: 1px solid var(--border, #2a2a30);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 13px;
+}

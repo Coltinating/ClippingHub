@@ -41,6 +41,21 @@ export function lobbyCreate({ ws, msg, send, presence, store, logger }) {
 export function lobbyJoin({ ws, msg, send, broadcast, presence, store, logger }) {
   const who = presence.who(ws);
   if (!who) return send(ws, { type: 'error', code: 'no_session', message: 'hello first' });
+
+  // Phase E: case-insensitive name collision check before write.
+  // Skip for admins (admin-prefixed names already include role tag).
+  if (!who.isAdmin) {
+    const suggestion = store.suggestUniqueName(msg.code, who.userName, who.userId);
+    if (suggestion !== who.userName) {
+      return send(ws, {
+        type: 'error',
+        code: 'name_taken',
+        message: 'Name already in use in this lobby',
+        suggestion: suggestion
+      });
+    }
+  }
+
   const lobby = store.joinLobby({
     code: msg.code,
     password: msg.password,

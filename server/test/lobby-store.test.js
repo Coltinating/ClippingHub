@@ -138,6 +138,35 @@ describe('setMemberRole returns affectedHelpers', () => {
   });
 });
 
+describe('suggestUniqueName', () => {
+  test('returns the input when no collision', () => {
+    const store = new LobbyStore(buildTestDb());
+    store.createLobby({ name: 'L', user: { id: 'u1', name: 'Alice' }, code: 'AAAAAA' });
+    expect(store.suggestUniqueName('AAAAAA', 'Bob', 'u2')).toBe('Bob');
+  });
+
+  test('returns name_2 on first collision (case-insensitive)', () => {
+    const store = new LobbyStore(buildTestDb());
+    store.createLobby({ name: 'L', user: { id: 'u1', name: 'Alice' }, code: 'AAAAAA' });
+    expect(store.suggestUniqueName('AAAAAA', 'alice', 'u2')).toBe('alice_2');
+    expect(store.suggestUniqueName('AAAAAA', 'ALICE', 'u2')).toBe('ALICE_2');
+  });
+
+  test('increments past existing _2/_3 (skips taken suffixes)', () => {
+    const store = new LobbyStore(buildTestDb());
+    store.createLobby({ name: 'L', user: { id: 'u1', name: 'Alice' }, code: 'AAAAAA' });
+    store.joinLobby({ code: 'AAAAAA', user: { id: 'u2', name: 'Alice_2' } });
+    store.joinLobby({ code: 'AAAAAA', user: { id: 'u3', name: 'Alice_3' } });
+    expect(store.suggestUniqueName('AAAAAA', 'Alice', 'u4')).toBe('Alice_4');
+  });
+
+  test('excludes the user themselves (rejoin keeps own name)', () => {
+    const store = new LobbyStore(buildTestDb());
+    store.createLobby({ name: 'L', user: { id: 'u1', name: 'Alice' }, code: 'AAAAAA' });
+    expect(store.suggestUniqueName('AAAAAA', 'Alice', 'u1')).toBe('Alice');
+  });
+});
+
 describe('updateMemberProfile', () => {
   test('patches name + xHandle + color + pfpDataUrl, leaves role/assist intact', () => {
     const store = new LobbyStore(buildTestDb());

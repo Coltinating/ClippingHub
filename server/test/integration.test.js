@@ -148,6 +148,35 @@ describe('integration', () => {
     });
   });
 
+  describe('lobby:join name collision', () => {
+    it('returns error code:name_taken with suggestion on case-insensitive collision', async () => {
+      const a = await setupMember(`ws://127.0.0.1:${h.port}/ws`, 'u-coll-1', 'Alice');
+      await a.send({ type: 'lobby:create', name: 'L', password: '' });
+      const aState = await a.recv();
+      const code = aState.lobby.code;
+      const b = await setupMember(`ws://127.0.0.1:${h.port}/ws`, 'u-coll-2', 'ALICE');
+      await b.send({ type: 'lobby:join', code, password: '' });
+      const err = await b.recv();
+      expect(err.type).toBe('error');
+      expect(err.code).toBe('name_taken');
+      expect(err.suggestion).toBe('ALICE_2');
+      a.ws.close(); b.ws.close();
+    });
+
+    it('unique name does not trigger name_taken', async () => {
+      const a = await setupMember(`ws://127.0.0.1:${h.port}/ws`, 'u-uniq-1', 'Alice');
+      await a.send({ type: 'lobby:create', name: 'L', password: '' });
+      const aState = await a.recv();
+      const code = aState.lobby.code;
+      const b = await setupMember(`ws://127.0.0.1:${h.port}/ws`, 'u-uniq-2', 'Bob');
+      await b.send({ type: 'lobby:join', code, password: '' });
+      const state = await b.recv();
+      expect(state.type).toBe('lobby:state');
+      expect(state.lobby.members.length).toBe(2);
+      a.ws.close(); b.ws.close();
+    });
+  });
+
   describe('profile:update', () => {
     it('propagates to lobby members and broadcasts member:updated', async () => {
       const { host, guest } = await twoMemberLobby(h);

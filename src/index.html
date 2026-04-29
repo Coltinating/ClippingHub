@@ -211,6 +211,22 @@
     </div>
   </div>
 
+  <!-- ── Name-taken modal (lobby:join collision recovery) ─── -->
+  <div class="modal-overlay" id="nameTakenModal" hidden>
+    <div class="modal modal-sm">
+      <div class="modal-header">Name already in use<button class="modal-close" id="nameTakenCancel">&times;</button></div>
+      <div class="modal-body">
+        <p class="name-taken-msg">Someone in this lobby is already using <strong id="nameTakenAttempt"></strong>.</p>
+        <div class="name-taken-options">
+          <button class="btn btn-primary" id="nameTakenAcceptSuggestion">Use <strong id="nameTakenSuggestion"></strong></button>
+          <div class="name-taken-divider">or pick a different name</div>
+          <input type="text" id="nameTakenCustomInput" maxlength="64" placeholder="Enter a new name" />
+          <button class="btn" id="nameTakenAcceptCustom">Use this name</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Extraction Progress ─────────────────────────────── -->
   <div class="extract-bar" id="extractBar">
     <div class="spinner-sm"></div>

@@ -134,6 +134,21 @@ export class LobbyStore {
     return { updatedMember, affectedHelpers };
   }
 
+  suggestUniqueName(code, baseName, excludeUserId) {
+    const c = sanitizeCode(code);
+    const base = (baseName || '').toString();
+    const baseLower = base.toLowerCase();
+    const taken = new Set();
+    for (const r of this.q.members.all(c)) {
+      if (r.id === excludeUserId) continue;
+      taken.add((r.name || '').toLowerCase());
+    }
+    if (!taken.has(baseLower)) return base;
+    let n = 2;
+    while (n < 1000 && taken.has(`${baseLower}_${n}`)) n++;
+    return `${base}_${n}`;
+  }
+
   updateMemberProfile(code, memberId, fields) {
     const c = sanitizeCode(code);
     const existing = this.getMember(c, memberId);
