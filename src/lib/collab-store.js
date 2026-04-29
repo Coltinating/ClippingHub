@@ -11,6 +11,14 @@ function CollabStore() {
   this.subs = new Set();
 }
 
+function normalizeMember(m) {
+  if (!m) return m;
+  if (typeof RolePermissions !== 'undefined' && RolePermissions.normalizeRole) {
+    m.role = RolePermissions.normalizeRole(m.role);
+  }
+  return m;
+}
+
 CollabStore.prototype.subscribe = function (fn) {
   var self = this;
   this.subs.add(fn);
@@ -25,13 +33,16 @@ CollabStore.prototype.apply = function (msg) {
   switch (msg.type) {
     case 'lobby:state':
       this.state = msg.lobby;
+      if (this.state && Array.isArray(this.state.members)) {
+        this.state.members = this.state.members.map(normalizeMember);
+      }
       break;
     case 'lobby:closed':
       this.state = null;
       break;
     case 'member:joined':
       if (this.state && !this.state.members.find(function (m) { return m.id === msg.member.id; })) {
-        this.state.members.push(msg.member);
+        this.state.members.push(normalizeMember(msg.member));
       }
       break;
     case 'member:left':
@@ -42,7 +53,7 @@ CollabStore.prototype.apply = function (msg) {
     case 'member:updated':
       if (this.state) {
         var i = this.state.members.findIndex(function (m) { return m.id === msg.member.id; });
-        if (i >= 0) this.state.members[i] = msg.member;
+        if (i >= 0) this.state.members[i] = normalizeMember(msg.member);
       }
       break;
     case 'chat:message':

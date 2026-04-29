@@ -214,6 +214,7 @@ const USER_CONFIG_PATH = path.join(CONFIG_DIR, 'user_config.json');
 const WATERMARK_CONFIG_PATH = path.join(CONFIG_DIR, 'watermark_config.json');
 const CHANNEL_CONFIG_PATH = path.join(CONFIG_DIR, 'channel_config.json');
 const SERVER_CONFIG_PATH = path.join(CONFIG_DIR, 'server_config.json');
+const PROFILE_CONFIG_PATH = path.join(CONFIG_DIR, 'profile_config.json');
 const PANEL_LAYOUTS_DIR = path.join(CONFIG_DIR, 'panel_layouts');
 const PANEL_LAYOUT_STATE_PATH = path.join(CONFIG_DIR, 'panel_layout_state.json');
 const PANEL_CURRENT_LAYOUT_PATH = path.join(CONFIG_DIR, 'panel_current_layout.json');
@@ -236,6 +237,27 @@ function saveServerConfig(cfg) {
   ensureConfigDir();
   fs.writeFileSync(SERVER_CONFIG_PATH, JSON.stringify(cfg || {}, null, 2));
   return cfg;
+}
+
+function loadProfileConfig() {
+  try {
+    if (!fs.existsSync(PROFILE_CONFIG_PATH)) return {};
+    const raw = fs.readFileSync(PROFILE_CONFIG_PATH, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveProfileConfig(cfg) {
+  try {
+    ensureConfigDir();
+    fs.writeFileSync(PROFILE_CONFIG_PATH, JSON.stringify(cfg || {}, null, 2));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function loadBundledDefaultLayouts() {
@@ -1176,6 +1198,19 @@ ipcMain.handle('delete-channel-config', () => {
 // IPC: server connection config (renderer holds the WS, just persists URL here)
 ipcMain.handle('server-get-config', () => loadServerConfig());
 ipcMain.handle('server-set-config', (_e, cfg) => { saveServerConfig(cfg); return { success: true }; });
+
+// IPC: profile config (persisted to disk so it survives full app restarts; localStorage was random-port-keyed)
+ipcMain.handle('profile-get-config', () => loadProfileConfig());
+ipcMain.handle('profile-set-config', (_e, cfg) => {
+  const clean = {
+    name: typeof cfg?.name === 'string' ? cfg.name.slice(0, 64) : '',
+    xHandle: typeof cfg?.xHandle === 'string' ? cfg.xHandle.slice(0, 32) : '',
+    color: typeof cfg?.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(cfg.color) ? cfg.color : '',
+    pfpDataUrl: typeof cfg?.pfpDataUrl === 'string' && cfg.pfpDataUrl.length < 300000 ? cfg.pfpDataUrl : '',
+    lastCode: typeof cfg?.lastCode === 'string' ? cfg.lastCode.slice(0, 8) : ''
+  };
+  return saveProfileConfig(clean);
+});
 
 // ── IPC: choose outro file ──────────────────────────────────────
 ipcMain.handle('choose-outro-file', async () => {

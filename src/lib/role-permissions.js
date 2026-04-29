@@ -29,13 +29,28 @@ function canAssignRole(actor, target, newRole) {
   return isClipperRole(actor.role);
 }
 
+function canMarkClips(role) {
+  var r = normalizeRole(role);
+  return r === 'clipper' || r === 'helper';
+}
+function canSendDelivery(role) { return normalizeRole(role) === 'helper'; }
+function canConsumeDeliveries(role) { return normalizeRole(role) === 'clipper'; }
+function canAssistClipper(role) {
+  var r = normalizeRole(role);
+  return r === 'viewer' || r === 'helper';
+}
+
 return {
   normalizeRole: normalizeRole,
   getDefaultJoinRole: getDefaultJoinRole,
   isClipperRole: isClipperRole,
   isHelperRole: isHelperRole,
   isViewerRole: isViewerRole,
-  canAssignRole: canAssignRole
+  canAssignRole: canAssignRole,
+  canMarkClips: canMarkClips,
+  canSendDelivery: canSendDelivery,
+  canConsumeDeliveries: canConsumeDeliveries,
+  canAssistClipper: canAssistClipper
 };
 
 });

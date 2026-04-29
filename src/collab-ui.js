@@ -61,7 +61,10 @@ function hashString(v) {
   return Math.abs(h);
 }
 
-function loadPrefs() {
+function loadPrefsLegacy() {
+  // localStorage is keyed by origin; the loopback proxy uses an ephemeral port,
+  // so prefs survive Ctrl+R but NOT a full app restart. Kept as a one-shot
+  // migration source until the disk-config IPC hydrates.
   try {
     var raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return {};
@@ -71,7 +74,7 @@ function loadPrefs() {
   }
 }
 
-var prefs = loadPrefs();
+var prefs = loadPrefsLegacy();
 var state = {
   me: {
     id: makeId('u'),
@@ -87,15 +90,67 @@ var state = {
   lastCode: safeCode(prefs.lastCode || '')
 };
 
+var _saveTimer = null;
+var _saveDirty = false;
+
 function savePrefs() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      meName: state.me.name,
-      meXHandle: state.me.xHandle || '',
-      meColor: state.me.color || '',
-      mePfpDataUrl: state.me.pfpDataUrl || '',
+  // Debounced disk write via IPC. Pulled out of render hot path; only called
+  // from updateLocalProfile and lobby create/leave paths.
+  _saveDirty = true;
+  if (_saveTimer) return;
+  _saveTimer = setTimeout(function () {
+    _saveTimer = null;
+    if (!_saveDirty) return;
+    _saveDirty = false;
+    var payload = {
+      name: state.me.name,
+      xHandle: state.me.xHandle || '',
+      color: state.me.color || '',
+      pfpDataUrl: state.me.pfpDataUrl || '',
       lastCode: state.lobby ? state.lobby.code : state.lastCode
-    }));
+    };
+    if (window.clipper && window.clipper.profileSetConfig) {
+      try { window.clipper.profileSetConfig(payload); } catch (_) {}
+    }
+    // Mirror to localStorage as defense in depth for browser/dev contexts.
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        meName: payload.name,
+        meXHandle: payload.xHandle,
+        meColor: payload.color,
+        mePfpDataUrl: payload.pfpDataUrl,
+        lastCode: payload.lastCode
+      }));
+    } catch (_) {}
+  }, 250);
+}
+
+// Async hydrate from disk config. Disk wins over localStorage (it's
+// authoritative across launches, since localStorage is keyed by ephemeral port).
+if (window.clipper && window.clipper.profileGetConfig) {
+  try {
+    window.clipper.profileGetConfig().then(function (cfg) {
+      if (!cfg || typeof cfg !== 'object') return;
+      var changed = false;
+      if (cfg.name && cfg.name !== state.me.name) {
+        state.me.name = normalizeName(cfg.name); changed = true;
+      }
+      if (cfg.xHandle && cfg.xHandle !== state.me.xHandle && window.Profile) {
+        state.me.xHandle = window.Profile.sanitizeXHandle(cfg.xHandle); changed = true;
+      }
+      if (cfg.color && cfg.color !== state.me.color && window.Profile) {
+        state.me.color = window.Profile.resolveUserColor({ color: cfg.color }, ''); changed = true;
+      }
+      if (cfg.pfpDataUrl && cfg.pfpDataUrl !== state.me.pfpDataUrl && window.Profile) {
+        if (window.Profile.validatePfpDataUrl(cfg.pfpDataUrl, 256000)) {
+          state.me.pfpDataUrl = cfg.pfpDataUrl; changed = true;
+        }
+      }
+      if (cfg.lastCode && safeCode(cfg.lastCode) !== state.lastCode) {
+        state.lastCode = safeCode(cfg.lastCode); changed = true;
+      }
+      if (changed && typeof emit === 'function') emit();
+    }).catch(function () {});
   } catch (_) {}
 }
 
@@ -134,6 +189,20 @@ function myMember() {
 
 function myRole() {
   return (myMember() && myMember().role) || 'viewer';
+}
+
+function canMarkClipsLocal() {
+  // Outside a lobby, default to clipper (solo clipping is allowed).
+  if (!state.lobby) return true;
+  return !!(window.RolePermissions && window.RolePermissions.canMarkClips(myRole()));
+}
+function canSendDeliveryLocal() {
+  if (!state.lobby) return false;
+  return !!(window.RolePermissions && window.RolePermissions.canSendDelivery(myRole()));
+}
+function canConsumeDeliveriesLocal() {
+  if (!state.lobby) return false;
+  return !!(window.RolePermissions && window.RolePermissions.canConsumeDeliveries(myRole()));
 }
 
 function myAssistUserId() {
@@ -212,8 +281,9 @@ function getUserColor(userId, userName) {
   return NAME_COLORS[hashString(userName || userId || 'x') % NAME_COLORS.length];
 }
 
-function emit() {
-  // Log a thin summary so we can trace state changes without flooding.
+var _emitScheduled = false;
+function _emitNow() {
+  _emitScheduled = false;
   dlog('COLLAB:STATE', 'emit', {
     role: myRole(),
     assistUserId: myAssistUserId() || '',
@@ -222,8 +292,14 @@ function emit() {
     inboundDeliveries: _inboundDeliveries.length
   });
   renderAll();
-  savePrefs();
   for (var i = 0; i < listeners.length; i++) listeners[i](state);
+}
+function emit() {
+  // Coalesce multiple state changes in the same frame into one render.
+  if (_emitScheduled) return;
+  _emitScheduled = true;
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(_emitNow);
+  else setTimeout(_emitNow, 0);
 }
 
 function setStatus(msg) {
@@ -260,7 +336,9 @@ function applyLobbySnapshot(lobby) {
     state.members = [];
     state.chat = [];
     state.clipRanges = [];
+    bumpRangesVersion();
     setStage(client && client.connected ? 'no-lobby' : 'offline');
+    savePrefs();
     emit();
     return;
   }
@@ -275,7 +353,9 @@ function applyLobbySnapshot(lobby) {
   state.members = Array.isArray(lobby.members) ? lobby.members.slice() : [];
   state.chat = Array.isArray(lobby.chat) ? lobby.chat.slice() : [];
   state.clipRanges = Array.isArray(lobby.clipRanges) ? lobby.clipRanges.slice() : [];
+  bumpRangesVersion();
   setStage('in-lobby');
+  savePrefs();
   emit();
 }
 
@@ -367,6 +447,7 @@ function disconnect() {
   state.members = [];
   state.chat = [];
   state.clipRanges = [];
+  bumpRangesVersion();
   _inboundDeliveries.length = 0;
   _seenDeliveryIds.clear();
   setStage('offline');
@@ -483,6 +564,7 @@ function upsertClipRange(range) {
   } else {
     state.clipRanges.push(next);
   }
+  bumpRangesVersion();
   emit();
 
   if (state.lobby && client) client.upsertRange(next);
@@ -495,6 +577,7 @@ function removeClipRange(rangeId) {
   var before = state.clipRanges.length;
   state.clipRanges = state.clipRanges.filter(function (r) { return String(r.id || '') !== id; });
   if (before === state.clipRanges.length) return false;
+  bumpRangesVersion();
   emit();
   if (state.lobby && client) client.removeRange(id);
   return true;
@@ -607,37 +690,36 @@ function stopAssisting() {
   client.setAssist(null);
 }
 
-function becomeViewer() {
-  if (!state.lobby || !client) return;
-  dlog('ACTION', 'becomeViewer');
-  client.setRole(state.me.id, 'viewer');
-}
-
-function becomeClipper() {
-  if (!state.lobby || !client) return;
-  dlog('ACTION', 'becomeClipper');
-  client.setRole(state.me.id, 'clipper');
-}
+var _rangesVersion = 0;
+var _indicatorCache = { v: -1, t: -1, result: null };
+function bumpRangesVersion() { _rangesVersion++; }
 
 function getIndicatorAtTime(timeSec) {
-  if (utils && utils.buildIndicatorAtTime) {
-    return utils.buildIndicatorAtTime(state.clipRanges, timeSec);
-  }
   if (!isFinite(timeSec)) return null;
-  var names = [];
-  for (var i = 0; i < state.clipRanges.length; i++) {
-    var r = state.clipRanges[i];
-    if (!r) continue;
-    if (timeSec < r.inTime || timeSec > r.outTime) continue;
-    var label = (r.clipperName || r.userName || 'Editor');
-    if (r.helperName) label += ' (' + r.helperName + ')';
-    if (names.indexOf(label) === -1) names.push(label);
+  var t = Math.round(timeSec * 10) / 10;
+  if (_indicatorCache.v === _rangesVersion && _indicatorCache.t === t) {
+    return _indicatorCache.result;
   }
-  if (!names.length) return null;
-  return {
-    text: 'Clipped/Being Clipped by ' + names.join(', '),
-    names: names
-  };
+  var result;
+  if (utils && utils.buildIndicatorAtTime) {
+    result = utils.buildIndicatorAtTime(state.clipRanges, timeSec);
+  } else {
+    var names = [];
+    for (var i = 0; i < state.clipRanges.length; i++) {
+      var r = state.clipRanges[i];
+      if (!r) continue;
+      if (timeSec < r.inTime || timeSec > r.outTime) continue;
+      var label = (r.clipperName || r.userName || 'Editor');
+      if (r.helperName) label += ' (' + r.helperName + ')';
+      if (names.indexOf(label) === -1) names.push(label);
+    }
+    result = names.length ? {
+      text: 'Clipped/Being Clipped by ' + names.join(', '),
+      names: names
+    } : null;
+  }
+  _indicatorCache = { v: _rangesVersion, t: t, result: result };
+  return result;
 }
 
 function getClipRanges() {
@@ -673,6 +755,12 @@ function escName(v) {
   return esc(s);
 }
 
+function roleColor(role) {
+  if (role === 'clipper') return 'var(--accent-l, #b58cff)';
+  if (role === 'helper')  return 'var(--green, #33d69f)';
+  return 'var(--dim, #8b9099)';
+}
+
 function renderMembers(listEl) {
   if (!listEl) return;
   if (!state.members.length) {
@@ -686,46 +774,51 @@ function renderMembers(listEl) {
   function memberRow(m, indent, isMe) {
     var color = m.color || getUserColor(m.id, m.name);
     var avatarStyle = m.pfpDataUrl ? "background-image:url('" + m.pfpDataUrl + "');" : 'background:' + color + ';';
-    var roleClass = esc(m.role || 'viewer');
-    var nameCls = 'collab-member-name' + (isMe ? ' is-me' : '');
+    var nameColor = roleColor(m.role || 'viewer');
     var indentClass = indent ? ' collab-member-row--indented' : '';
-    var connectorHtml = indent ? '<span class="collab-member-connector">└─</span>' : '';
-    var helperIcon = m.role === 'helper' ? '<span class="collab-role-icon">🤝</span>' : (m.role === 'clipper' ? '<span class="collab-role-icon">🎬</span>' : '<span class="collab-role-icon">👁</span>');
+    var statusDot = m.role === 'helper'
+      ? '<span class="collab-status-dot collab-status-helper" title="Assisting"></span>'
+      : '';
     return '<div class="collab-member-row' + indentClass + '" data-user-id="' + esc(m.id) + '">' +
-      connectorHtml +
-      helperIcon +
       '<div class="collab-member-avatar" style="' + avatarStyle + '"></div>' +
       '<div class="collab-member-meta">' +
-        '<div class="' + nameCls + '" style="color:' + color + '">' + escName(m.name) +
-          (isMe ? ' <span class="collab-you-tag">you</span>' : '') +
-          '<span class="collab-role-badge ' + roleClass + '">' + esc(m.role || 'viewer') + '</span>' +
+        '<div class="collab-member-name" style="color:' + nameColor + '">' +
+          escName(m.name) +
+          statusDot +
+          (isMe ? '<span class="collab-you-tag">you</span>' : '') +
         '</div>' +
         (m.xHandle ? '<div class="collab-member-handle">@' + esc(m.xHandle) + '</div>' : '') +
       '</div>' +
     '</div>';
   }
 
-  // Clippers + their helpers
-  for (var ci = 0; ci < g.clippers.length; ci++) {
-    var c = g.clippers[ci];
-    html.push(memberRow(c, false, c.id === meId));
-    for (var hi = 0; hi < c.helpers.length; hi++) {
-      var h = c.helpers[hi];
-      html.push(memberRow(h, true, h.id === meId));
+  function sectionHeader(label, count) {
+    return '<div class="collab-group-title">' +
+      '<span>' + esc(label) + '</span>' +
+      '<span class="collab-group-count">' + count + '</span>' +
+    '</div>';
+  }
+
+  // CLIPPERS section (clippers + their indented helpers)
+  if (g.clippers.length || g.orphanHelpers.length) {
+    html.push(sectionHeader('CLIPPERS', g.clippers.length));
+    for (var ci = 0; ci < g.clippers.length; ci++) {
+      var c = g.clippers[ci];
+      html.push(memberRow(c, false, c.id === meId));
+      for (var hi = 0; hi < c.helpers.length; hi++) {
+        var h = c.helpers[hi];
+        html.push(memberRow(h, true, h.id === meId));
+      }
+    }
+    for (var oi = 0; oi < g.orphanHelpers.length; oi++) {
+      var oh = g.orphanHelpers[oi];
+      html.push(memberRow(oh, false, oh.id === meId));
     }
   }
 
-  // Orphan helpers (defensive render)
-  for (var oi = 0; oi < g.orphanHelpers.length; oi++) {
-    var oh = g.orphanHelpers[oi];
-    html.push(memberRow(oh, false, oh.id === meId));
-  }
-
-  // Viewers section
+  // VIEWERS section
   if (g.viewers.length) {
-    if (g.clippers.length || g.orphanHelpers.length) {
-      html.push('<div class="collab-section-divider"></div>');
-    }
+    html.push(sectionHeader('VIEWERS', g.viewers.length));
     for (var vi = 0; vi < g.viewers.length; vi++) {
       html.push(memberRow(g.viewers[vi], false, g.viewers[vi].id === meId));
     }
@@ -785,21 +878,18 @@ function openProfilePopover(userId, anchorEl) {
   if (isSelf) {
     if (iAmHelper) {
       addAction('Stop Assisting', 'btn-ghost', stopAssisting);
-    } else if (iAmClipper) {
-      addAction('Become Viewer', 'btn-ghost', becomeViewer);
-    } else {
-      addAction('Become Clipper', 'btn-primary', becomeClipper);
     }
+    // Viewer/clipper self -> no action; promotion/demotion is done by another clipper.
   } else if (m.role === 'clipper') {
     if (iAmAssistingThis) {
       addAction('Stop Assisting', 'btn-ghost', stopAssisting);
-    } else {
+    } else if (myRole() === 'viewer' || myRole() === 'helper') {
       addAction('Assist ' + esc(m.name || 'Clipper'), 'btn-primary', function () { assistClipper(userId); });
     }
     if (iAmClipper) {
       addAction('Demote to Viewer', 'btn-ghost btn-xs', function () { setMemberRole(userId, 'viewer'); });
     }
-  } else if (!isSelf && iAmClipper) {
+  } else if (iAmClipper) {
     if (m.role !== 'clipper') {
       addAction('Promote to Clipper', 'btn-ghost btn-xs', function () { setMemberRole(userId, 'clipper'); });
     }
@@ -1170,8 +1260,6 @@ window.CollabUI = {
   getMarkContext: getMarkContext,
   assistClipper: assistClipper,
   stopAssisting: stopAssisting,
-  becomeViewer: becomeViewer,
-  becomeClipper: becomeClipper,
   getUserColor: getUserColor,
   subscribe: subscribe,
   simulate: simulate,
@@ -1179,7 +1267,12 @@ window.CollabUI = {
   resendClipDelivery: resendClipDelivery,
   unsendClipDelivery: unsendClipDelivery,
   consumeMyDeliveries: consumeMyDeliveries,
-  setMemberRole: setMemberRole
+  setMemberRole: setMemberRole,
+  myRole: myRole,
+  myMember: myMember,
+  canMarkClips: canMarkClipsLocal,
+  canSendDelivery: canSendDeliveryLocal,
+  canConsumeDeliveries: canConsumeDeliveriesLocal
 };
 
 if (document.readyState === 'loading') {
