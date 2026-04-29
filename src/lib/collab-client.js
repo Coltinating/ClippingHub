@@ -145,7 +145,11 @@ CollabClient.prototype.joinLobby = function (opts) {
 CollabClient.prototype.leaveLobby = function () { this._send({ type: 'lobby:leave' }); };
 CollabClient.prototype.sendChat = function (text) { this._send({ type: 'chat:send', text: text }); };
 CollabClient.prototype.setRole = function (memberId, role) { this._send({ type: 'member:set-role', memberId: memberId, role: role }); };
-CollabClient.prototype.setAssist = function (assistUserId) { this._send({ type: 'member:set-assist', assistUserId: assistUserId }); };
+CollabClient.prototype.setAssist = function (assistUserId, role) {
+  var msg = { type: 'member:set-assist', assistUserId: assistUserId };
+  if (role != null) msg.role = role;
+  this._send(msg);
+};
 CollabClient.prototype.upsertRange = function (range) { this._send({ type: 'clip:upsert-range', range: range }); };
 CollabClient.prototype.removeRange = function (id) { this._send({ type: 'clip:remove-range', id: id }); };
 CollabClient.prototype.createDelivery = function (delivery) { this._send({ type: 'clip:delivery-create', delivery: delivery }); };
