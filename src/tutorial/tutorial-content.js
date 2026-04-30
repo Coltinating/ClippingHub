@@ -11,6 +11,11 @@
     entities like &rarr; in titles because they get double-escaped; use
     Unicode characters (→ — § ·) directly instead.
 
+    {{platform.<key>}} tokens expand per-OS using window._tutorialPlatformAdvice
+    (defined at the bottom of this file). Use these for "what's fastest on
+    your machine" recommendations so a Windows user never sees Linux/macOS
+    options and vice-versa.
+
     Targets:
       target            CSS selector in the host renderer
       webviewTarget     { webviewId, selector } — element inside a <webview>;
@@ -46,13 +51,14 @@
             id: 'pick-a-video',
             title: 'Pick the most recent stream',
             body: 'The big panel is an embedded Rumble browser. The highlighted card is the channel\'s most recent stream — click it (or any other video) and ClippingHub will auto-load it into the player. No URL pasting needed.',
-            // Spotlight the first video card on the channel page. The pipe (|)
-            // lets us list fallback selectors — Rumble has shipped a few
-            // markup variants over the years; we try the user-confirmed
-            // current path first, then fall back to the generic class.
+            // The featured/most-recent stream on a Rumble channel page is the
+            // FIRST a.videostream__link in document order — a big card above
+            // the row of smaller thumbnails. document.querySelector returns
+            // the first match, so the simplest selector wins; the | fallbacks
+            // only kick in if Rumble ships markup that loses the class.
             webviewTarget: {
               webviewId: 'channelBrowser',
-              selector: 'main section > div:nth-child(1) > div:nth-child(2) a.videostream__link | main section a.videostream__link | a.videostream__link',
+              selector: 'main section a.videostream__link | a.videostream__link | a[href*=".html"][class*="video"]',
             },
             placement: 'auto',
             advance: { type: 'webview-nav-to-video' },
@@ -60,7 +66,7 @@
           {
             id: 'stream-loaded',
             title: 'Stream loaded',
-            body: 'The player should be visible now. When you are ready, hit <b>Next</b> to start clipping.',
+            body: 'The player should be visible now. When you are ready, press <b>Finish Section</b> to move on to the next tutorial section. You are able to skip the tutorial by closing the panel in the top right.',
             target: '#playerWrap',
             placement: 'auto',
             advance: { type: 'next-button' },
@@ -273,7 +279,7 @@
           {
             id: 'video-codec',
             title: 'Video codec',
-            body: '<b>h264</b> = max compatibility (X / YouTube safe). <b>h265</b> = smaller files, narrower playback support. <b>AV1</b> = best quality/size, slowest to encode.',
+            body: '<b>h264</b> = max compatibility (X / YouTube safe). <b>h265</b> = smaller files, narrower playback support. <b>nvenc</b>/<b>videotoolbox</b>/<b>vaapi</b>/<b>qsv</b> variants offload to your GPU when paired with the matching Hardware setting on the next tab.',
             target: '#cfgVideoCodec',
             placement: 'right',
             advance: { type: 'next-button' },
@@ -288,26 +294,73 @@
           },
           {
             id: 'crf',
-            title: 'CRF',
-            body: 'Quality target. Lower is better/larger. <b>18</b> visually lossless, <b>23</b> default, <b>28</b> small files. Range 0–51.',
+            title: 'CRF / CQ',
+            body: 'Quality target. Lower is better/larger. <b>18</b> visually lossless, <b>23</b> default, <b>28</b> small files. Range 0–51. (NVENC reads this as CQ, same scale.)',
             target: '#cfgCrf',
             placement: 'right',
             advance: { type: 'next-button' },
           },
           {
+            id: 'audio-codec',
+            title: 'Audio codec',
+            body: '<b>AAC</b> is the safe default — every player supports it. <b>Opus</b> sounds better at the same bitrate but isn\'t universally supported. <b>Copy</b> skips re-encoding the source audio entirely (fastest, but pass-through only).',
+            target: '#cfgAudioCodec',
+            placement: 'right',
+            advance: { type: 'next-button' },
+          },
+          {
+            id: 'audio-bitrate',
+            title: 'Audio bitrate',
+            body: '<b>192k</b> is the safe default. Bump to <b>256k</b> or <b>320k</b> for pristine audio in music-heavy clips. Lower than 128k starts losing audible quality.',
+            target: '#cfgAudioBitrate',
+            placement: 'right',
+            advance: { type: 'next-button' },
+          },
+          {
+            id: 'switch-tab-hardware',
+            title: 'Switch to the Hardware tab',
+            body: 'Encoding settings are split across two tabs. The GPU acceleration controls live on <b>Hardware</b> — click it now.',
+            target: '.settings-tab[data-tab="performance"]',
+            placement: 'right',
+            advance: { type: 'observe-class', selector: '.settings-tab[data-tab="performance"]', className: 'active' },
+          },
+          {
             id: 'hwaccel',
             title: 'Hardware acceleration',
-            body: 'NVIDIA / AMD / Intel GPU encoding speeds up renders 3–10×. Falls back to CPU automatically when unavailable.',
+            body: 'GPU decoding speeds up renders 3–10× when paired with a matching codec. Falls back to CPU automatically when unavailable. Only options compatible with your OS are shown — pick the one that matches your GPU vendor.',
             target: '#cfgHwaccel',
             placement: 'right',
             advance: { type: 'next-button' },
           },
           {
-            id: 'audio',
-            title: 'Audio',
-            body: 'AAC + 192k is the safe default. Bump bitrate up to 320k if you want pristine audio.',
-            target: '#cfgAudioCodec',
+            id: 'hwaccel-format',
+            title: 'Output format',
+            body: 'Pixel format the GPU keeps frames in during decode. Leave on <b>Default</b> unless you hit a "format mismatch" error — then match it to the HW Accel choice above (cuda/d3d11/videotoolbox_vld/vaapi/qsv).',
+            target: '#cfgHwaccelFormat',
             placement: 'right',
+            advance: { type: 'next-button' },
+          },
+          {
+            id: 'hwaccel-device',
+            title: 'Device ID',
+            body: 'Which GPU to use when you have more than one. Leave blank for default. Set <b>0</b> for the primary GPU, <b>1</b> for the secondary, etc.',
+            target: '#cfgHwaccelDevice',
+            placement: 'right',
+            advance: { type: 'next-button' },
+          },
+          {
+            id: 'nvenc-preset',
+            title: 'NVENC preset',
+            body: 'Only used when the codec is <b>h264_nvenc</b> or <b>hevc_nvenc</b>. <b>p1</b> = fastest / lowest quality, <b>p7</b> = slowest / highest quality. <b>p4</b> is a sane default.',
+            target: '#cfgNvencPreset',
+            placement: 'right',
+            advance: { type: 'next-button' },
+          },
+          {
+            id: 'fastest-recommendation',
+            title: 'Fastest on your machine',
+            body: '{{platform.fastestSetup}}',
+            placement: 'center',
             advance: { type: 'next-button' },
           },
         ],
@@ -315,6 +368,40 @@
     ],
   };
 
-  if (typeof module !== 'undefined' && module.exports) module.exports = content;
-  if (typeof window !== 'undefined') window._tutorialContent = content;
+  // Per-OS guidance for {{platform.X}} tokens. Keys are the token names;
+  // each maps to an object of platform → text. The overlay's templateBody
+  // picks window.clipper.platform (falling back to process.platform/win32).
+  // Keep these short — they render inside a tutorial card body.
+  var platformAdvice = {
+    fastestSetup: {
+      win32:
+        'Windows users get the biggest speedup from a matching <b>codec</b> + <b>HW Accel</b> pair:<br>' +
+        '• <b>NVIDIA GPU:</b> <code>h264_nvenc</code> + <code>cuda</code><br>' +
+        '• <b>AMD GPU:</b> <code>libx264</code> + <code>d3d11va</code> (AMD has no native NVENC equivalent here)<br>' +
+        '• <b>Intel iGPU:</b> <code>h264_qsv</code> + <code>qsv</code><br>' +
+        'If you don\'t know your GPU, leave the defaults — ClippingHub falls back to CPU automatically.',
+      darwin:
+        'On macOS, the fastest path is always Apple\'s built-in encoder:<br>' +
+        '• Codec: <code>h264_videotoolbox</code> (or <code>hevc_videotoolbox</code> for smaller files)<br>' +
+        '• HW Accel: <code>videotoolbox</code><br>' +
+        'No driver setup needed — works on every Mac from 2018 onward.',
+      linux:
+        'Linux choices depend on your GPU vendor:<br>' +
+        '• <b>NVIDIA:</b> <code>h264_nvenc</code> + <code>cuda</code> (requires the proprietary driver)<br>' +
+        '• <b>Intel/AMD:</b> <code>h264_vaapi</code> + <code>vaapi</code> (works with the open-source drivers)<br>' +
+        '• <b>Intel only:</b> <code>h264_qsv</code> + <code>qsv</code> is also an option<br>' +
+        'CPU fallback is always available with <code>libx264</code>.',
+      'default':
+        'Pick the codec ending in <code>_nvenc</code> / <code>_videotoolbox</code> / <code>_vaapi</code> / <code>_qsv</code> that matches your GPU, and set HW Accel to the matching value above. Leave defaults if unsure — ClippingHub falls back to CPU automatically.',
+    },
+  };
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = content;
+    module.exports.platformAdvice = platformAdvice;
+  }
+  if (typeof window !== 'undefined') {
+    window._tutorialContent = content;
+    window._tutorialPlatformAdvice = platformAdvice;
+  }
 })();

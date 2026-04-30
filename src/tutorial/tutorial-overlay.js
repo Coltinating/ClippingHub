@@ -175,7 +175,7 @@
   // Keeps content authoring simple while reflecting per-user customization.
   function templateBody(text) {
     if (!text) return '';
-    return String(text).replace(/\{\{kb\.([a-zA-Z0-9_]+)\}\}/g, function (_match, id) {
+    var out = String(text).replace(/\{\{kb\.([a-zA-Z0-9_]+)\}\}/g, function (_match, id) {
       var live = (window.userConfig && window.userConfig.keybinds) || {};
       var Reg = window.KeybindRegistry;
       var bind = (live[id] != null) ? live[id] : null;
@@ -187,6 +187,20 @@
       var fmt = (Reg && Reg.formatBinding) ? Reg.formatBinding(bind) : (bind == null ? '?' : String(bind));
       return '<kbd>' + escapeHtml(fmt) + '</kbd>';
     });
+    // {{platform.X}} expands per-OS so steps can give "fastest setting on
+    // your machine" advice without exposing the user to the other OSes'
+    // options. The platform key is read from the same source the
+    // platform-filter logic in renderer.js uses, falling back to win32.
+    out = out.replace(/\{\{platform\.([a-zA-Z0-9_]+)\}\}/g, function (_match, key) {
+      var p = (window.clipper && window.clipper.platform)
+            || (typeof process !== 'undefined' && process && process.platform)
+            || 'win32';
+      var table = window._tutorialPlatformAdvice || {};
+      var entry = table[key];
+      if (!entry) return '';
+      return entry[p] || entry['default'] || '';
+    });
+    return out;
   }
 
   function isActionRequired(step) {
