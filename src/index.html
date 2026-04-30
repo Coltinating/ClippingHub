@@ -315,6 +315,23 @@
             <div class="loading-spinner" id="loadingSpinner"></div>
             <div class="buffer-badge" id="bufferBadge">Buffering...</div>
 
+            <!-- Shazam HUD: live match feedback (dev feature, devFeatures.shazamScan) -->
+            <div class="shazam-hud" id="shazamHud" hidden>
+              <button class="shazam-hud-toggle" id="shazamHudToggle" type="button" title="Recognized songs">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg>
+                <span class="shazam-hud-label">Songs</span>
+                <span class="shazam-hud-count" id="shazamHudCount">0</span>
+              </button>
+              <div class="shazam-hud-panel" id="shazamHudPanel" hidden>
+                <div class="shazam-hud-header">
+                  <span class="shazam-hud-title">Recognized Songs</span>
+                  <button class="shazam-hud-clear" id="shazamHudClear" type="button" title="Clear list">Clear</button>
+                </div>
+                <ul class="shazam-hud-list" id="shazamHudList"></ul>
+                <div class="shazam-hud-empty" id="shazamHudEmpty">No matches yet. Hit Shazam on a pending clip.</div>
+              </div>
+            </div>
+
             <!-- Player Controls Overlay -->
             <div class="controls-overlay" id="controlsOverlay">
               <div class="progress-area">

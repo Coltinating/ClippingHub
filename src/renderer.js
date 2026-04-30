@@ -13,6 +13,16 @@ function fmtSize(b) {
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function escAttr(s) { return String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 function escH(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// Replace the Windows/Unix home-folder username segment with "ANON" so
+// the user's PC name doesn't leak into screenshots or shared screens.
+// Display only — saved/used paths still keep the real value.
+function pathForDisplay(p) {
+  if (!p) return '';
+  return String(p).replace(
+    /([\/\\])(Users|home)([\/\\])([^\/\\]+)/i,
+    '$1$2$3ANON'
+  );
+}
 
 function renderSendUnsendButton(clip, idx) {
   if (!window.CollabUI) return '';
@@ -246,12 +256,18 @@ let userConfig = {
     logFfmpegCommands: false,
     advancedPanelSystem: false,
     frameAccurateClipping: false, // experimental — uses alt arg builder when true; off = main pipeline untouched
+    shazamScan: false, // experimental — adds a Shazam button to each pending clip; needs music/.venv
   },
+  musicOutputPath: '', // user-chosen .txt where Shazam scan results are appended (when shazamScan is on)
 };
 
 // Universal watermark config (cached separately)
 let universalWatermark = null;
 let universalImageWatermark = null;
+// Whether the universal watermark is applied to all clips. Stored
+// alongside the watermark/image-watermark configs so users can keep
+// a configured watermark on disk while temporarily disabling it.
+let universalWatermarkEnabled = false;
 // Universal outro config
 let universalOutro = { enabled: false, filePath: '' };
 
@@ -335,6 +351,11 @@ if (window.CollabUI && window.CollabUI.subscribe) {
   if (savedWm) {
     universalWatermark = savedWm.watermark || null;
     universalImageWatermark = savedWm.imageWatermark || null;
+    // Default the enabled flag to true if a watermark was previously
+    // configured but no flag was saved (older configs predate the toggle).
+    universalWatermarkEnabled = (typeof savedWm.watermarkEnabled === 'boolean')
+      ? savedWm.watermarkEnabled
+      : !!(universalWatermark || universalImageWatermark);
     universalOutro = savedWm.outro || { enabled: false, filePath: '' };
   }
 
@@ -423,6 +444,11 @@ function applyConfig() {
   if (window._panels && window._panels.applyPanelSystemMode) {
     window._panels.applyPanelSystemMode();
   }
+  // Shazam HUD show/hide tracks the dev feature toggle live.
+  if (typeof shazamHudApplyVisibility === 'function') shazamHudApplyVisibility();
+  if (typeof ensureShazamProgressBound === 'function' && userConfig.devFeatures?.shazamScan) {
+    ensureShazamProgressBound();
+  }
 }
 
 async function saveConfig() {
@@ -433,6 +459,7 @@ async function saveUniversalConfigs() {
   await window.clipper.saveWatermarkConfig({
     watermark: universalWatermark,
     imageWatermark: universalImageWatermark,
+    watermarkEnabled: universalWatermarkEnabled,
     outro: universalOutro,
   });
 }
@@ -915,7 +942,7 @@ function renderPendingClips() {
       <textarea class="clip-card-caption" data-idx="${idx}" placeholder="Caption / summary idea..." rows="1">${escH(clip.caption)}</textarea>
       <div class="clip-card-actions">
         <button class="btn btn-success btn-xs" data-action="download" data-idx="${idx}">&#11015; Download</button>
-        ${(clip.watermark || clip.imageWatermark || universalWatermark || universalImageWatermark) ? `<button class="btn btn-ghost btn-xs" data-action="preview" data-idx="${idx}" title="Preview watermark placement">Preview</button>` : ''}
+        ${(clip.watermark || clip.imageWatermark || (universalWatermarkEnabled && (universalWatermark || universalImageWatermark))) ? `<button class="btn btn-ghost btn-xs" data-action="preview" data-idx="${idx}" title="Preview watermark placement">Preview</button>` : ''}
         ${btns.jumpToIn ? `<button class="btn btn-ghost btn-xs" data-action="jumpin" data-idx="${idx}">Jump to IN</button>` : ''}
         ${btns.jumpToEnd ? `<button class="btn btn-ghost btn-xs" data-action="jumpout" data-idx="${idx}">Jump to OUT</button>` : ''}
         ${btns.watermark ? `<button class="btn btn-accent btn-xs wm-btn-icon" data-action="watermark" data-idx="${idx}" title="Watermark${(clip.watermark || clip.imageWatermark) ? ' (configured)' : ''}">
@@ -923,6 +950,7 @@ function renderPendingClips() {
           ${(clip.watermark || clip.imageWatermark) ? '<span class="wm-dot"></span>' : ''}
         </button>` : ''}
         ${btns.appendOutro ? `<button class="btn btn-ghost btn-xs" data-action="outro" data-idx="${idx}" title="Add Outro${clip.outro ? ' (set)' : ''}">Add Outro${clip.outro ? ' *' : ''}</button>` : ''}
+        ${userConfig.devFeatures?.shazamScan ? `<button class="btn btn-ghost btn-xs" data-action="shazam" data-idx="${idx}" title="Scan this clip's IN&rarr;OUT range for music and append to your Shazam .txt">Shazam</button>` : ''}
         ${renderSendUnsendButton(clip, idx)}
       </div>
     </div>
@@ -953,6 +981,7 @@ function renderPendingClips() {
     if (btn.dataset.action === 'jumpout') { dbg('ACTION', 'Jump to OUT', { idx, time: pendingClips[idx]?.outTime }); vid.currentTime = pendingClips[idx].outTime; }
     if (btn.dataset.action === 'watermark') { dbg('ACTION', 'Open watermark modal', { idx }); openWatermarkModal(idx); }
     if (btn.dataset.action === 'outro') { dbg('ACTION', 'Open outro modal', { idx }); openOutroModal(idx); }
+    if (btn.dataset.action === 'shazam') { dbg('ACTION', 'Shazam clicked', { idx, name: pendingClips[idx]?.name }); shazamScanClip(idx, btn); }
     if (btn.dataset.action === 'repickIn') { enterRepickMode(idx, 'inTime'); }
     if (btn.dataset.action === 'repickOut') { enterRepickMode(idx, 'outTime'); }
     if (btn.dataset.action === 'send-delivery') {
@@ -1303,8 +1332,10 @@ async function previewClip(idx, btn) {
   const clip = pendingClips[idx];
   if (!clip) return;
 
-  const watermark = clip.watermark || universalWatermark || null;
-  const imageWatermark = clip.imageWatermark || universalImageWatermark || null;
+  // Universal watermark is only applied if the user has the toggle on; the
+  // per-clip override always wins regardless of the universal flag.
+  const watermark = clip.watermark || (universalWatermarkEnabled ? universalWatermark : null) || null;
+  const imageWatermark = clip.imageWatermark || (universalWatermarkEnabled ? universalImageWatermark : null) || null;
 
   if (!watermark && !imageWatermark) {
     dbg('PREVIEW', 'No watermark configured, skipping');
@@ -1416,6 +1447,282 @@ function openOutroModal(idx) {
   };
 }
 
+/* ─── Shazam scan (dev feature) ───────────────────────────── */
+// Per-clip music recognition. Pipes the clip's IN→OUT segment range through
+// ffmpeg → music/scan.py (shazamio) and appends recognized tracks to the
+// user-chosen .txt. The clip stays in pendingClips — this is non-destructive.
+//
+// Two streams of feedback:
+//   1. dbg('SHAZAM', ...) for the debug terminal — every action/status.
+//   2. The Shazam HUD overlay in the top-left of #playerWrap — shows
+//      recognized tracks live with click-to-open Spotify/YouTube links.
+let _shazamProgressBound = false;
+// In-memory list of recognized songs across all scans this session. Each entry
+// is { artist, title, spotifyUrl, youtubeUrl, appleUrl, shazamUrl, offset }.
+// Deduped by (artist|title) lowercase, same way songs-dedup.js works.
+const shazamHudMatches = [];
+const shazamHudKeys = new Set();
+
+function shazamMatchKey(artist, title) {
+  return (String(artist || '').trim().toLowerCase() + '|||' +
+          String(title || '').trim().toLowerCase());
+}
+
+// Defensive URL synthesis. extract_links() in scan.py *should* always supply
+// a URL (provider deeplink or fallback search URL), but if for any reason
+// (older scan.py, older main.js still in-memory, schema change) the field
+// arrives null, build a search URL right here so the HUD is ALWAYS clickable.
+function shazamSpotifySearchUrl(artist, title) {
+  const q = `${(artist || '').trim()} ${(title || '').trim()}`.trim();
+  if (!q) return null;
+  return `https://open.spotify.com/search/${encodeURIComponent(q)}`;
+}
+function shazamYoutubeSearchUrl(artist, title) {
+  const q = `${(artist || '').trim()} ${(title || '').trim()}`.trim();
+  if (!q) return null;
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`;
+}
+
+function shazamLinkSvg(kind) {
+  if (kind === 'spotify') {
+    return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.59 14.45c-.21.34-.65.45-.99.24-2.71-1.66-6.12-2.04-10.13-1.12-.39.09-.78-.16-.86-.55-.09-.39.16-.78.55-.86 4.41-1.01 8.18-.58 11.21 1.27.34.21.45.65.22.99v.03zm1.23-2.74c-.27.42-.81.55-1.23.28-3.1-1.91-7.83-2.46-11.51-1.34-.47.14-.97-.13-1.11-.6-.14-.47.13-.97.6-1.11 4.21-1.28 9.42-.66 13.01 1.55.42.26.55.81.24 1.22zm.11-2.85c-3.72-2.21-9.86-2.41-13.41-1.34-.57.17-1.16-.16-1.33-.73-.17-.57.15-1.16.73-1.33 4.07-1.23 10.85-1 15.13 1.55.51.3.68.97.37 1.48-.3.51-.97.68-1.49.37z"/></svg>';
+  }
+  if (kind === 'youtube') {
+    return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M23.5 6.2c-.3-1-1.1-1.9-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6c-1 .3-1.8 1.1-2.1 2.1C0 8.1 0 12 0 12s0 3.9.5 5.8c.3 1 1.1 1.9 2.1 2.1 1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6c1-.3 1.8-1.1 2.1-2.1.5-1.9.5-5.8.5-5.8s0-3.9-.5-5.8zM9.6 15.6V8.4l6.3 3.6-6.3 3.6z"/></svg>';
+  }
+  return '';
+}
+
+function shazamHudShow() {
+  const hud = document.getElementById('shazamHud');
+  if (hud) hud.hidden = false;
+}
+function shazamHudHide() {
+  const hud = document.getElementById('shazamHud');
+  if (hud) hud.hidden = true;
+  const panel = document.getElementById('shazamHudPanel');
+  if (panel) panel.hidden = true;
+}
+
+function shazamHudRender() {
+  const list = document.getElementById('shazamHudList');
+  const count = document.getElementById('shazamHudCount');
+  if (!list || !count) return;
+  count.textContent = String(shazamHudMatches.length);
+  if (shazamHudMatches.length === 0) {
+    list.innerHTML = '';
+    return;
+  }
+  // Newest first — easier to spot just-detected songs. Each row gets two
+  // explicit text-pill links so the user sees them immediately. Spotify
+  // primary (always shown — search URL fallback if no provider deeplink),
+  // YouTube secondary (last resort).
+  const items = shazamHudMatches.slice().reverse().map(m => {
+    const artist = escH(m.artist);
+    const title = escH(m.title);
+    const sp = m.spotifyUrl || shazamSpotifySearchUrl(m.artist, m.title);
+    const yt = m.youtubeUrl || shazamYoutubeSearchUrl(m.artist, m.title);
+    const actions = [];
+    if (sp) {
+      actions.push(`<a class="shazam-hud-action spotify" href="${escAttr(sp)}" data-shazam-link="${escAttr(sp)}" title="${escAttr(sp)}">
+        ${shazamLinkSvg('spotify')}<span>Spotify</span>
+      </a>`);
+    }
+    if (yt) {
+      actions.push(`<a class="shazam-hud-action youtube" href="${escAttr(yt)}" data-shazam-link="${escAttr(yt)}" title="${escAttr(yt)}">
+        ${shazamLinkSvg('youtube')}<span>YouTube</span>
+      </a>`);
+    }
+    return `
+      <li class="shazam-hud-item">
+        <div class="shazam-hud-song-title">${title}</div>
+        <div class="shazam-hud-song-artist">${artist}</div>
+        <div class="shazam-hud-actions">${actions.join('')}</div>
+      </li>
+    `;
+  }).join('');
+  list.innerHTML = items;
+}
+
+function shazamHudAddMatch(match) {
+  if (!match || !match.artist || !match.title) return false;
+  const key = shazamMatchKey(match.artist, match.title);
+  if (shazamHudKeys.has(key)) return false;
+  shazamHudKeys.add(key);
+  const artist = String(match.artist).trim();
+  const title = String(match.title).trim();
+  // Belt-and-suspenders: prefer the URL from the IPC event, fall back to a
+  // synthesized search URL if it's missing.
+  const spotifyUrl = match.spotifyUrl || shazamSpotifySearchUrl(artist, title);
+  const youtubeUrl = match.youtubeUrl || shazamYoutubeSearchUrl(artist, title);
+  shazamHudMatches.push({
+    artist,
+    title,
+    spotifyUrl,
+    youtubeUrl,
+    appleUrl: match.appleUrl || null,
+    shazamUrl: match.shazamUrl || null,
+    offset: match.offset || 0,
+  });
+  dbg('SHAZAM', 'HUD entry built', {
+    artist, title,
+    spotifyFromIpc: !!match.spotifyUrl,
+    youtubeFromIpc: !!match.youtubeUrl,
+    spotifyUrl: spotifyUrl ? spotifyUrl.slice(0, 80) : null,
+    youtubeUrl: youtubeUrl ? youtubeUrl.slice(0, 80) : null,
+  });
+  shazamHudRender();
+  // Brief pulse on the toggle so the user notices a new addition.
+  const toggle = document.getElementById('shazamHudToggle');
+  if (toggle) {
+    toggle.classList.remove('has-new');
+    void toggle.offsetWidth;  // force reflow so the animation re-fires
+    toggle.classList.add('has-new');
+  }
+  return true;
+}
+
+function shazamHudClear() {
+  shazamHudMatches.length = 0;
+  shazamHudKeys.clear();
+  shazamHudRender();
+  dbg('SHAZAM', 'HUD list cleared by user', {});
+}
+
+function shazamHudInit() {
+  const hud = document.getElementById('shazamHud');
+  if (!hud || hud.dataset.bound === '1') return;
+  hud.dataset.bound = '1';
+
+  const toggle = document.getElementById('shazamHudToggle');
+  const panel = document.getElementById('shazamHudPanel');
+  const clearBtn = document.getElementById('shazamHudClear');
+  const list = document.getElementById('shazamHudList');
+
+  if (toggle && panel) {
+    toggle.addEventListener('click', () => {
+      panel.hidden = !panel.hidden;
+      dbg('ACTION', `Shazam HUD ${panel.hidden ? 'collapsed' : 'expanded'}`, { count: shazamHudMatches.length });
+    });
+  }
+  if (clearBtn) clearBtn.addEventListener('click', shazamHudClear);
+
+  // Click delegation for the link icons — route through openExternal so the
+  // OS default browser handles them. (Spotify desktop will catch
+  // open.spotify.com/search via its protocol handler if installed.)
+  if (list) {
+    list.addEventListener('click', (e) => {
+      const a = e.target.closest('[data-shazam-link]');
+      if (!a) return;
+      e.preventDefault();
+      const url = a.dataset.shazamLink;
+      if (!url) return;
+      dbg('ACTION', 'Shazam link clicked', { url, kind: a.classList.contains('spotify') ? 'spotify' : 'youtube' });
+      try { window.clipper.openExternal(url); }
+      catch (err) { dbg('SHAZAM', 'openExternal failed', { error: err?.message }); }
+    });
+  }
+
+  shazamHudRender();
+}
+
+function shazamHudApplyVisibility() {
+  // The HUD only appears when the dev feature is enabled. Toggling the
+  // setting in Settings calls applyConfig() which re-runs this.
+  if (userConfig.devFeatures?.shazamScan) shazamHudShow();
+  else shazamHudHide();
+}
+
+function ensureShazamProgressBound() {
+  if (_shazamProgressBound) return;
+  if (!window.clipper?.onScanProgress) return;
+  window.clipper.onScanProgress((data) => {
+    const { clipName, phase } = data;
+    if (phase === 'fetching') {
+      dbg('SHAZAM', `[${clipName}] fetching segments`, { progress: data.progress, completedSegments: data.completedSegments, totalSegments: data.totalSegments });
+    } else if (phase === 'recognizing') {
+      const lastMatch = data.lastMatch;
+      const lastError = data.lastError;
+      dbg('SHAZAM', `[${clipName}] recognizing ${data.completed}/${data.total} (matches=${data.matches} new=${data.newAdds})`,
+        lastMatch ? { lastMatch } : (lastError ? { lastError } : null));
+      if (lastMatch) {
+        const added = shazamHudAddMatch(lastMatch);
+        if (added) dbg('SHAZAM', 'HUD added', { artist: lastMatch.artist, title: lastMatch.title });
+      }
+    } else if (phase === 'done') {
+      dbg('SHAZAM', `[${clipName}] done`, { matches: data.matches, newAdds: data.newAdds, errors: data.errors, total: data.total, outputFile: data.outputFile });
+    } else if (phase === 'error') {
+      dbg('SHAZAM', `[${clipName}] error`, { error: data.error });
+    }
+  });
+  _shazamProgressBound = true;
+}
+
+async function shazamScanClip(idx, btn) {
+  const clip = pendingClips[idx];
+  if (!clip) return;
+
+  if (!userConfig.musicOutputPath) {
+    // Prompt for output file on first use, save it, then proceed.
+    if (window.toast) window.toast('Pick a Shazam output file...');
+    dbg('SHAZAM', 'No output file configured — opening picker', { clipId: clip.id });
+    const result = await window.clipper.chooseShazamOutput();
+    if (!result || !result.success) {
+      dbg('SHAZAM', 'Output picker cancelled — aborting scan', {});
+      return;
+    }
+    userConfig.musicOutputPath = result.filePath;
+    try { await saveConfig(); } catch (_) {}
+  }
+
+  ensureShazamProgressBound();
+
+  // Compute the clip's segment range exactly the way downloadClip does.
+  const startSec = clip.inTime - (clip.seekableStart || 0);
+  const durationSec = clip.outTime - clip.inTime;
+  if (!(durationSec > 0)) {
+    if (window.toast) window.toast('Clip duration is zero — nothing to scan');
+    dbg('SHAZAM', 'Aborted — duration <= 0', { clipId: clip.id, inTime: clip.inTime, outTime: clip.outTime });
+    return;
+  }
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Shazam...'; }
+  if (window.toast) window.toast(`Shazam: scanning ${clip.name}...`);
+  dbg('SHAZAM', 'Invoking scanClipSongs', {
+    clipId: clip.id, name: clip.name, startSec, durationSec,
+    outputTxtPath: userConfig.musicOutputPath,
+  });
+
+  let result;
+  try {
+    result = await window.clipper.scanClipSongs({
+      clipName: clip.name,
+      m3u8Url: clip.m3u8Url,
+      m3u8Text: clip.m3u8Text,
+      startSec,
+      durationSec,
+      outputTxtPath: userConfig.musicOutputPath,
+    });
+  } catch (e) {
+    dbg('SHAZAM', 'IPC threw', { error: e.message });
+    if (window.toast) window.toast(`Shazam error: ${e.message}`);
+    if (btn) { btn.disabled = false; btn.textContent = 'Shazam'; }
+    return;
+  }
+
+  if (btn) { btn.disabled = false; btn.textContent = 'Shazam'; }
+
+  if (result && result.success) {
+    const msg = `Shazam: +${result.newAdds} new (${result.matches} matched, ${result.total} chunks)`;
+    if (window.toast) window.toast(msg);
+    dbg('SHAZAM', 'Scan succeeded', result);
+  } else {
+    const err = result?.error || 'unknown error';
+    if (window.toast) window.toast(`Shazam failed: ${err}`);
+    dbg('SHAZAM', 'Scan failed', { error: err });
+  }
+}
+
 /* ─── Downloading (queue-based, with cancel/pause) ────────── */
 function downloadClip(idx) {
   const clip = pendingClips.splice(idx, 1)[0];
@@ -1452,8 +1759,8 @@ async function processDownloadQueue() {
   activeDownloadId = next.id;
   const clip = next.clip;
 
-  const watermark = clip.watermark || universalWatermark || null;
-  const imageWatermark = clip.imageWatermark || universalImageWatermark || null;
+  const watermark = clip.watermark || (universalWatermarkEnabled ? universalWatermark : null) || null;
+  const imageWatermark = clip.imageWatermark || (universalWatermarkEnabled ? universalImageWatermark : null) || null;
   const outro = clip.outro || (universalOutro.enabled && universalOutro.filePath ? universalOutro : null);
   const ffmpegOptions = { ...userConfig.ffmpeg };
 
@@ -1588,6 +1895,14 @@ function renderDownloadingClips() {
 
 // ONE-TIME event delegation for downloading list (wired after DOM ready)
 document.addEventListener('DOMContentLoaded', () => {
+  // Shazam HUD lives in the DOM as static markup; wire its handlers once the
+  // DOM is ready and apply current visibility from userConfig.
+  if (typeof shazamHudInit === 'function') shazamHudInit();
+  if (typeof shazamHudApplyVisibility === 'function') shazamHudApplyVisibility();
+  if (typeof ensureShazamProgressBound === 'function' && userConfig.devFeatures?.shazamScan) {
+    ensureShazamProgressBound();
+  }
+
   $('downloadingClipList').addEventListener('click', e => {
     const cancelBtn = e.target.closest('.dl-cancel-btn');
     if (cancelBtn) {
@@ -2507,9 +2822,17 @@ function openConfigModal() {
         <div class="config-section" data-settings-tab="assets">
           <div class="config-section-title">Universal Watermark</div>
           <p class="config-note">Set a default watermark applied to all clips unless overridden per-clip.</p>
-          <button class="btn btn-accent btn-sm" id="cfgEditWatermark">${(universalWatermark || universalImageWatermark) ? 'Edit Universal Watermark' : 'Configure Universal Watermark'}</button>
-          ${universalWatermark ? `<span style="color:var(--green);font-size:10px;margin-left:8px;">Active: Text "${escH(universalWatermark.text)}"</span>` : ''}
-          ${universalImageWatermark ? `<span style="color:var(--green);font-size:10px;margin-left:8px;">Active: Image "${escH(universalImageWatermark.imagePath.split(/[/\\\\]/).pop())}"</span>` : ''}
+          <label class="config-toggle"><input type="checkbox" id="cfgWmEnabled" ${universalWatermarkEnabled?'checked':''}> <span>Enable Universal Watermark</span></label>
+          <div style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+            <button class="btn btn-accent btn-sm" id="cfgEditWatermark">${(universalWatermark || universalImageWatermark) ? 'Edit Watermark' : 'Configure Watermark'}</button>
+            <span id="cfgWmValue" class="config-value" style="font-size:11px;color:var(--text-muted,#9aa3b2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;">${
+              universalImageWatermark && universalImageWatermark.imagePath
+                ? '"' + escH(pathForDisplay(universalImageWatermark.imagePath).split(/[/\\]/).pop()) + '"'
+                : universalWatermark && universalWatermark.text
+                  ? '"' + escH(universalWatermark.text) + '"'
+                  : '<em>none configured</em>'
+            }</span>
+          </div>
         </div>
 
         <!-- Universal Outro Config -->
@@ -2518,8 +2841,12 @@ function openConfigModal() {
           <p class="config-note">Set a default outro video appended to all clips unless overridden per-clip.</p>
           <label class="config-toggle"><input type="checkbox" id="cfgOutroEnabled" ${universalOutro.enabled?'checked':''}> <span>Enable Universal Outro</span></label>
           <div style="display:flex; gap:8px; align-items:center; margin-top:6px;">
-            <input class="wm-input" id="cfgOutroPath" type="text" value="${escAttr(universalOutro.filePath||'')}" placeholder="No outro file selected..." readonly style="flex:1; cursor:pointer; font-size:11px;">
-            <button class="btn btn-ghost btn-sm" id="cfgOutroBrowse">Browse</button>
+            <button class="btn btn-accent btn-sm" id="cfgOutroBrowse">${universalOutro.filePath ? 'Change Outro' : 'Choose Outro'}</button>
+            <span id="cfgOutroValue" class="config-value" data-real-path="${escAttr(universalOutro.filePath||'')}" style="font-size:11px;color:var(--text-muted,#9aa3b2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;">${
+              universalOutro.filePath
+                ? '"' + escH(pathForDisplay(universalOutro.filePath)) + '"'
+                : '<em>none configured</em>'
+            }</span>
           </div>
         </div>
 
@@ -2637,6 +2964,12 @@ function openConfigModal() {
           <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgAdvancedPanels" ${cfg.devFeatures?.advancedPanelSystem?'checked':''}> <span>Enable advanced panel system</span> <span class="config-default">(drag, split, dock, undock, custom layouts &mdash; off for a simpler experience)</span></label>
           <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgFrameAccurateClipping" ${cfg.devFeatures?.frameAccurateClipping?'checked':''}> <span>Frame-accurate clipping</span> <span class="config-default">(experimental &mdash; off keeps the main pipeline untouched; tests live in tests/unit/frame-accurate-clip.test.js)</span></label>
           <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgTutorialDev" ${tutorialDevEnabled?'checked':''}> <span>Tutorial system</span> <span class="config-default">(in-development guided walkthrough &mdash; reloads the app when toggled; not saved to user config)</span></label>
+          <label class="config-toggle" style="margin-top:6px;"><input type="checkbox" id="cfgShazamScan" ${cfg.devFeatures?.shazamScan?'checked':''}> <span>Shazam button on pending clips</span> <span class="config-default">(experimental &mdash; adds a "Shazam" button that scans the clip's IN&rarr;OUT range for music and appends recognized tracks to a .txt; requires music/.venv with shazamio installed)</span></label>
+          <div style="display:flex;align-items:center;gap:8px;margin:8px 0 0 22px;">
+            <span style="color:#a1a1aa;font-size:12px;">Shazam output file:</span>
+            <span id="cfgShazamOutputPath" style="flex:1;color:#71717a;font-size:12px;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escAttr(cfg.musicOutputPath || '')}">${cfg.musicOutputPath ? escH(cfg.musicOutputPath) : '<em>not set</em>'}</span>
+            <button type="button" class="btn btn-ghost btn-xs" id="cfgShazamPick">Choose...</button>
+          </div>
         </div>
 
       </div>
@@ -2708,15 +3041,48 @@ function openConfigModal() {
     openUniversalWatermarkModal();
   };
 
+  // Outro path picker. The display element is a <span#cfgOutroValue> with
+  // the ANON-sanitized path for screenshot safety; the real path lives on
+  // dataset.realPath so the apply-handler can save it back unchanged.
+  function setOutroPath(realPath) {
+    const span = overlay.querySelector('#cfgOutroValue');
+    const btn = overlay.querySelector('#cfgOutroBrowse');
+    if (span) {
+      span.dataset.realPath = realPath || '';
+      span.innerHTML = realPath
+        ? '"' + escH(pathForDisplay(realPath)) + '"'
+        : '<em>none configured</em>';
+    }
+    if (btn) btn.textContent = realPath ? 'Change Outro' : 'Choose Outro';
+  }
   overlay.querySelector('#cfgOutroBrowse').onclick = async () => {
     const result = await window.clipper.chooseOutroFile();
-    if (result.success) overlay.querySelector('#cfgOutroPath').value = result.filePath;
+    if (result.success) setOutroPath(result.filePath);
   };
 
-  overlay.querySelector('#cfgOutroPath').onclick = async () => {
-    const result = await window.clipper.chooseOutroFile();
-    if (result.success) overlay.querySelector('#cfgOutroPath').value = result.filePath;
-  };
+  // Shazam output picker — seed dataset.path with the persisted value so the
+  // "no change" case still saves the existing path correctly.
+  {
+    const pathSpan = overlay.querySelector('#cfgShazamOutputPath');
+    if (pathSpan) pathSpan.dataset.path = userConfig.musicOutputPath || '';
+    const pickBtn = overlay.querySelector('#cfgShazamPick');
+    if (pickBtn) {
+      pickBtn.onclick = async () => {
+        dbg('ACTION', 'Shazam output picker opened', {});
+        const result = await window.clipper.chooseShazamOutput();
+        if (result && result.success) {
+          dbg('ACTION', 'Shazam output picker chose path', { filePath: result.filePath });
+          if (pathSpan) {
+            pathSpan.dataset.path = result.filePath;
+            pathSpan.textContent = result.filePath;
+            pathSpan.title = result.filePath;
+          }
+        } else {
+          dbg('ACTION', 'Shazam output picker cancelled', {});
+        }
+      };
+    }
+  }
 
   overlay.querySelector('#cfgChannelSave').onclick = async () => {
     const chId = overlay.querySelector('#cfgChannelId').value.trim();
@@ -2777,9 +3143,18 @@ function openConfigModal() {
     userConfig.ffmpeg.hwaccelDevice = overlay.querySelector('#cfgHwaccelDevice').value;
     userConfig.ffmpeg.nvencPreset = overlay.querySelector('#cfgNvencPreset').value;
 
-    // Universal outro
+    // Universal watermark — only the enabled flag is editable from this
+    // panel; the configured text/image lives in the watermark editor modal.
+    universalWatermarkEnabled = overlay.querySelector('#cfgWmEnabled').checked;
+
+    // Universal outro — read the real path from the span's dataset, not
+    // the ANON-sanitized text shown to the user.
     universalOutro.enabled = overlay.querySelector('#cfgOutroEnabled').checked;
-    universalOutro.filePath = overlay.querySelector('#cfgOutroPath').value.trim();
+    {
+      const span = overlay.querySelector('#cfgOutroValue');
+      const real = (span && span.dataset && span.dataset.realPath) || '';
+      universalOutro.filePath = real.trim();
+    }
 
     // Dev features
     batchModeEnabled = overlay.querySelector('#cfgBatchEnabled').checked;
@@ -2790,6 +3165,14 @@ function openConfigModal() {
     userConfig.devFeatures.logFfmpegCommands = overlay.querySelector('#cfgLogFfmpegCommands').checked;
     userConfig.devFeatures.advancedPanelSystem = overlay.querySelector('#cfgAdvancedPanels').checked;
     userConfig.devFeatures.frameAccurateClipping = overlay.querySelector('#cfgFrameAccurateClipping').checked;
+    userConfig.devFeatures.shazamScan = overlay.querySelector('#cfgShazamScan').checked;
+    // musicOutputPath is mutated directly by the picker handler below — just
+    // re-read here so the displayed value is what we persist.
+    {
+      const pathSpan = overlay.querySelector('#cfgShazamOutputPath');
+      const picked = pathSpan?.dataset?.path;
+      if (picked != null) userConfig.musicOutputPath = picked;
+    }
 
     // Tutorial flag: localStorage, not userConfig. tutorial-boot.js reads
     // this once at page load, so a real toggle requires a reload to take

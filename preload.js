@@ -70,6 +70,11 @@ contextBridge.exposeInMainWorld('clipper', {
   // Watermark image picker
   chooseWatermarkImage: () => ipcRenderer.invoke('choose-watermark-image'),
 
+  // Shazam (dev feature)
+  chooseShazamOutput: () => ipcRenderer.invoke('choose-shazam-output'),
+  scanClipSongs: (opts) => ipcRenderer.invoke('scan-clip-songs', opts),
+  onScanProgress: (cb) => ipcRenderer.on('scan-progress', (_, d) => cb(d)),
+
   // Watermark preview
   previewWatermark: (opts) => ipcRenderer.invoke('preview-watermark', opts),
   showPreview: (filePath) => ipcRenderer.invoke('show-preview', { filePath }),

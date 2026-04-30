@@ -205,6 +205,14 @@ function broadcastProgress(clipName, progress) {
   if (hubWindow && !hubWindow.isDestroyed()) hubWindow.webContents.send('clip-progress', data);
 }
 
+// Broadcast Shazam scan progress to main + hub. Payload shape varies by phase
+// (fetching | recognizing | done | error); see scan-clip-songs handler.
+function broadcastScanProgress(clipName, payload) {
+  const data = { clipName, ...payload };
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('scan-progress', data);
+  if (hubWindow && !hubWindow.isDestroyed()) hubWindow.webContents.send('scan-progress', data);
+}
+
 // ── Config paths (per-OS user config root) ──────────────────────
 // Windows: %APPDATA%\ClippingHub
 // macOS:   ~/Library/Application Support/ClippingHub
@@ -1238,6 +1246,23 @@ ipcMain.handle('choose-watermark-image', async () => {
   return { success: false };
 });
 
+// ── IPC: choose Shazam output .txt (dev feature) ─────────────────
+// Save dialog so the user can either pick an existing file (we'll append)
+// or name a new one. createDirectory:true is implicit in Save dialogs.
+ipcMain.handle('choose-shazam-output', async () => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Choose Shazam Output File',
+    defaultPath: 'songs.txt',
+    filters: [{ name: 'Text Files', extensions: ['txt'] }],
+    properties: ['createDirectory', 'showOverwriteConfirmation'],
+  });
+  if (!result.canceled && result.filePath) {
+    debugLog('SHAZAM', 'Output file selected', { filePath: result.filePath });
+    return { success: true, filePath: result.filePath };
+  }
+  return { success: false };
+});
+
 // ══════════════════════════════════════════════════════════════════
 // ── Watermark: build ffmpeg drawtext filter ──────────────────────
 // (Ported from ClipperWATERMARKTESTING)
@@ -1876,6 +1901,241 @@ ipcMain.handle('download-clip', async (event, { m3u8Url, m3u8Text, startSec, dur
     } else {
       try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
     }
+  }
+});
+
+// ── IPC: Shazam scan (dev feature) ───────────────────────────────
+// Mirrors the download-clip pipeline up to the segment-fetch + concat stage,
+// then pipes pcm_s16le @ 16 kHz mono into music/scan.py via --stdin --ipc-json.
+// Each JSON event from python is logged to the debug terminal and forwarded as
+// a 'scan-progress' broadcast. Recognized tracks are deduped against the
+// user-chosen .txt and appended (one "Artist - Title" per line). Reuses the
+// existing proxy fetcher so Rumble's byte-ranged segments work the same way
+// they do for clip downloads.
+ipcMain.handle('scan-clip-songs', async (event, opts) => {
+  const { clipName, m3u8Url, m3u8Text, startSec, durationSec, outputTxtPath, chunkSecs, concurrency } = opts || {};
+  const { parseSegments, buildConcatArgs } = require('./src/lib/ffmpeg-args.js');
+  const { parseExistingFile, appendIfNew } = require('./src/lib/songs-dedup.js');
+
+  debugLog('SHAZAM', 'Scan requested', {
+    clipName,
+    startSec,
+    durationSec,
+    outputTxtPath,
+    chunkSecs: chunkSecs || 12,
+    concurrency: concurrency || 10,
+    m3u8Url: typeof m3u8Url === 'string' ? m3u8Url.slice(0, 120) : null,
+  });
+
+  if (!outputTxtPath) {
+    debugLog('SHAZAM', 'Aborted — no output file configured', {});
+    return { success: false, error: 'No Shazam output file selected. Pick one in Settings → Developer Features.' };
+  }
+
+  // Locate the Shazam venv python. Dev-only — there is no bundled python in
+  // production builds, so the toggle expects the user to have run the venv
+  // bootstrap from music/README.md.
+  const pyName = process.platform === 'win32' ? 'python.exe' : 'python';
+  const pyDir = process.platform === 'win32' ? 'Scripts' : 'bin';
+  const pythonPath = path.join(__dirname, 'music', '.venv', pyDir, pyName);
+  const scanScript = path.join(__dirname, 'music', 'scan.py');
+  if (!fs.existsSync(pythonPath)) {
+    const msg = `Shazam venv missing at ${pythonPath}. Run: py -3.13 -m venv music/.venv && music/.venv/${pyDir}/${pyName} -m pip install -r music/requirements.txt`;
+    debugLog('SHAZAM', 'Aborted — venv missing', { pythonPath });
+    return { success: false, error: msg };
+  }
+  if (!fs.existsSync(scanScript)) {
+    debugLog('SHAZAM', 'Aborted — scan.py missing', { scanScript });
+    return { success: false, error: `scan.py missing at ${scanScript}` };
+  }
+
+  const tempDir = path.join(clipsDir, `_shazam_tmp_${Date.now()}`);
+  fs.mkdirSync(tempDir, { recursive: true });
+
+  try {
+    // 1. Resolve to a media playlist + parse segments. Same logic as download-clip.
+    let mediaText;
+    if (m3u8Text) {
+      debugLog('SHAZAM', 'Using cached local playlist text', { length: m3u8Text.length });
+      mediaText = m3u8Text;
+    } else {
+      debugLog('SHAZAM', 'Resolving media playlist from URL...', {});
+      ({ text: mediaText } = await resolveMediaUrl(m3u8Url));
+    }
+    const { segments } = parseSegments(mediaText);
+    if (!segments.length) throw new Error('No segments found in playlist');
+
+    // 2. Filter to [startSec, startSec+durationSec)
+    const endSec = startSec + durationSec;
+    const relevant = segments.filter(s => s.startTime + s.duration > startSec && s.startTime < endSec);
+    debugLog('SHAZAM', 'Segment selection', {
+      requestRange: `${startSec}s - ${endSec}s`,
+      matchedSegments: relevant.length,
+      firstMatch: relevant[0]?.startTime,
+      lastMatch: relevant[relevant.length - 1]?.startTime,
+    });
+    if (!relevant.length) throw new Error('No segments found in the requested time range');
+
+    broadcastScanProgress(clipName, { phase: 'fetching', progress: 0, totalSegments: relevant.length });
+
+    // 3. Fetch each segment via the proxy.
+    const tsPaths = [];
+    for (let i = 0; i < relevant.length; i++) {
+      const seg = relevant[i];
+      const tsPath = path.join(tempDir, `seg_${String(i).padStart(4, '0')}.ts`);
+      const buf = await proxyFetchBuffer(seg.url);
+      fs.writeFileSync(tsPath, buf);
+      tsPaths.push(tsPath);
+      const pct = Math.round(((i + 1) / relevant.length) * 100);
+      broadcastScanProgress(clipName, { phase: 'fetching', progress: pct, totalSegments: relevant.length, completedSegments: i + 1 });
+    }
+    debugLog('SHAZAM', 'Segments fetched', { count: tsPaths.length });
+
+    // 4. Concat the .ts segments into one file (no re-encode).
+    const listFile = path.join(tempDir, 'files.txt');
+    fs.writeFileSync(listFile, tsPaths.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n'));
+    const concatPath = path.join(tempDir, 'concat.ts');
+    const concatArgs = buildConcatArgs(listFile, concatPath);
+    await new Promise((resolve, reject) => {
+      const proc = spawn(getFfmpegPath(), concatArgs, { stdio: ['ignore', 'ignore', 'pipe'] });
+      let stderr = '';
+      proc.stderr.on('data', d => { stderr += d.toString(); });
+      proc.on('close', code => {
+        if (code === 0) resolve();
+        else { debugLog('SHAZAM', 'Concat failed', { code, stderr: stderr.slice(0, 400) }); reject(new Error(`ffmpeg concat failed (code ${code})`)); }
+      });
+      proc.on('error', reject);
+    });
+    debugLog('SHAZAM', 'Concat complete', { concatPath });
+
+    // 5. Decode + trim to [ssOffset, ssOffset+durationSec) as raw mono pcm_s16le @ 16 kHz.
+    //    Pipe ffmpeg.stdout → python.stdin. Both processes run in parallel.
+    const ssOffset = Math.max(0, startSec - relevant[0].startTime);
+    const cs = Number(chunkSecs) > 0 ? Number(chunkSecs) : 12;
+    const conc = Number(concurrency) > 0 ? Number(concurrency) : 10;
+    const totalChunks = Math.max(1, Math.ceil(durationSec / cs));
+
+    const ffArgs = [
+      '-hide_banner', '-loglevel', 'error',
+      '-i', concatPath,
+      '-ss', String(ssOffset),
+      '-t', String(durationSec),
+      '-vn',
+      '-ac', '1',
+      '-ar', '16000',
+      '-c:a', 'pcm_s16le',
+      '-f', 's16le',
+      'pipe:1',
+    ];
+    debugLog('SHAZAM', 'Decode pipeline starting', { ssOffset, durationSec, totalChunks, chunkSecs: cs, concurrency: conc });
+
+    const ff = spawn(getFfmpegPath(), ffArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const py = spawn(pythonPath, [
+      scanScript,
+      '--stdin', '--ipc-json',
+      '--total-chunks', String(totalChunks),
+      '--chunk', String(cs),
+      '--concurrency', String(conc),
+    ], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+    ff.stdout.pipe(py.stdin);
+    // Don't crash on EPIPE: ffmpeg outliving python (or vice versa) is fine
+    // — we wait on both exits below.
+    ff.stdout.on('error', () => {});
+    py.stdin.on('error', () => {});
+
+    let ffStderrBuf = '';
+    ff.stderr.on('data', d => { ffStderrBuf += d.toString(); });
+    let pyStderrBuf = '';
+    py.stderr.on('data', d => { pyStderrBuf += d.toString(); });
+
+    // Seed dedup set from the user's existing .txt.
+    const seen = parseExistingFile(outputTxtPath);
+    debugLog('SHAZAM', 'Dedup set seeded from existing file', { existing: seen.size, file: outputTxtPath });
+
+    const stats = { total: totalChunks, completed: 0, matches: 0, newAdds: 0, errors: 0 };
+    let lineBuf = '';
+    py.stdout.on('data', chunk => {
+      lineBuf += chunk.toString('utf-8');
+      let nl;
+      while ((nl = lineBuf.indexOf('\n')) >= 0) {
+        const line = lineBuf.slice(0, nl).trim();
+        lineBuf = lineBuf.slice(nl + 1);
+        if (!line) continue;
+        let evt;
+        try { evt = JSON.parse(line); } catch (_) { debugLog('SHAZAM', 'Non-JSON stdout line', { line: line.slice(0, 200) }); continue; }
+        if (evt.type === 'start') {
+          debugLog('SHAZAM', 'Recognition started', { totalChunks: evt.total_chunks, chunkSecs: evt.chunk_secs });
+        } else if (evt.type === 'match') {
+          stats.matches++;
+          stats.completed = evt.completed;
+          const isNew = appendIfNew(outputTxtPath, seen, evt.artist, evt.title);
+          if (isNew) stats.newAdds++;
+          debugLog('SHAZAM', isNew ? 'Match (NEW)' : 'Match (dup)', {
+            offset: evt.offset, idx: evt.idx, artist: evt.artist, title: evt.title,
+            completed: evt.completed, total: evt.total,
+            spotify: evt.spotify_url ? evt.spotify_url.slice(0, 80) : null,
+            youtube: evt.youtube_url ? evt.youtube_url.slice(0, 80) : null,
+          });
+          broadcastScanProgress(clipName, {
+            phase: 'recognizing', completed: evt.completed, total: evt.total,
+            matches: stats.matches, newAdds: stats.newAdds,
+            lastMatch: {
+              artist: evt.artist,
+              title: evt.title,
+              isNew,
+              offset: evt.offset,
+              spotifyUrl: evt.spotify_url || null,
+              appleUrl: evt.apple_url || null,
+              youtubeUrl: evt.youtube_url || null,
+              shazamUrl: evt.shazam_url || null,
+            },
+          });
+        } else if (evt.type === 'nomatch') {
+          stats.completed = evt.completed;
+          broadcastScanProgress(clipName, {
+            phase: 'recognizing', completed: evt.completed, total: evt.total,
+            matches: stats.matches, newAdds: stats.newAdds,
+          });
+        } else if (evt.type === 'err') {
+          stats.errors++;
+          stats.completed = evt.completed;
+          debugLog('SHAZAM', 'Recognition error', { offset: evt.offset, message: evt.message });
+          broadcastScanProgress(clipName, {
+            phase: 'recognizing', completed: evt.completed, total: evt.total,
+            matches: stats.matches, newAdds: stats.newAdds, lastError: evt.message,
+          });
+        } else if (evt.type === 'done') {
+          debugLog('SHAZAM', 'Recognition done', { elapsed: evt.elapsed, matches: evt.matches, completed: evt.completed });
+        }
+      }
+    });
+
+    // Wait for both processes to exit. ffmpeg finishes first (closes stdout),
+    // python drains, then exits.
+    const exitCode = await new Promise(resolve => {
+      let pyCode = null;
+      let ffClosed = false;
+      ff.on('close', () => { ffClosed = true; if (pyCode !== null) resolve(pyCode); });
+      ff.on('error', e => debugLog('SHAZAM', 'ffmpeg spawn error', { message: e.message }));
+      py.on('close', code => { pyCode = code ?? -1; if (ffClosed) resolve(pyCode); });
+      py.on('error', e => debugLog('SHAZAM', 'python spawn error', { message: e.message }));
+    });
+
+    if (ffStderrBuf) debugLog('SHAZAM', 'ffmpeg stderr', { output: ffStderrBuf.slice(0, 600) });
+    if (pyStderrBuf) debugLog('SHAZAM', 'python stderr', { output: pyStderrBuf.slice(0, 600) });
+
+    if (exitCode !== 0) throw new Error(`scan.py exited with code ${exitCode}`);
+
+    debugLog('SHAZAM', 'Scan complete', { ...stats, outputFile: outputTxtPath });
+    broadcastScanProgress(clipName, { phase: 'done', ...stats, outputFile: outputTxtPath });
+    return { success: true, ...stats, outputFile: outputTxtPath };
+  } catch (e) {
+    debugLog('SHAZAM', 'Scan failed', { error: e.message });
+    broadcastScanProgress(clipName, { phase: 'error', error: e.message });
+    return { success: false, error: e.message };
+  } finally {
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
   }
 });
 

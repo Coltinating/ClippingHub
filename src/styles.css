@@ -539,6 +539,108 @@ video {
 }
 .buffer-badge.on { display: block; }
 
+/* ── Shazam HUD (dev feature) ────────────────────────────────── */
+/* Floating dropdown in the top-left of the player. Stays mounted whenever
+   userConfig.devFeatures.shazamScan is on; collapses to a small "Songs (N)"
+   pill, expands on click to a list of recognized tracks with Spotify
+   (primary, green) and YouTube (fallback, red) link buttons. */
+.shazam-hud {
+  position: absolute; top: 10px; left: 10px;
+  z-index: 6;
+  font-size: 12px;
+  pointer-events: auto;
+}
+.shazam-hud-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(0,0,0,0.72); color: #e4e4e7;
+  border: 1px solid var(--border, #3f3f46);
+  border-radius: 14px; padding: 4px 10px;
+  cursor: pointer; font: inherit; line-height: 1.3;
+  transition: background 0.15s, border-color 0.15s;
+}
+.shazam-hud-toggle:hover { background: rgba(0,0,0,0.88); border-color: #71717a; }
+.shazam-hud-toggle .shazam-hud-label { letter-spacing: 0.04em; }
+.shazam-hud-toggle .shazam-hud-count {
+  background: var(--accent-l, #7b61ff); color: #fff;
+  border-radius: 10px; padding: 1px 7px;
+  font-size: 10px; font-weight: 600; min-width: 18px; text-align: center;
+}
+.shazam-hud-toggle.has-new {
+  animation: shazam-pulse 0.9s ease-out;
+  border-color: #22c55e;
+}
+@keyframes shazam-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0.55); }
+  100% { box-shadow: 0 0 0 12px rgba(34,197,94,0); }
+}
+
+.shazam-hud-panel {
+  margin-top: 6px;
+  background: rgba(15,15,18,0.95); color: #e4e4e7;
+  border: 1px solid var(--border, #3f3f46);
+  border-radius: 8px;
+  width: 320px; max-height: 360px;
+  display: flex; flex-direction: column;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+  overflow: hidden;
+}
+.shazam-hud-panel[hidden] { display: none; }
+.shazam-hud-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 10px; border-bottom: 1px solid var(--border, #3f3f46);
+  background: rgba(255,255,255,0.03);
+}
+.shazam-hud-title { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #a1a1aa; }
+.shazam-hud-clear {
+  background: transparent; color: #a1a1aa; border: 1px solid transparent;
+  border-radius: 4px; padding: 2px 6px; font-size: 11px; cursor: pointer;
+}
+.shazam-hud-clear:hover { color: #fafafa; border-color: var(--border, #3f3f46); }
+
+.shazam-hud-list { list-style: none; margin: 0; padding: 4px 0; overflow-y: auto; }
+.shazam-hud-list:empty + .shazam-hud-empty { display: block; }
+.shazam-hud-empty {
+  display: none;
+  padding: 14px 10px; color: #71717a; font-size: 11px; text-align: center;
+}
+
+.shazam-hud-item {
+  display: flex; flex-direction: column;
+  padding: 8px 10px; border-bottom: 1px solid rgba(63,63,70,0.4);
+  gap: 4px;
+}
+.shazam-hud-item:last-child { border-bottom: none; }
+.shazam-hud-song-title {
+  font-size: 12px; color: #fafafa; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.shazam-hud-song-artist {
+  font-size: 11px; color: #a1a1aa;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Action pills — labeled "Spotify" and "YouTube" so the user immediately
+   recognizes them as clickable links (rather than mystery icons). Spotify
+   solid green (primary CTA), YouTube outlined red (last resort). */
+.shazam-hud-actions {
+  display: flex; gap: 6px; margin-top: 4px;
+}
+.shazam-hud-action {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: 12px;
+  font-size: 11px; font-weight: 500; text-decoration: none;
+  cursor: pointer; transition: transform 0.1s, filter 0.15s;
+  border: 1px solid transparent;
+}
+.shazam-hud-action svg { width: 12px; height: 12px; }
+.shazam-hud-action:hover { transform: translateY(-1px); filter: brightness(1.12); }
+.shazam-hud-action.spotify { background: #1db954; color: #fff; }
+.shazam-hud-action.spotify:hover { box-shadow: 0 2px 8px rgba(29,185,84,0.35); }
+.shazam-hud-action.youtube {
+  background: transparent; color: #f87171; border-color: rgba(239,68,68,0.55);
+}
+.shazam-hud-action.youtube:hover { background: rgba(239,68,68,0.12); }
+
 /* ── Player Controls ─────────────────────────────────────────── */
 .controls-overlay {
   position: absolute; bottom: 0; left: 0; right: 0;
