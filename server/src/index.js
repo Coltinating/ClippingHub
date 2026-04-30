@@ -37,6 +37,10 @@ function loadEnvFileIfPresent() {
 export async function startServer(overrides = {}) {
   loadEnvFileIfPresent();
   const cfg = { ...loadConfig(process.env), ...overrides };
+  console.log('Environment check - ADMIN_TOKEN present:', !!process.env.ADMIN_TOKEN);
+  if (process.env.ADMIN_TOKEN) {
+  console.log('ADMIN_TOKEN length:', process.env.ADMIN_TOKEN.length);
+  }
   const dbFile = cfg.dataDir === ':memory:' ? ':memory:' : `${cfg.dataDir}/clippinghub.db`;
   const db = openDb(dbFile);
   const logger = makeLogger(cfg.logLevel);
