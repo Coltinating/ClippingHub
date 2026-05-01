@@ -77,7 +77,9 @@ function loadPrefsLegacy() {
 var prefs = loadPrefsLegacy();
 var state = {
   me: {
-    id: makeId('u'),
+    id: (window.RthubConfig && window.RthubConfig.ensureClientId)
+      ? window.RthubConfig.ensureClientId(prefs.meId || '')
+      : makeId('u'),
     name: normalizeName(prefs.meName || 'You'),
     xHandle: (window.Profile && window.Profile.sanitizeXHandle(prefs.meXHandle)) || '',
     color: (window.Profile && window.Profile.resolveUserColor({ color: prefs.meColor }, '')) || '',
@@ -107,7 +109,8 @@ function savePrefs() {
       xHandle: state.me.xHandle || '',
       color: state.me.color || '',
       pfpDataUrl: state.me.pfpDataUrl || '',
-      lastCode: state.lobby ? state.lobby.code : state.lastCode
+      lastCode: state.lobby ? state.lobby.code : state.lastCode,
+      meId: state.me.id
     };
     if (window.clipper && window.clipper.profileSetConfig) {
       try { window.clipper.profileSetConfig(payload); } catch (_) {}
@@ -119,7 +122,8 @@ function savePrefs() {
         meXHandle: payload.xHandle,
         meColor: payload.color,
         mePfpDataUrl: payload.pfpDataUrl,
-        lastCode: payload.lastCode
+        lastCode: payload.lastCode,
+        meId: payload.meId
       }));
     } catch (_) {}
   }, 250);
@@ -132,6 +136,12 @@ if (window.clipper && window.clipper.profileGetConfig) {
     window.clipper.profileGetConfig().then(function (cfg) {
       if (!cfg || typeof cfg !== 'object') return;
       var changed = false;
+      if (cfg.meId && window.RthubConfig && window.RthubConfig.ensureClientId) {
+        var diskId = window.RthubConfig.ensureClientId(cfg.meId);
+        if (diskId && diskId !== state.me.id) {
+          state.me.id = diskId; changed = true;
+        }
+      }
       if (cfg.name && cfg.name !== state.me.name) {
         state.me.name = normalizeName(cfg.name); changed = true;
       }
