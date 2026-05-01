@@ -424,6 +424,22 @@ function attachClientHandlers() {
     state.lobby = null;
     emit();
   });
+  // Realtime sync surfaces (rthub only — CollabClient never emits these).
+  // Re-broadcast on the panel bus so renderer/timeline modules can subscribe
+  // without a hard dependency on the client implementation.
+  if (window._panelBus && window._panelBus.emit && client.on) {
+    var bus = window._panelBus;
+    var SYNC_EVENTS = [
+      ['timeline:update',  'rthub:timeline'],
+      ['playback:update',  'rthub:playback'],
+      ['selection:update', 'rthub:selection'],
+      ['cursor:update',    'rthub:cursor'],
+      ['cliprange:update', 'rthub:cliprange']
+    ];
+    SYNC_EVENTS.forEach(function (pair) {
+      try { client.on(pair[0], function (m) { bus.emit(pair[1], m); }); } catch (_) {}
+    });
+  }
 }
 
 function peerProfilePayload() {
@@ -1394,7 +1410,13 @@ window.CollabUI = {
   myMember: myMember,
   canMarkClips: canMarkClipsLocal,
   canSendDelivery: canSendDeliveryLocal,
-  canConsumeDeliveries: canConsumeDeliveriesLocal
+  canConsumeDeliveries: canConsumeDeliveriesLocal,
+  // Realtime sync senders (rthub only — no-op when legacy CollabClient is active).
+  sendTimeline:  function (ms)              { if (client && client.sendTimeline)  client.sendTimeline(ms); },
+  sendPlayback:  function (state, ms, rate) { if (client && client.sendPlayback)  client.sendPlayback(state, ms, rate); },
+  sendSelection: function (ids)             { if (client && client.sendSelection) client.sendSelection(ids); },
+  sendCursor:    function (ms)              { if (client && client.sendCursor)    client.sendCursor(ms); },
+  sendClipRange: function (inMs, outMs)     { if (client && client.sendClipRange) client.sendClipRange(inMs, outMs); }
 };
 
 if (document.readyState === 'loading') {
