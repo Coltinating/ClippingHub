@@ -866,21 +866,23 @@ function renderProgressMarkers() {
 
 function updateCollabIndicators(currentTime) {
   if (!window.CollabUI || !window.CollabUI.getIndicatorAtTime) {
-    if (collabRangeIndicator) collabRangeIndicator.style.display = 'none';
+    if (collabRangeIndicator) collabRangeIndicator.classList.remove('visible');
     if (playerWrapEl) playerWrapEl.classList.remove('collab-active-glow');
     return;
   }
 
   const active = window.CollabUI.getIndicatorAtTime(currentTime);
   if (!active) {
-    if (collabRangeIndicator) collabRangeIndicator.style.display = 'none';
+    if (collabRangeIndicator) collabRangeIndicator.classList.remove('visible');
     if (playerWrapEl) playerWrapEl.classList.remove('collab-active-glow');
     return;
   }
 
   if (collabRangeIndicator) {
-    collabRangeIndicator.textContent = active.text;
-    collabRangeIndicator.style.display = 'inline-flex';
+    if (collabRangeIndicator.textContent !== active.text) {
+      collabRangeIndicator.textContent = active.text;
+    }
+    collabRangeIndicator.classList.add('visible');
   }
   if (playerWrapEl) playerWrapEl.classList.add('collab-active-glow');
 }

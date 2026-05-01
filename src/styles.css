@@ -690,15 +690,38 @@ video {
   border-bottom: 1px dashed rgba(255,255,255,0.5);
   z-index: 0;
 }
+/* Collab status chip — anchored top-right of .player-wrap so it never
+   reflows the timeline. Hidden by default (opacity 0); fades in via the
+   `.visible` class so appearance is smooth instead of a hard pop. */
 .collab-range-indicator {
-  border: 1px solid rgba(255,255,255,0.28);
-  background: rgba(0,0,0,0.55);
-  color: #ececec;
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 6;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: rgba(236,236,236,0.85);
   border-radius: 4px;
-  padding: 2px 8px;
+  padding: 3px 9px;
   font-size: 10px;
   letter-spacing: 0.02em;
   white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 180ms ease, transform 180ms ease, color 120ms ease;
+}
+.collab-range-indicator.visible {
+  opacity: 0.7;
+  transform: translateY(0);
+}
+/* Bring up to full readability when the user is interacting with the player */
+.player-wrap:hover .collab-range-indicator.visible,
+.player-wrap.paused .collab-range-indicator.visible {
+  opacity: 1;
+  color: #f4f4f4;
 }
 
 .time-display {

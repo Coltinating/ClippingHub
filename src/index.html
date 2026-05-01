@@ -315,6 +315,9 @@
             <div class="loading-spinner" id="loadingSpinner"></div>
             <div class="buffer-badge" id="bufferBadge">Buffering...</div>
 
+            <!-- Collab status chip (top-right, absolute — never reflows the timeline) -->
+            <span class="collab-range-indicator" id="collabRangeIndicator" aria-live="polite"></span>
+
             <!-- Shazam HUD: live match feedback (dev feature, devFeatures.shazamScan) -->
             <div class="shazam-hud" id="shazamHud" hidden>
               <button class="shazam-hud-toggle" id="shazamHudToggle" type="button" title="Recognized songs">
@@ -345,7 +348,6 @@
                 </div>
                 <div class="time-display" id="timeDisplay">0:00 / 0:00</div>
                 <button class="live-sync-btn" id="liveSyncBtn" title="Jump to live edge">LIVE</button>
-                <span class="collab-range-indicator" id="collabRangeIndicator" style="display:none;"></span>
               </div>
               <div class="controls-row">
                 <button class="ctrl-btn" id="skipBack" title="Back 10s">
