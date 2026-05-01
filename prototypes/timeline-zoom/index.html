@@ -11,14 +11,25 @@
 
       rm -rf prototypes/timeline-zoom/
 
+  v3 — CapCut/Vegas-style direct manipulation on the precise strip.
+       Anchor strip is purely visual feedback (not interactive).
+
+  Mouse on the precise (lower) strip:
+      Drag empty area          pan the view (Photoshop hand tool feel)
+      Drag the playhead        scrub through the video
+      Click                    seek to that point
+      Wheel                    zoom in/out around cursor
+      Shift + wheel            pan horizontally
+      Trackpad horizontal      pan horizontally
+
   Keyboard:
-      Mouse wheel on scrubber  zoom in/out around cursor
-      Click on scrubber        seek
-      Drag minimap viewport    pan the zoomed view
-      Click outside viewport   jump viewport there
       I / O                    mark IN / OUT at playhead
       Esc                      clear marks
       R                        reset to full zoom
+
+  Click vs drag is disambiguated by a 4px movement threshold. Edge
+  auto-pan kicks in when scrubbing near the left/right edge of the view
+  so the user can scrub past the visible window without releasing.
 -->
 <html>
 <head>
@@ -103,32 +114,44 @@
     padding: 10px 12px 14px;
   }
 
-  /* Minimap (always full range) */
+  /* Section caption */
+  .section-cap {
+    display: flex; align-items: baseline; justify-content: space-between;
+    color: var(--muted); font-size: 9px; letter-spacing: 0.18em;
+    text-transform: uppercase; margin: 4px 2px 4px;
+    font-family: ui-monospace, monospace;
+  }
+  .section-cap b { color: var(--text); font-weight: 500; letter-spacing: 0.18em; }
+  .section-cap .hint { color: var(--muted); font-size: 9px; letter-spacing: 0.05em; text-transform: none; font-family: -apple-system, sans-serif; }
+
+  /* Anchor strip (the old "minimap") — always full range, NEVER interactive.
+     Pure read-only "you are here in the 5h stream" indicator. */
   .minimap-wrap {
     position: relative;
-    height: 28px;
-    margin-bottom: 6px;
+    height: 18px;
+    margin-bottom: 4px;
+    pointer-events: none;          /* the entire strip swallows no input */
   }
   .minimap {
     position: absolute; inset: 0;
-    background: var(--panel-2);
+    background: rgba(255,255,255,0.03);
     border: 1px solid var(--line);
-    border-radius: 3px;
+    border-radius: 2px;
     overflow: hidden;
-    cursor: pointer;
+    cursor: default;
   }
   .minimap-viewport {
-    position: absolute; top: 0; bottom: 0;
+    position: absolute; top: -1px; bottom: -1px;
     background: var(--viewport);
-    border-left: 1px solid var(--viewport-border);
-    border-right: 1px solid var(--viewport-border);
-    cursor: grab;
-    pointer-events: auto;
+    border-left:  2px solid var(--viewport-border);
+    border-right: 2px solid var(--viewport-border);
+    box-shadow: 0 0 0 1px rgba(91,157,255,0.18), 0 0 8px rgba(91,157,255,0.25);
+    pointer-events: none;
+    transition: left 80ms linear, width 80ms linear;
   }
-  .minimap-viewport.dragging { cursor: grabbing; }
   .minimap-playhead {
     position: absolute; top: 0; bottom: 0;
-    width: 1px; background: var(--text);
+    width: 1px; background: rgba(255,255,255,0.85);
     pointer-events: none;
   }
   .minimap-mark {
@@ -154,17 +177,22 @@
     transform: translateX(-50%);
   }
 
-  /* Main scrubber (zoomed view) */
+  /* Precise strip ("navigator") — the interactive timeline. Taller and
+     sharper than the anchor so it visually reads as the primary surface. */
   .scrubber-wrap { position: relative; }
   .scrubber {
     position: relative;
-    height: 56px;
+    height: 64px;
     background: var(--panel-2);
-    border: 1px solid var(--line);
+    border: 1px solid #353535;
     border-radius: 3px;
     overflow: hidden;
-    cursor: crosshair;
+    cursor: grab;                 /* default: pannable background */
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset;
   }
+  /* JS sets cursor: ew-resize when hovering near the playhead handle */
+  .scrubber.panning   { cursor: grabbing; }
+  .scrubber.scrubbing { cursor: ew-resize; }
   .scrubber-tick {
     position: absolute; top: 0; bottom: 18px;
     width: 1px; background: #2f2f2f;
@@ -209,10 +237,19 @@
     pointer-events: none;
     box-shadow: 0 0 6px rgba(255,255,255,0.6);
   }
+  /* Triangle handle on top — bigger so it reads as a draggable grip */
   .scrubber-playhead::before {
-    content: ''; position: absolute; left: -4px; top: 0;
-    width: 9px; height: 7px; background: var(--text);
+    content: ''; position: absolute; left: -5px; top: 0;
+    width: 11px; height: 9px; background: var(--text);
     clip-path: polygon(0 0, 100% 0, 50% 100%);
+  }
+  /* Subtle grab-affordance dot on the playhead line at vertical center */
+  .scrubber-playhead::after {
+    content: ''; position: absolute; left: -3px; top: 50%;
+    transform: translateY(-50%);
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text); opacity: 0.85;
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.6), 0 0 8px rgba(255,255,255,0.4);
   }
   .tooltip {
     position: absolute;
@@ -272,6 +309,10 @@
   </div>
 
   <div class="timeline">
+    <div class="section-cap">
+      <span><b>Anchor</b> · where you are in the stream</span>
+      <span class="hint">read-only</span>
+    </div>
     <div class="minimap-wrap">
       <div class="minimap" id="minimap">
         <div class="minimap-selection" id="minimapSelection"></div>
@@ -283,6 +324,10 @@
     </div>
     <div class="minimap-labels" id="minimapLabels"></div>
 
+    <div class="section-cap" style="margin-top: 14px;">
+      <span><b>Navigator</b> · zoom, scrub, mark</span>
+      <span class="hint">drag bg = pan · drag playhead = scrub · wheel = zoom · click = seek</span>
+    </div>
     <div class="scrubber-wrap">
       <div class="scrubber" id="scrubber">
         <div class="scrubber-selection" id="scrubberSelection" hidden></div>
@@ -297,10 +342,11 @@
 
   <div class="help">
     <div class="grid">
-      <span><kbd>Wheel</kbd></span><span>zoom in/out around cursor on the main scrubber</span>
-      <span><kbd>Click</kbd> scrubber</span><span>seek playhead</span>
-      <span><kbd>Drag</kbd> minimap</span><span>pan the zoomed view</span>
-      <span><kbd>Click</kbd> outside</span><span>jump viewport to that point</span>
+      <span><kbd>Drag</kbd> background</span><span>pan the timeline left/right (CapCut/Vegas-style)</span>
+      <span><kbd>Drag</kbd> playhead</span><span>scrub through the video; auto-pans near edges</span>
+      <span><kbd>Click</kbd></span><span>seek playhead to that point</span>
+      <span><kbd>Wheel</kbd></span><span>zoom in/out around cursor</span>
+      <span><kbd>Shift</kbd> + <kbd>Wheel</kbd></span><span>pan horizontally (or use trackpad horizontal scroll)</span>
       <span><kbd>I</kbd> / <kbd>O</kbd></span><span>mark IN / OUT at playhead</span>
       <span><kbd>Esc</kbd></span><span>clear marks</span>
       <span><kbd>R</kbd></span><span>reset to full zoom</span>
@@ -519,33 +565,203 @@ function render() {
   }
 }
 
-// ─── Interactions ──────────────────────────────────────────────────────
+// ─── Interactions (Navigator strip — CapCut/Vegas-style) ──────────────
+//
+// State model:
+//   idle      → mousedown captures origin; mode is null until movement
+//                exceeds the context-aware drag threshold.
+//   click     → mouseup before threshold → seek to mousedown position.
+//   scrub     → mousedown landed inside playhead hit zone → playhead
+//                follows cursor; edge auto-pan slides the whole view (span
+//                preserved) when cursor is in the outer EDGE_AUTOPAN_FRAC.
+//   pan       → mousedown landed elsewhere → drag the time-under-cursor
+//                point with the cursor (Photoshop-hand-tool feel).
+//
+// All viewport mutations preserve span by going through shiftView() or by
+// updating viewStart and viewEnd in lock-step. Updating one without the
+// other lets clampView() recompute span from a mismatched pair and the
+// visible range silently grows — that was the v3 "growing on edge" bug.
+//
+// rAF-coalesce render() during drag so input latency stays under 16ms.
 
-// Click main scrubber → seek
-el.scrubber.addEventListener('click', (e) => {
+// Lower threshold when starting from the playhead so scrubbing is snappy;
+// higher threshold from background so accidental pans don't eat clicks.
+const DRAG_THRESHOLD_SCRUB = 2;
+const DRAG_THRESHOLD_PAN   = 4;
+const PLAYHEAD_HIT_RADIUS  = 9;   // px — area around the playhead line that grabs as scrub
+const EDGE_AUTOPAN_FRAC    = 0.06; // outer 6% of scrubber width triggers auto-pan during scrub
+// Auto-pan rate as PIXELS per frame at full intensity. Pixel-uniform feel
+// regardless of zoom level — much better than fraction-of-span which made
+// auto-pan blistering when zoomed out and crawling when zoomed in.
+const EDGE_AUTOPAN_PX_PER_FRAME = 6;
+
+let drag = null;       // { startX, startClientX, startTime, viewStartAtDown, rect, hitPlayhead, mode }
+let renderQueued = false;
+let autoPanRAF = null;
+
+function scheduleRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(() => { renderQueued = false; render(); });
+}
+
+function isNearPlayhead(localX, rect) {
+  const phX = timeToFrac(state.playhead) * rect.width;
+  return Math.abs(localX - phX) <= PLAYHEAD_HIT_RADIUS &&
+         timeToFrac(state.playhead) >= 0 && timeToFrac(state.playhead) <= 1;
+}
+
+// Edge auto-pan: while scrubbing, if the cursor sits near an edge of the
+// scrubber, the WHOLE view slides toward the cursor (span preserved) so the
+// user can keep scrubbing past the visible window without releasing.
+//
+// Critical: must shift viewStart AND viewEnd together. Updating one without
+// the other lets clampView() recompute span from the mismatched values and
+// the visible range silently grows (or shrinks). Always use shiftView().
+function shiftView(deltaSec) {
+  state.viewStart += deltaSec;
+  state.viewEnd   += deltaSec;
+  clampView();   // clampView preserves span as long as both fields are in sync
+}
+
+function maintainEdgeAutoPan(getLocalX, getWidth) {
+  if (autoPanRAF) cancelAnimationFrame(autoPanRAF);
+  function tick() {
+    autoPanRAF = null;
+    if (!drag || drag.mode !== 'scrub') return;
+    const x = getLocalX();
+    const w = getWidth();
+    if (w <= 0) return;
+    const edge = w * EDGE_AUTOPAN_FRAC;
+    let intensity = 0;
+    let dir = 0;
+    if (x < edge)            { intensity = 1 - Math.max(0, x / edge);           dir = -1; }
+    else if (x > w - edge)   { intensity = 1 - Math.max(0, (w - x) / edge);     dir = +1; }
+    if (intensity <= 0) return;
+
+    // Pixel-uniform auto-pan: convert "N px/frame" to seconds via current span:width ratio.
+    const secPerPx = span() / w;
+    const shift    = dir * EDGE_AUTOPAN_PX_PER_FRAME * intensity * secPerPx;
+    const beforeStart = state.viewStart;
+    shiftView(shift);
+    // If the view didn't actually move (already clamped at boundary), stop
+    // looping — nothing more to do.
+    if (state.viewStart === beforeStart) return;
+
+    // Keep the playhead pinned under the cursor as the view scrolls past it.
+    state.playhead = Math.max(0, Math.min(TOTAL_SEC, fracToTime(x / w)));
+    scheduleRender();
+    autoPanRAF = requestAnimationFrame(tick);
+  }
+  autoPanRAF = requestAnimationFrame(tick);
+}
+
+el.scrubber.addEventListener('mousedown', (e) => {
+  if (e.button !== 0) return;
   const rect = el.scrubber.getBoundingClientRect();
-  const f = (e.clientX - rect.left) / rect.width;
-  state.playhead = Math.max(0, Math.min(TOTAL_SEC, fracToTime(f)));
-  render();
+  const localX = e.clientX - rect.left;
+  drag = {
+    startClientX:    e.clientX,
+    startLocalX:     localX,
+    startTime:       fracToTime(localX / rect.width),
+    viewStartAtDown: state.viewStart,
+    rect,
+    hitPlayhead:     isNearPlayhead(localX, rect),
+    mode:            null,
+  };
+  e.preventDefault();
 });
 
-// Wheel on main scrubber → zoom around cursor
+window.addEventListener('mousemove', (e) => {
+  // Hover cursor affordance when not dragging
+  if (!drag) {
+    if (e.target === el.scrubber || el.scrubber.contains(e.target)) {
+      const rect = el.scrubber.getBoundingClientRect();
+      const localX = e.clientX - rect.left;
+      el.scrubber.style.cursor = isNearPlayhead(localX, rect) ? 'ew-resize' : '';
+    }
+    return;
+  }
+
+  const dx = e.clientX - drag.startClientX;
+
+  // Latch mode once the user moves past a context-aware threshold:
+  // scrubs commit early (snappy playhead grab); pans commit later (so a
+  // sloppy click on background doesn't accidentally pan).
+  if (drag.mode == null) {
+    const threshold = drag.hitPlayhead ? DRAG_THRESHOLD_SCRUB : DRAG_THRESHOLD_PAN;
+    if (Math.abs(dx) < threshold) return;
+    drag.mode = drag.hitPlayhead ? 'scrub' : 'pan';
+    el.scrubber.classList.add(drag.mode === 'pan' ? 'panning' : 'scrubbing');
+    // Kill the minimap viewport's transition so it tracks the cursor 1:1 during drag
+    el.minimapViewport.style.transition = 'none';
+    // Hide the hover tooltip during active drag — it just gets in the way
+    el.tooltip.classList.remove('visible');
+  }
+
+  const localX = e.clientX - drag.rect.left;
+
+  if (drag.mode === 'scrub') {
+    const t = fracToTime(localX / drag.rect.width);
+    state.playhead = Math.max(0, Math.min(TOTAL_SEC, t));
+    // Kick auto-pan if near edge; it stops itself when the cursor leaves the edge zone
+    maintainEdgeAutoPan(
+      () => e.clientX - el.scrubber.getBoundingClientRect().left,
+      () => el.scrubber.clientWidth
+    );
+  } else if (drag.mode === 'pan') {
+    // Pin drag.startTime to the current cursor X — feels like dragging the timeline itself.
+    // Preserve span by setting viewStart and recomputing viewEnd in lock-step.
+    const sp = state.viewEnd - state.viewStart;
+    state.viewStart = drag.startTime - (localX / drag.rect.width) * sp;
+    state.viewEnd   = state.viewStart + sp;
+    clampView();
+  }
+  scheduleRender();
+});
+
+window.addEventListener('mouseup', (e) => {
+  if (!drag) return;
+  // No drag committed → treat as a click (seek)
+  if (drag.mode == null) {
+    state.playhead = Math.max(0, Math.min(TOTAL_SEC, drag.startTime));
+    render();
+  }
+  el.scrubber.classList.remove('panning', 'scrubbing');
+  el.minimapViewport.style.transition = '';
+  if (autoPanRAF) { cancelAnimationFrame(autoPanRAF); autoPanRAF = null; }
+  drag = null;
+});
+
+// Wheel: zoom around cursor (default), pan with shift, or pan with horizontal trackpad scroll
 el.scrubber.addEventListener('wheel', (e) => {
   e.preventDefault();
   const rect = el.scrubber.getBoundingClientRect();
   const cursorFrac = (e.clientX - rect.left) / rect.width;
   const cursorTime = fracToTime(cursorFrac);
+
+  // Pan if shift held OR trackpad's horizontal axis dominates
+  const isPan = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY);
+  if (isPan) {
+    const delta = e.shiftKey ? e.deltaY : e.deltaX;
+    shiftView((delta / 100) * span() * 0.25);
+    scheduleRender();
+    return;
+  }
+
+  // Zoom around cursor
   const factor = e.deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
   let newSpan = span() * factor;
   newSpan = Math.max(MIN_SPAN, Math.min(TOTAL_SEC, newSpan));
   state.viewStart = cursorTime - cursorFrac * newSpan;
   state.viewEnd   = state.viewStart + newSpan;
   clampView();
-  render();
+  scheduleRender();
 }, { passive: false });
 
-// Hover tooltip on main scrubber
+// Hover tooltip on main scrubber (skipped during drag; mode-aware cursor handled in window mousemove)
 el.scrubber.addEventListener('mousemove', (e) => {
+  if (drag) return;
   const rect = el.scrubber.getBoundingClientRect();
   const f = (e.clientX - rect.left) / rect.width;
   const t = fracToTime(f);
@@ -555,47 +771,9 @@ el.scrubber.addEventListener('mousemove', (e) => {
   el.tooltip.classList.add('visible');
 });
 el.scrubber.addEventListener('mouseleave', () => {
+  if (drag) return;
   el.tooltip.classList.remove('visible');
-});
-
-// Minimap interactions
-let mmDrag = null;
-
-el.minimap.addEventListener('mousedown', (e) => {
-  const rect = el.minimap.getBoundingClientRect();
-  const f = (e.clientX - rect.left) / rect.width;
-  const clickTime = f * TOTAL_SEC;
-
-  // If click is inside the viewport rectangle: drag-pan
-  if (clickTime >= state.viewStart && clickTime <= state.viewEnd) {
-    mmDrag = { offset: clickTime - state.viewStart, rect };
-    el.minimapViewport.classList.add('dragging');
-  } else {
-    // Otherwise: jump (center viewport on clicked point)
-    const s = span();
-    state.viewStart = clickTime - s / 2;
-    clampView();
-    render();
-    // Then enter drag mode in case the user keeps holding
-    const newClickRect = el.minimap.getBoundingClientRect();
-    mmDrag = { offset: clickTime - state.viewStart, rect: newClickRect };
-    el.minimapViewport.classList.add('dragging');
-  }
-});
-
-window.addEventListener('mousemove', (e) => {
-  if (!mmDrag) return;
-  const f = (e.clientX - mmDrag.rect.left) / mmDrag.rect.width;
-  const clickTime = f * TOTAL_SEC;
-  state.viewStart = clickTime - mmDrag.offset;
-  clampView();
-  render();
-});
-
-window.addEventListener('mouseup', () => {
-  if (!mmDrag) return;
-  mmDrag = null;
-  el.minimapViewport.classList.remove('dragging');
+  el.scrubber.style.cursor = '';   // reset to the CSS default ('grab') — don't leave it stuck on ew-resize
 });
 
 // Keyboard
