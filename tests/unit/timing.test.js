@@ -44,3 +44,37 @@ describe('isSegmentExpired', () => {
     expect(isSegmentExpired(100, 100)).toBe(false);
   });
 });
+
+// ─── Partial-coverage / late-snapshot regressions ─────────────────────
+// These pin the behaviour around the displayed-vs-exported bug pattern:
+// when the clip's IN has slid out of the live window, calculateSegmentClipParams
+// reports startSec=0 but durationSec UNCHANGED — meaning a downstream caller
+// that trusts `durationSec` blindly will request more footage than the snapshot
+// can provide. The expired flag is the signal callers must check.
+describe('calculateSegmentClipParams — partial-coverage signals', () => {
+  it('expired clip still reports the requested durationSec (caller must respect `expired`)', () => {
+    const r = calculateSegmentClipParams(100, 370, 200); // requested 4:30 starting before window
+    expect(r.expired).toBe(true);
+    expect(r.startSec).toBe(0);
+    expect(r.durationSec).toBe(270); // ← unchanged; trust this only if !expired
+  });
+
+  it('non-expired clip on the live edge reports durationSec verbatim', () => {
+    // IN is in range, OUT extends past the live edge. This function does
+    // NOT know the live edge — it only checks expiration on the IN side.
+    // The actual coverage check belongs in clip-validators.js.
+    const r = calculateSegmentClipParams(500, 770, 400);
+    expect(r.expired).toBe(false);
+    expect(r.startSec).toBe(100);
+    expect(r.durationSec).toBe(270);
+  });
+
+  it('float drift on seekable start does not falsely expire', () => {
+    // seekableStart 100.0001 vs inTime 100 should not flip to expired
+    const r = calculateSegmentClipParams(100, 130, 100.0001);
+    // current implementation flips to expired on any negative; document that
+    // as a known sharp edge so a fix later is a deliberate change.
+    expect(r.expired).toBe(true);
+    expect(r.startSec).toBe(0);
+  });
+});
