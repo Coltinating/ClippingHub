@@ -83,7 +83,9 @@ var state = {
     name: normalizeName(prefs.meName || 'You'),
     xHandle: (window.Profile && window.Profile.sanitizeXHandle(prefs.meXHandle)) || '',
     color: (window.Profile && window.Profile.resolveUserColor({ color: prefs.meColor }, '')) || '',
-    pfpDataUrl: (window.Profile && window.Profile.validatePfpDataUrl(prefs.mePfpDataUrl, 256000) ? prefs.mePfpDataUrl : '') || ''
+    pfpDataUrl: (window.Profile && window.Profile.validatePfpDataUrl(prefs.mePfpDataUrl, 256000) ? prefs.mePfpDataUrl : '') || '',
+    role: prefs.meRole || 'clipper',
+    assistUserId: prefs.meAssistUserId || ''
   },
   lobby: null,
   members: [],
@@ -110,7 +112,9 @@ function savePrefs() {
       color: state.me.color || '',
       pfpDataUrl: state.me.pfpDataUrl || '',
       lastCode: state.lobby ? state.lobby.code : state.lastCode,
-      meId: state.me.id
+      meId: state.me.id,
+      meRole: state.me.role || 'clipper',
+      meAssistUserId: state.me.assistUserId || ''
     };
     if (window.clipper && window.clipper.profileSetConfig) {
       try { window.clipper.profileSetConfig(payload); } catch (_) {}
@@ -123,7 +127,9 @@ function savePrefs() {
         meColor: payload.color,
         mePfpDataUrl: payload.pfpDataUrl,
         lastCode: payload.lastCode,
-        meId: payload.meId
+        meId: payload.meId,
+        meRole: payload.meRole,
+        meAssistUserId: payload.meAssistUserId
       }));
     } catch (_) {}
   }, 250);
@@ -159,6 +165,12 @@ if (window.clipper && window.clipper.profileGetConfig) {
       if (cfg.lastCode && safeCode(cfg.lastCode) !== state.lastCode) {
         state.lastCode = safeCode(cfg.lastCode); changed = true;
       }
+      if (cfg.meRole && cfg.meRole !== state.me.role) {
+        state.me.role = String(cfg.meRole); changed = true;
+      }
+      if (cfg.meAssistUserId != null && cfg.meAssistUserId !== state.me.assistUserId) {
+        state.me.assistUserId = String(cfg.meAssistUserId || ''); changed = true;
+      }
       if (changed && typeof emit === 'function') emit();
     }).catch(function () {});
   } catch (_) {}
@@ -176,6 +188,8 @@ function updateLocalProfile(partial) {
   if (partial.pfpDataUrl != null && window.Profile) {
     state.me.pfpDataUrl = window.Profile.validatePfpDataUrl(partial.pfpDataUrl, 256000) ? partial.pfpDataUrl : '';
   }
+  if (partial.role != null) state.me.role = String(partial.role) || 'clipper';
+  if (partial.assistUserId !== undefined) state.me.assistUserId = String(partial.assistUserId || '');
   savePrefs();
   try {
     if (client && client.updateProfile) {
@@ -206,7 +220,11 @@ function myMember() {
 }
 
 function myRole() {
-  return (myMember() && myMember().role) || 'viewer';
+  // In a lobby: server (legacy) or peerProfile broadcast (rthub) is the source of truth.
+  // Out of lobby: fall back to the locally chosen role from state.me.role.
+  var fromMember = myMember() && myMember().role;
+  if (fromMember) return fromMember;
+  return state.me.role || 'viewer';
 }
 
 function canMarkClipsLocal() {
@@ -812,6 +830,17 @@ function consumeMyDeliveries() {
 function setMemberRole(targetId, role) {
   if (!state.lobby || !client) return null;
   dlog('ACTION', 'setMemberRole', { targetId: targetId, role: role });
+  var isRthub = !!(window.RthubClient && client instanceof window.RthubClient);
+  if (isRthub) {
+    // rthub spec has no server-authoritative role assignment. Each peer
+    // self-sets via peerProfile; promoting others is deferred until partner
+    // ships a setRole frame.
+    if (targetId === state.me.id) {
+      updateLocalProfile({ role: role });
+      return Promise.resolve({ success: true });
+    }
+    return Promise.resolve({ success: false, code: 'deferred', message: 'role assignment for other peers not yet supported' });
+  }
   client.setRole(targetId, role);
   return Promise.resolve({ success: true });
 }
