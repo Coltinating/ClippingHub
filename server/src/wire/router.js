@@ -2,7 +2,7 @@ import { Inbound, Outbound } from './protocol.js';
 
 // Outbound types whose firehose would drown the admin event log without
 // adding signal — we still send them, just don't record per-message events.
-const OUTBOUND_LOG_SKIP = new Set(['admin:event', 'admin:event-batch', 'pong', 'transcript:chunk']);
+const OUTBOUND_LOG_SKIP = new Set(['admin:event', 'admin:event-batch', 'pong']);
 // Inbound types that fire frequently for housekeeping.
 const INBOUND_LOG_SKIP = new Set(['ping', 'admin:list-lobbies']);
 

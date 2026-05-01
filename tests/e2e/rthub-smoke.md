@@ -58,14 +58,6 @@ Step 3–5 and re-run this checklist with the additional steps:
 - [ ] Drag scrub bar on A → B sees a ghost cursor (no auto-seek).
 - [ ] Select clip on A → B highlights the same clip.
 
-## Transcript (side-channel)
-
-Transcript handlers (`transcript:start` / `transcript:stop` / `transcript:chunk`) live on the legacy Node server (`server/src/handlers/transcription.js`) and are NOT implemented in the rthub spec. As of this branch the renderer has no active transcript caller, so there is nothing to verify. When transcript is re-activated:
-
-- Open a SEPARATE WebSocket from the transcript client to `ws://localhost:3535/ws` (or wherever the legacy Node server is hosted).
-- Do NOT route transcript through the rthub broker — rthub will reject the message types.
-- Add a `transcriptUrl` field to `server_config.json` so the two URLs can drift independently.
-
 ## Rollback verification (before cutover)
 
 8. **Flip `rthubEnabled: false` on both instances. Restart.**

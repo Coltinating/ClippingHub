@@ -54,24 +54,3 @@ CREATE TABLE IF NOT EXISTS deliveries (
 );
 CREATE INDEX IF NOT EXISTS idx_deliveries_pending
   ON deliveries(lobby_code, to_user_id, delivered, created_at);
-
-CREATE TABLE IF NOT EXISTS transcripts (
-  id TEXT PRIMARY KEY,
-  lobby_code TEXT NOT NULL REFERENCES lobbies(code) ON DELETE CASCADE,
-  channel_id TEXT NOT NULL,
-  video_url TEXT NOT NULL,
-  status TEXT NOT NULL,
-  started_at INTEGER NOT NULL,
-  stopped_at INTEGER,
-  error TEXT
-);
-CREATE TABLE IF NOT EXISTS transcript_chunks (
-  id TEXT PRIMARY KEY,
-  transcript_id TEXT NOT NULL REFERENCES transcripts(id) ON DELETE CASCADE,
-  t_start REAL NOT NULL,
-  t_end REAL NOT NULL,
-  text TEXT NOT NULL,
-  created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_chunks_transcript
-  ON transcript_chunks(transcript_id, t_start);

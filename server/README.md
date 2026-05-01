@@ -1,6 +1,6 @@
 # ClippingHub Server
 
-Standalone collab + transcription server for the ClippingHub app.
+Standalone collab server for the ClippingHub app.
 
 ## Quick start - host on your own PC (no Docker)
 

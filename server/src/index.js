@@ -14,7 +14,6 @@ import * as auth from './handlers/auth.js';
 import * as chat from './handlers/chat.js';
 import * as roles from './handlers/roles.js';
 import * as clips from './handlers/clips.js';
-import * as transcription from './handlers/transcription.js';
 import * as admin from './handlers/admin.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -49,7 +48,7 @@ export async function startServer(overrides = {}) {
   // rolling out behind the `rthubEnabled` flag, this server still serves them
   // by default. Operators set LEGACY_COLLAB=0 once the rthub cutover is complete
   // to start returning DEPRECATED errors so misconfigured clients fail loudly.
-  // Transcript and admin handlers are unaffected (rthub spec doesn't cover them).
+  // Admin handlers are unaffected (rthub spec doesn't cover them).
   const COLLAB_DEPRECATED = process.env.LEGACY_COLLAB === '0';
   const deprecatedCollabHandler = ({ ws, send, msg }) => send(ws, {
     type: 'error',
@@ -70,8 +69,6 @@ export async function startServer(overrides = {}) {
     'clip:remove-range':     COLLAB_DEPRECATED ? deprecatedCollabHandler : clips.removeRange,
     'clip:delivery-create':  COLLAB_DEPRECATED ? deprecatedCollabHandler : clips.deliveryCreate,
     'clip:delivery-consume': COLLAB_DEPRECATED ? deprecatedCollabHandler : clips.deliveryConsume,
-    'transcript:start': transcription.start,
-    'transcript:stop':  transcription.stop,
     'admin:list-lobbies':       admin.listLobbies,
     'admin:send-chat':          admin.sendChat,
     'admin:delete-lobby':       admin.deleteLobby,

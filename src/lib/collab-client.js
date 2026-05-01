@@ -95,9 +95,6 @@ function _summarizeInbound(msg) {
   if (msg.type === 'clip:delivery-pending' && Array.isArray(msg.deliveries)) {
     return { type: msg.type, count: msg.deliveries.length };
   }
-  if (msg.type === 'transcript:chunk' && msg.chunk) {
-    return { type: msg.type, tStart: msg.chunk.tStart, tEnd: msg.chunk.tEnd, len: (msg.chunk.text || '').length };
-  }
   return msg;
 }
 
@@ -164,8 +161,6 @@ CollabClient.prototype.upsertRange = function (range) { this._send({ type: 'clip
 CollabClient.prototype.removeRange = function (id) { this._send({ type: 'clip:remove-range', id: id }); };
 CollabClient.prototype.createDelivery = function (delivery) { this._send({ type: 'clip:delivery-create', delivery: delivery }); };
 CollabClient.prototype.consumeDeliveries = function (ids) { this._send({ type: 'clip:delivery-consume', ids: ids }); };
-CollabClient.prototype.startTranscript = function (opts) { this._send({ type: 'transcript:start', channelId: opts.channelId, videoUrl: opts.videoUrl }); };
-CollabClient.prototype.stopTranscript = function () { this._send({ type: 'transcript:stop' }); };
 
 return { CollabClient: CollabClient };
 
