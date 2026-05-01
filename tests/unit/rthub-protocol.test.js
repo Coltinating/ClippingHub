@@ -1,0 +1,162 @@
+import { describe, it, expect } from 'vitest';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const P = require('../../src/lib/rthub-protocol.js');
+
+describe('rangeToUpsert', () => {
+  it('flattens a full legacy range blob to the rthub flat schema', () => {
+    const range = {
+      id: 'r1', inTime: 1000, outTime: 2000, status: 'queued',
+      pendingOut: false, streamKey: 'foo', name: 'My Clip',
+      caption: 'cap', postCaption: 'post', fileName: 'f.mp4',
+      clipperId: 'u1', clipperName: 'Alice',
+      helperId: 'u2', helperName: 'Bob',
+      userId: 'u1', userName: 'Alice',
+      extraGarbage: 'should be dropped'
+    };
+    const out = P.rangeToUpsert(range);
+    expect(out.type).toBe('clipRangeUpsert');
+    expect(out.id).toBe('r1');
+    expect(out.inTime).toBe(1000);
+    expect(out.outTime).toBe(2000);
+    expect(out.status).toBe('queued');
+    expect(out.pendingOut).toBe(false);
+    expect(out.clipperName).toBe('Alice');
+    expect(out.helperId).toBe('u2');
+    expect(out.extraGarbage).toBeUndefined();
+  });
+
+  it('omits absent optional fields rather than sending null', () => {
+    const out = P.rangeToUpsert({ id: 'r1' });
+    expect(out.id).toBe('r1');
+    expect('caption' in out).toBe(false);
+    expect('clipperId' in out).toBe(false);
+  });
+
+  it('handles null/undefined input', () => {
+    expect(P.rangeToUpsert(null)).toEqual({ type: 'clipRangeUpsert' });
+    expect(P.rangeToUpsert(undefined)).toEqual({ type: 'clipRangeUpsert' });
+  });
+
+  it('omits null fields (server interprets null as missing)', () => {
+    const out = P.rangeToUpsert({ id: 'r1', caption: null });
+    expect('caption' in out).toBe(false);
+  });
+});
+
+describe('upsertToRange', () => {
+  it('rebuilds a legacy-shaped range record from a rthub upsert', () => {
+    const msg = { type: 'clipRangeUpsert', id: 'r1', inTime: 100, status: 'done', clipperId: 'u1' };
+    const out = P.upsertToRange(msg);
+    expect(out.id).toBe('r1');
+    expect(out.inTime).toBe(100);
+    expect(out.status).toBe('done');
+    expect(out.clipperId).toBe('u1');
+    expect('type' in out).toBe(false);
+  });
+
+  it('handles missing fields cleanly', () => {
+    const out = P.upsertToRange({ type: 'clipRangeUpsert', id: 'r1' });
+    expect(out.id).toBe('r1');
+  });
+});
+
+describe('presenceToMember', () => {
+  it('builds the member shape collab-store expects', () => {
+    const pres = {
+      type: 'presenceUpdate', clientId: 'u1', action: 'join',
+      name: 'Alice', color: '#5bb1ff', role: 'helper',
+      xHandle: 'alice', assistUserId: 'u2', ts: 1700000000000
+    };
+    const m = P.presenceToMember(pres);
+    expect(m.id).toBe('u1');
+    expect(m.name).toBe('Alice');
+    expect(m.role).toBe('helper');
+    expect(m.color).toBe('#5bb1ff');
+    expect(m.xHandle).toBe('alice');
+    expect(m.assistUserId).toBe('u2');
+    expect(m.joinedAt).toBe(1700000000000);
+    expect(m.lastSeenAt).toBe(1700000000000);
+    expect(m.pfpDataUrl).toBeNull();
+  });
+
+  it('defaults role to viewer when missing', () => {
+    const m = P.presenceToMember({ type: 'presenceUpdate', clientId: 'u1', action: 'join' });
+    expect(m.role).toBe('viewer');
+  });
+
+  it('returns null for null/undefined input', () => {
+    expect(P.presenceToMember(null)).toBeNull();
+    expect(P.presenceToMember(undefined)).toBeNull();
+  });
+});
+
+describe('chatToLegacy', () => {
+  it('maps rthub chatMessage to the legacy chat record', () => {
+    const msg = {
+      type: 'chatMessage', id: 'c1', body: 'hello',
+      author: 'Alice', userId: 'u1', ts: 1700000000000, sourceClientId: 'u1'
+    };
+    const out = P.chatToLegacy(msg);
+    expect(out.id).toBe('c1');
+    expect(out.text).toBe('hello');
+    expect(out.userId).toBe('u1');
+    expect(out.userName).toBe('Alice');
+    expect(out.createdAt).toBe(1700000000000);
+  });
+
+  it('falls back to sourceClientId when userId is missing', () => {
+    const out = P.chatToLegacy({
+      type: 'chatMessage', id: 'c1', body: 'hi', sourceClientId: 'u-src'
+    });
+    expect(out.userId).toBe('u-src');
+  });
+
+  it('returns null for null input', () => {
+    expect(P.chatToLegacy(null)).toBeNull();
+  });
+});
+
+describe('deliveryToLegacy', () => {
+  it('maps rthub delivery to the legacy delivery record collab-ui expects', () => {
+    const msg = {
+      type: 'delivery', toClientId: 'u-me', kind: 'clip',
+      rangeId: 'r1', payload: { name: 'Clip', inTime: 0, outTime: 1000 },
+      ts: 1700000000000, sourceClientId: 'u-helper'
+    };
+    const out = P.deliveryToLegacy(msg, () => ({ name: 'Bob', color: '#ff7a59' }));
+    expect(out.type).toBe('clip');
+    expect(out.toUserId).toBe('u-me');
+    expect(out.fromUserId).toBe('u-helper');
+    expect(out.rangeId).toBe('r1');
+    expect(out.fromUserName).toBe('Bob');
+    expect(out.fromUserColor).toBe('#ff7a59');
+    expect(out.id).toMatch(/^d_/);
+    expect(out.payload.name).toBe('Clip');
+  });
+
+  it('idempotent id: same delivery in twice gets the same synthetic id', () => {
+    const msg = {
+      type: 'delivery', toClientId: 'u-me', kind: 'clip', rangeId: 'r1',
+      payload: {}, ts: 1700000000000, sourceClientId: 'u-h'
+    };
+    const a = P.deliveryToLegacy(msg, () => ({}));
+    const b = P.deliveryToLegacy(msg, () => ({}));
+    expect(a.id).toBe(b.id);
+  });
+
+  it('survives missing peerLookup', () => {
+    const msg = {
+      type: 'delivery', toClientId: 'u-me', kind: 'clip', rangeId: 'r1',
+      payload: {}, ts: 1, sourceClientId: 'u-h'
+    };
+    const out = P.deliveryToLegacy(msg);
+    expect(out.fromUserName).toBe('');
+    expect(out.fromUserColor).toBe('');
+  });
+
+  it('returns null for null input', () => {
+    expect(P.deliveryToLegacy(null, () => ({}))).toBeNull();
+  });
+});
