@@ -44,19 +44,32 @@ export async function startServer(overrides = {}) {
   const store = new LobbyStore(db);
   const presence = new Presence();
 
+  // Collab message types served by this Node server are slated for replacement
+  // by the rthub Cloudflare Workers broker. While the rthub client adapter is
+  // rolling out behind the `rthubEnabled` flag, this server still serves them
+  // by default. Operators set LEGACY_COLLAB=0 once the rthub cutover is complete
+  // to start returning DEPRECATED errors so misconfigured clients fail loudly.
+  // Transcript and admin handlers are unaffected (rthub spec doesn't cover them).
+  const COLLAB_DEPRECATED = process.env.LEGACY_COLLAB === '0';
+  const deprecatedCollabHandler = ({ ws, send, msg }) => send(ws, {
+    type: 'error',
+    code: 'deprecated',
+    message: 'collab moved to rthub broker; reconnect via the rthub WebSocket endpoint'
+  });
+
   const handlers = {
     hello: auth.hello,
-    'lobby:create': auth.lobbyCreate,
-    'lobby:join':   auth.lobbyJoin,
-    'lobby:leave':  auth.lobbyLeave,
-    'profile:update': auth.profileUpdate,
-    'chat:send':    chat.chatSend,
-    'member:set-role':       roles.setRole,
-    'member:set-assist':     roles.setAssist,
-    'clip:upsert-range':     clips.upsertRange,
-    'clip:remove-range':     clips.removeRange,
-    'clip:delivery-create':  clips.deliveryCreate,
-    'clip:delivery-consume': clips.deliveryConsume,
+    'lobby:create': COLLAB_DEPRECATED ? deprecatedCollabHandler : auth.lobbyCreate,
+    'lobby:join':   COLLAB_DEPRECATED ? deprecatedCollabHandler : auth.lobbyJoin,
+    'lobby:leave':  COLLAB_DEPRECATED ? deprecatedCollabHandler : auth.lobbyLeave,
+    'profile:update': COLLAB_DEPRECATED ? deprecatedCollabHandler : auth.profileUpdate,
+    'chat:send':    COLLAB_DEPRECATED ? deprecatedCollabHandler : chat.chatSend,
+    'member:set-role':       COLLAB_DEPRECATED ? deprecatedCollabHandler : roles.setRole,
+    'member:set-assist':     COLLAB_DEPRECATED ? deprecatedCollabHandler : roles.setAssist,
+    'clip:upsert-range':     COLLAB_DEPRECATED ? deprecatedCollabHandler : clips.upsertRange,
+    'clip:remove-range':     COLLAB_DEPRECATED ? deprecatedCollabHandler : clips.removeRange,
+    'clip:delivery-create':  COLLAB_DEPRECATED ? deprecatedCollabHandler : clips.deliveryCreate,
+    'clip:delivery-consume': COLLAB_DEPRECATED ? deprecatedCollabHandler : clips.deliveryConsume,
     'transcript:start': transcription.start,
     'transcript:stop':  transcription.stop,
     'admin:list-lobbies':       admin.listLobbies,
@@ -66,6 +79,9 @@ export async function startServer(overrides = {}) {
     'admin:unsubscribe-events': admin.unsubscribeEventsHandler,
     'ping': ({ ws, send }) => send(ws, { type: 'pong' })
   };
+  if (COLLAB_DEPRECATED) {
+    logger?.info?.({ evt: 'collab:deprecated', msg: 'LEGACY_COLLAB=0; collab handlers return deprecated errors' });
+  }
   const router = makeRouter({ store, presence, handlers, logger });
 
   const app = express();
