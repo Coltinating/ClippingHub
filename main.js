@@ -236,9 +236,22 @@ function ensureConfigDir() {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
 }
 
+const DEFAULT_RTHUB_URL = 'wss://rthub.1626.workers.dev/ws';
+
 function loadServerConfig() {
-  try { return JSON.parse(fs.readFileSync(SERVER_CONFIG_PATH, 'utf-8')); }
-  catch { return { url: 'ws://localhost:3535/ws', autoConnect: false }; }
+  let cfg;
+  try { cfg = JSON.parse(fs.readFileSync(SERVER_CONFIG_PATH, 'utf-8')); }
+  catch { cfg = { url: 'ws://localhost:3535/ws', autoConnect: false }; }
+  // Backfill rthub-related keys without overwriting user values.
+  if (typeof cfg.rthubEnabled !== 'boolean') cfg.rthubEnabled = false;
+  if (typeof cfg.sessionId !== 'string') cfg.sessionId = '';
+  // If rthub is on but the URL still points at the legacy localhost server,
+  // swap to the default rthub URL. (Users who explicitly set a non-default
+  // rthub URL keep theirs.)
+  if (cfg.rthubEnabled && typeof cfg.url === 'string' && /^ws:\/\/localhost:3535/.test(cfg.url)) {
+    cfg.url = DEFAULT_RTHUB_URL;
+  }
+  return cfg;
 }
 
 function saveServerConfig(cfg) {
