@@ -235,6 +235,22 @@ describe('RthubClient', () => {
     expect(seen[0].code).toBe('BAD_THING');
   });
 
+  it('getLobby returns the current internal lobby snapshot', () => {
+    const c = build();
+    expect(c.getLobby()).toBeNull();
+    c.connect();
+    FakeWS.last._open();
+    FakeWS.last._msg({
+      type: 'stateSnapshot',
+      presence: [{ type: 'presenceUpdate', clientId: 'p2', action: 'join', name: 'Bob', role: 'helper', ts: 1 }],
+      chat: [], clipRanges: []
+    });
+    const lobby = c.getLobby();
+    expect(lobby).not.toBeNull();
+    expect(lobby.code).toBe('s1');
+    expect(lobby.members).toHaveLength(1);
+  });
+
   it('disconnect prevents auto-reconnect', () => {
     const c = build();
     c.connect();

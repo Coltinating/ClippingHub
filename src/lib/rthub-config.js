@@ -20,5 +20,17 @@
     return mintId();
   }
 
-  return { ensureClientId: ensureClientId };
+  function isRthubEnabled(cfg) {
+    return !!(cfg && cfg.rthubEnabled === true);
+  }
+
+  function defaultRthubUrl() {
+    return 'wss://rthub.1626.workers.dev/ws';
+  }
+
+  return {
+    ensureClientId: ensureClientId,
+    isRthubEnabled: isRthubEnabled,
+    defaultRthubUrl: defaultRthubUrl
+  };
 });

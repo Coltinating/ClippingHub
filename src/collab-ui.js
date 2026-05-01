@@ -178,7 +178,12 @@ function updateLocalProfile(partial) {
   }
   savePrefs();
   try {
-    if (client && client.updateProfile) client.updateProfile(mePayload());
+    if (client && client.updateProfile) {
+      // RthubClient expects the rthub peerProfile shape (name/color/role/xHandle/assistUserId);
+      // legacy CollabClient expects the full mePayload (id + profile).
+      var isRthub = !!(window.RthubClient && client instanceof window.RthubClient);
+      client.updateProfile(isRthub ? peerProfilePayload() : mePayload());
+    }
   } catch (_) {}
   emit();
 }
@@ -421,24 +426,79 @@ function attachClientHandlers() {
   });
 }
 
+function peerProfilePayload() {
+  return {
+    name: state.me.name || '',
+    color: state.me.color || '#5bb1ff',
+    role: state.me.role || 'clipper',
+    xHandle: state.me.xHandle || '',
+    assistUserId: state.me.assistUserId || ''
+  };
+}
+
+function makeRthubStoreProxy(rthubClient) {
+  // RthubClient applies events to its internal state before emitting; the
+  // proxy lets the existing handlers keep their `store.apply(m); apply(store.state)`
+  // shape without code changes downstream.
+  return {
+    apply: function () { /* no-op; rthub maintains state internally */ },
+    get state() { return rthubClient.getLobby(); }
+  };
+}
+
 async function connect(url, opts) {
-  if (!window.CollabClient || !window.CollabStore) {
+  var clean = String(url || '').trim();
+  if (!clean) { setStatus('Enter a server URL'); return; }
+
+  var serverCfg = null;
+  if (window.clipper && window.clipper.serverSetConfig) {
+    try {
+      serverCfg = (window.clipper.serverGetConfig ? await window.clipper.serverGetConfig() : {}) || {};
+      serverCfg.url = clean;
+      if (opts && opts.autoConnect != null) serverCfg.autoConnect = !!opts.autoConnect;
+      if (opts && opts.sessionId) serverCfg.sessionId = String(opts.sessionId);
+      await window.clipper.serverSetConfig(serverCfg);
+    } catch (_) {}
+  }
+
+  var useRthub = !!(window.RthubConfig && window.RthubConfig.isRthubEnabled
+    && window.RthubConfig.isRthubEnabled(serverCfg));
+
+  if (useRthub && !window.RthubClient) {
+    setStatus('Rthub client not loaded');
+    return;
+  }
+  if (!useRthub && (!window.CollabClient || !window.CollabStore)) {
     setStatus('Collab client not loaded');
     return;
   }
-  var clean = String(url || '').trim();
-  if (!clean) { setStatus('Enter a server URL'); return; }
-  if (window.clipper && window.clipper.serverSetConfig) {
-    try {
-      var cfg = (window.clipper.serverGetConfig ? await window.clipper.serverGetConfig() : {}) || {};
-      cfg.url = clean;
-      if (opts && opts.autoConnect != null) cfg.autoConnect = !!opts.autoConnect;
-      await window.clipper.serverSetConfig(cfg);
-    } catch (_) {}
-  }
+
   setStage('connecting');
   setStatus('');
   if (client) { try { client.disconnect(); } catch (_) {} }
+
+  if (useRthub) {
+    var sessionId = (opts && opts.sessionId) || (serverCfg && serverCfg.sessionId) || state.lastCode || '';
+    if (!sessionId) { setStage('offline'); setStatus('Pick a session ID first'); return; }
+    state.lastCode = safeCode(sessionId);
+    client = new window.RthubClient({
+      url: clean,
+      sessionId: sessionId,
+      clientId: state.me.id,
+      profile: peerProfilePayload()
+    });
+    store = makeRthubStoreProxy(client);
+    attachClientHandlers();
+    try {
+      await client.connect();
+      setStage('in-lobby');
+    } catch (e) {
+      setStage('offline');
+      setStatus('Could not connect: ' + (e && e.message ? e.message : 'error'));
+    }
+    return;
+  }
+
   client = new window.CollabClient({ url: clean, user: mePayload() });
   store = new window.CollabStore();
   attachClientHandlers();

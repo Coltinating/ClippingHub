@@ -99,6 +99,10 @@
     try { if (this.ws) this.ws.close(); } catch (_) {}
   };
 
+  RthubClient.prototype.getLobby = function () {
+    return this._state ? this._state.snapshot() : null;
+  };
+
   RthubClient.prototype._send = function (m) {
     if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m));
   };
