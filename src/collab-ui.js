@@ -1304,24 +1304,56 @@ function bindUi() {
   bindStageTabs();
   bindCollabTabs();
 
-  // Prefill server URL
-  if (serverUrlInput && window.clipper && window.clipper.serverGetConfig) {
+  var sessionIdInput = document.getElementById('collabSessionIdInput');
+
+  function applyRthubModeUi(enabled) {
+    document.querySelectorAll('[data-rthub-only]').forEach(function (el) {
+      el.hidden = !enabled;
+    });
+    // Legacy-only elements (e.g. stage B's create/join tabs) keep their stage-driven
+    // visibility: setStage('in-lobby') already skips them under rthub mode because
+    // connect() jumps straight from connecting → in-lobby.
+  }
+
+  // Prefill server URL + sessionId from disk config
+  if (window.clipper && window.clipper.serverGetConfig) {
     window.clipper.serverGetConfig().then(function (cfg) {
-      if (cfg && cfg.url && !serverUrlInput.value) serverUrlInput.value = cfg.url;
+      var rthubOn = !!(window.RthubConfig && window.RthubConfig.isRthubEnabled && window.RthubConfig.isRthubEnabled(cfg));
+      applyRthubModeUi(rthubOn);
+      if (rthubOn && serverUrlInput && !serverUrlInput.value) {
+        serverUrlInput.value = (cfg && cfg.url) || (window.RthubConfig && window.RthubConfig.defaultRthubUrl());
+      } else if (serverUrlInput && cfg && cfg.url && !serverUrlInput.value) {
+        serverUrlInput.value = cfg.url;
+      }
+      if (sessionIdInput && !sessionIdInput.value) {
+        sessionIdInput.value = (cfg && cfg.sessionId) || state.lastCode || '';
+      }
       if (cfg && cfg.autoConnect && cfg.url) {
-        connect(cfg.url, { autoConnect: true });
+        connect(cfg.url, { autoConnect: true, sessionId: sessionIdInput ? sessionIdInput.value.trim() : '' });
       }
     });
+  } else {
+    applyRthubModeUi(false);
   }
 
   if (connectBtn) {
     connectBtn.onclick = function () {
       var url = serverUrlInput ? serverUrlInput.value.trim() : '';
-      connect(url, { autoConnect: true });
+      var sid = sessionIdInput ? sessionIdInput.value.trim() : '';
+      connect(url, { autoConnect: true, sessionId: sid });
     };
   }
   if (resetBtn && serverUrlInput) {
-    resetBtn.onclick = function () { serverUrlInput.value = 'ws://localhost:3535/ws'; };
+    resetBtn.onclick = function () {
+      var rthubOn = !!(window.RthubConfig && window.RthubConfig.isRthubEnabled
+        && window.clipper && window.clipper.serverGetConfig);
+      // Async best-effort; for the reset action just check the field's current visibility.
+      var field = document.getElementById('collabSessionIdField');
+      var inRthubMode = field && !field.hidden;
+      serverUrlInput.value = inRthubMode
+        ? (window.RthubConfig ? window.RthubConfig.defaultRthubUrl() : 'wss://rthub.1626.workers.dev/ws')
+        : 'ws://localhost:3535/ws';
+    };
   }
   if (disconnectBtn) disconnectBtn.onclick = function () { disconnect(); };
 

@@ -531,6 +531,10 @@
             <span class="lobby-label">Server URL</span>
             <input id="collabServerUrl" type="text" placeholder="ws://localhost:3535/ws">
           </label>
+          <label class="lobby-field" id="collabSessionIdField" data-rthub-only hidden>
+            <span class="lobby-label">Session ID <span class="lobby-hint">(treat the link like a password)</span></span>
+            <input id="collabSessionIdInput" type="text" maxlength="64" placeholder="e.g. ABCDEF1234" autocomplete="off">
+          </label>
           <div class="lobby-row">
             <button class="btn btn-primary" id="collabConnectBtn">Go Online</button>
             <button class="btn btn-ghost btn-xs" id="collabResetUrlBtn" type="button">Reset</button>
@@ -538,8 +542,8 @@
           <div class="lobby-status" id="collabConnStatusMsg" aria-live="polite"></div>
         </div>
 
-        <!-- Stage B: connected, no lobby -->
-        <div class="collab-stage" id="collabStageNoLobby" hidden>
+        <!-- Stage B: connected, no lobby (legacy server only — rthub jumps straight to in-lobby) -->
+        <div class="collab-stage" id="collabStageNoLobby" hidden data-legacy-only>
           <div class="lobby-tabs" role="tablist">
             <button class="lobby-tab active" id="lobbyTabCreate" data-stage-tab="create" role="tab" type="button">Create</button>
             <button class="lobby-tab" id="lobbyTabJoin" data-stage-tab="join" role="tab" type="button">Join</button>
