@@ -1,0 +1,641 @@
+<!doctype html>
+<!--
+  Timeline scroll-zoom + minimap prototype
+  ────────────────────────────────────────
+  Non-production sketch for evaluating a video-editor-style scrubber
+  sized for a 5-hour video. Open directly in any browser:
+
+      prototypes/timeline-zoom/index.html
+
+  Disposable. Touches no production code. To remove:
+
+      rm -rf prototypes/timeline-zoom/
+
+  Keyboard:
+      Mouse wheel on scrubber  zoom in/out around cursor
+      Click on scrubber        seek
+      Drag minimap viewport    pan the zoomed view
+      Click outside viewport   jump viewport there
+      I / O                    mark IN / OUT at playhead
+      Esc                      clear marks
+      R                        reset to full zoom
+-->
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Timeline Zoom + Minimap — Prototype</title>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --panel: #141414;
+    --panel-2: #1c1c1c;
+    --line: #2a2a2a;
+    --text: #e8e8e8;
+    --muted: #888;
+    --accent: #5b9dff;
+    --in: #2fbf71;
+    --out: #ff5757;
+    --selection: rgba(91, 157, 255, 0.18);
+    --viewport: rgba(91, 157, 255, 0.30);
+    --viewport-border: #5b9dff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 13px;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 32px 24px;
+  }
+  h1 {
+    font-size: 18px; font-weight: 500; margin: 0 0 4px;
+  }
+  .subtitle { color: var(--muted); margin: 0 0 24px; font-size: 12px; }
+
+  /* Fake video panel */
+  .video {
+    background: var(--panel);
+    height: 360px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 16px;
+    color: var(--muted);
+    font-size: 13px;
+    border: 1px solid var(--line);
+  }
+
+  /* Info bar */
+  .info {
+    display: flex; gap: 24px;
+    padding: 10px 14px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+  }
+  .info span b { color: var(--muted); font-weight: normal; margin-right: 6px; font-family: -apple-system, sans-serif; }
+  .info .in   { color: var(--in); }
+  .info .out  { color: var(--out); }
+  .info .dur  { color: var(--accent); }
+  .info .spacer { flex: 1; }
+  .info button {
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--line); border-radius: 4px;
+    padding: 2px 10px; font-size: 11px; cursor: pointer;
+  }
+  .info button:hover { color: var(--text); border-color: #444; }
+
+  /* Timeline container */
+  .timeline {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 10px 12px 14px;
+  }
+
+  /* Minimap (always full range) */
+  .minimap-wrap {
+    position: relative;
+    height: 28px;
+    margin-bottom: 6px;
+  }
+  .minimap {
+    position: absolute; inset: 0;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+    cursor: pointer;
+  }
+  .minimap-viewport {
+    position: absolute; top: 0; bottom: 0;
+    background: var(--viewport);
+    border-left: 1px solid var(--viewport-border);
+    border-right: 1px solid var(--viewport-border);
+    cursor: grab;
+    pointer-events: auto;
+  }
+  .minimap-viewport.dragging { cursor: grabbing; }
+  .minimap-playhead {
+    position: absolute; top: 0; bottom: 0;
+    width: 1px; background: var(--text);
+    pointer-events: none;
+  }
+  .minimap-mark {
+    position: absolute; top: 0; bottom: 0;
+    width: 2px; pointer-events: none;
+  }
+  .minimap-mark.in  { background: var(--in); }
+  .minimap-mark.out { background: var(--out); }
+  .minimap-selection {
+    position: absolute; top: 0; bottom: 0;
+    background: var(--selection);
+    pointer-events: none;
+  }
+  .minimap-labels {
+    position: relative; height: 12px;
+    color: var(--muted); font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, monospace;
+    margin-bottom: 8px;
+  }
+  .minimap-labels span {
+    position: absolute; top: 0;
+    transform: translateX(-50%);
+  }
+
+  /* Main scrubber (zoomed view) */
+  .scrubber-wrap { position: relative; }
+  .scrubber {
+    position: relative;
+    height: 56px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+    cursor: crosshair;
+  }
+  .scrubber-tick {
+    position: absolute; top: 0; bottom: 18px;
+    width: 1px; background: #2f2f2f;
+    pointer-events: none;
+  }
+  .scrubber-tick.major { background: #4a4a4a; }
+  .scrubber-tick-label {
+    position: absolute; bottom: 2px;
+    transform: translateX(-50%);
+    color: var(--muted);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, monospace;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .scrubber-selection {
+    position: absolute; top: 0; bottom: 0;
+    background: var(--selection);
+    pointer-events: none;
+  }
+  .scrubber-mark {
+    position: absolute; top: 0; bottom: 0;
+    width: 2px;
+    pointer-events: none;
+  }
+  .scrubber-mark.in  { background: var(--in);  box-shadow: 0 0 6px var(--in); }
+  .scrubber-mark.out { background: var(--out); box-shadow: 0 0 6px var(--out); }
+  .scrubber-mark-flag {
+    position: absolute; top: 2px;
+    transform: translateX(-50%);
+    background: var(--in);
+    color: #061;
+    font-size: 9px; font-weight: 600;
+    padding: 1px 4px; border-radius: 2px;
+    font-family: ui-monospace, monospace;
+  }
+  .scrubber-mark-flag.out { background: var(--out); color: #410; transform: translateX(-50%); }
+  .scrubber-playhead {
+    position: absolute; top: 0; bottom: 0;
+    width: 1px; background: var(--text);
+    pointer-events: none;
+    box-shadow: 0 0 6px rgba(255,255,255,0.6);
+  }
+  .scrubber-playhead::before {
+    content: ''; position: absolute; left: -4px; top: 0;
+    width: 9px; height: 7px; background: var(--text);
+    clip-path: polygon(0 0, 100% 0, 50% 100%);
+  }
+  .tooltip {
+    position: absolute;
+    transform: translate(-50%, -130%);
+    background: #000; color: var(--text);
+    padding: 3px 7px; border-radius: 3px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, monospace;
+    pointer-events: none;
+    border: 1px solid var(--line);
+    display: none;
+    z-index: 10;
+    white-space: nowrap;
+  }
+  .tooltip.visible { display: block; }
+
+  /* Help panel */
+  .help {
+    margin-top: 18px;
+    padding: 12px 14px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.7;
+  }
+  .help b { color: var(--text); font-weight: 500; }
+  .help kbd {
+    background: var(--panel-2); border: 1px solid var(--line);
+    padding: 1px 6px; border-radius: 3px;
+    font-family: ui-monospace, monospace; font-size: 10px;
+    color: var(--text);
+  }
+  .help .grid {
+    display: grid; grid-template-columns: 140px 1fr; gap: 4px 16px;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Scroll-zoom + Minimap Timeline — Prototype</h1>
+  <p class="subtitle">5h fake video · self-contained · non-destructive · open in any browser</p>
+
+  <div class="video">[fake video — playhead is the only thing that matters here]</div>
+
+  <div class="info">
+    <span><b>Playhead</b><span id="lblPlayhead">00:00:00</span></span>
+    <span><b>View</b><span id="lblView">00:00:00 → 05:00:00</span></span>
+    <span><b>Span</b><span id="lblSpan">5h</span></span>
+    <span class="spacer"></span>
+    <span class="in"><b>IN</b><span id="lblIn">—</span></span>
+    <span class="out"><b>OUT</b><span id="lblOut">—</span></span>
+    <span class="dur"><b>DUR</b><span id="lblDur">—</span></span>
+    <button id="btnReset" title="Reset to full 5h view (R)">Reset</button>
+  </div>
+
+  <div class="timeline">
+    <div class="minimap-wrap">
+      <div class="minimap" id="minimap">
+        <div class="minimap-selection" id="minimapSelection"></div>
+        <div class="minimap-mark in"  id="minimapIn"  hidden></div>
+        <div class="minimap-mark out" id="minimapOut" hidden></div>
+        <div class="minimap-viewport" id="minimapViewport"></div>
+        <div class="minimap-playhead" id="minimapPlayhead"></div>
+      </div>
+    </div>
+    <div class="minimap-labels" id="minimapLabels"></div>
+
+    <div class="scrubber-wrap">
+      <div class="scrubber" id="scrubber">
+        <div class="scrubber-selection" id="scrubberSelection" hidden></div>
+        <!-- ticks injected by render() -->
+        <div class="scrubber-mark in"  id="scrubberIn"  hidden></div>
+        <div class="scrubber-mark out" id="scrubberOut" hidden></div>
+        <div class="scrubber-playhead" id="scrubberPlayhead"></div>
+      </div>
+      <div class="tooltip" id="tooltip">00:00:00</div>
+    </div>
+  </div>
+
+  <div class="help">
+    <div class="grid">
+      <span><kbd>Wheel</kbd></span><span>zoom in/out around cursor on the main scrubber</span>
+      <span><kbd>Click</kbd> scrubber</span><span>seek playhead</span>
+      <span><kbd>Drag</kbd> minimap</span><span>pan the zoomed view</span>
+      <span><kbd>Click</kbd> outside</span><span>jump viewport to that point</span>
+      <span><kbd>I</kbd> / <kbd>O</kbd></span><span>mark IN / OUT at playhead</span>
+      <span><kbd>Esc</kbd></span><span>clear marks</span>
+      <span><kbd>R</kbd></span><span>reset to full zoom</span>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ─── Constants & state ─────────────────────────────────────────────────
+const TOTAL_SEC = 5 * 3600;   // fake 5h video
+const MIN_SPAN  = 2;          // can't zoom in past a 2s window
+const ZOOM_STEP = 1.15;       // per wheel notch
+
+const state = {
+  viewStart: 0,
+  viewEnd:   TOTAL_SEC,
+  playhead:  0,
+  inMark:    null,
+  outMark:   null,
+};
+
+// ─── Formatters (mirror of src/lib/clip-format.js) ─────────────────────
+function pad2(n) { return String(n).padStart(2, '0'); }
+function fmtHMS(s) {
+  if (!Number.isFinite(s)) s = 0;
+  s = Math.floor(Math.max(0, s));
+  return pad2(Math.floor(s / 3600)) + ':' +
+         pad2(Math.floor((s % 3600) / 60)) + ':' +
+         pad2(s % 60);
+}
+function fmtDur(s) {
+  if (!s || !Number.isFinite(s) || s < 0) return '0:00';
+  s = Math.floor(s);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return h > 0
+    ? h + ':' + pad2(m) + ':' + pad2(sec)
+    : m + ':' + pad2(sec);
+}
+function fmtSpan(s) {
+  if (s >= 3600) return (s / 3600).toFixed(s >= 7200 ? 0 : 1) + 'h';
+  if (s >= 60)   return (s / 60).toFixed(s >= 600 ? 0 : 1) + 'm';
+  return s.toFixed(s >= 10 ? 0 : 1) + 's';
+}
+
+// ─── Tick interval picker — adapts to current zoom span ────────────────
+function pickTickStep(spanSec) {
+  const candidates = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200];
+  // Aim for ~8 to ~14 major ticks across the visible width.
+  for (const c of candidates) {
+    if (spanSec / c <= 14) return c;
+  }
+  return 7200;
+}
+
+// ─── DOM refs ──────────────────────────────────────────────────────────
+const el = {
+  scrubber:        document.getElementById('scrubber'),
+  scrubberPlayhead:document.getElementById('scrubberPlayhead'),
+  scrubberIn:      document.getElementById('scrubberIn'),
+  scrubberOut:     document.getElementById('scrubberOut'),
+  scrubberSel:     document.getElementById('scrubberSelection'),
+  minimap:         document.getElementById('minimap'),
+  minimapViewport: document.getElementById('minimapViewport'),
+  minimapPlayhead: document.getElementById('minimapPlayhead'),
+  minimapIn:       document.getElementById('minimapIn'),
+  minimapOut:      document.getElementById('minimapOut'),
+  minimapSel:      document.getElementById('minimapSelection'),
+  minimapLabels:   document.getElementById('minimapLabels'),
+  tooltip:         document.getElementById('tooltip'),
+  lblPlayhead:     document.getElementById('lblPlayhead'),
+  lblView:         document.getElementById('lblView'),
+  lblSpan:         document.getElementById('lblSpan'),
+  lblIn:           document.getElementById('lblIn'),
+  lblOut:          document.getElementById('lblOut'),
+  lblDur:          document.getElementById('lblDur'),
+  btnReset:        document.getElementById('btnReset'),
+};
+
+// ─── Coordinate helpers ────────────────────────────────────────────────
+function span() { return state.viewEnd - state.viewStart; }
+function timeToFrac(t) { return (t - state.viewStart) / span(); }
+function fracToTime(f) { return state.viewStart + f * span(); }
+function clampView() {
+  const s = span();
+  if (state.viewStart < 0) state.viewStart = 0;
+  if (state.viewStart > TOTAL_SEC - s) state.viewStart = TOTAL_SEC - s;
+  state.viewEnd = state.viewStart + s;
+}
+
+// ─── Render ────────────────────────────────────────────────────────────
+function render() {
+  // Info bar
+  el.lblPlayhead.textContent = fmtHMS(state.playhead);
+  el.lblView.textContent     = fmtHMS(state.viewStart) + ' → ' + fmtHMS(state.viewEnd);
+  el.lblSpan.textContent     = fmtSpan(span());
+  el.lblIn.textContent       = state.inMark  != null ? fmtHMS(state.inMark)  : '—';
+  el.lblOut.textContent      = state.outMark != null ? fmtHMS(state.outMark) : '—';
+  el.lblDur.textContent      = (state.inMark != null && state.outMark != null && state.outMark > state.inMark)
+    ? fmtDur(state.outMark - state.inMark) : '—';
+
+  // Main scrubber: ticks
+  const sw = el.scrubber.clientWidth;
+  const visible = span();
+  const step = pickTickStep(visible);
+  // Wipe old ticks
+  Array.from(el.scrubber.querySelectorAll('.scrubber-tick, .scrubber-tick-label')).forEach(n => n.remove());
+  const firstTick = Math.ceil(state.viewStart / step) * step;
+  for (let t = firstTick; t <= state.viewEnd; t += step) {
+    const f = timeToFrac(t);
+    if (f < 0 || f > 1) continue;
+    const x = f * sw;
+    const tick = document.createElement('div');
+    tick.className = 'scrubber-tick major';
+    tick.style.left = x + 'px';
+    el.scrubber.appendChild(tick);
+    const lbl = document.createElement('div');
+    lbl.className = 'scrubber-tick-label';
+    lbl.style.left = x + 'px';
+    lbl.textContent = visible >= 60 ? fmtHMS(t) : (fmtHMS(t).slice(3));  // hide hours when irrelevant
+    el.scrubber.appendChild(lbl);
+  }
+  // Sub-ticks (5 between majors) for finer reference
+  const minor = step / 5;
+  if (minor >= visible / 200) {  // don't draw if they'd be denser than ~200 lines
+    const firstMinor = Math.ceil(state.viewStart / minor) * minor;
+    for (let t = firstMinor; t <= state.viewEnd; t += minor) {
+      if (Math.abs(t / step - Math.round(t / step)) < 1e-6) continue;  // skip majors
+      const f = timeToFrac(t);
+      if (f < 0 || f > 1) continue;
+      const tick = document.createElement('div');
+      tick.className = 'scrubber-tick';
+      tick.style.left = (f * sw) + 'px';
+      tick.style.bottom = '32px';   // shorter than majors
+      el.scrubber.appendChild(tick);
+    }
+  }
+
+  // Main scrubber: playhead
+  const phFrac = timeToFrac(state.playhead);
+  if (phFrac >= 0 && phFrac <= 1) {
+    el.scrubberPlayhead.style.display = '';
+    el.scrubberPlayhead.style.left = (phFrac * 100) + '%';
+  } else {
+    el.scrubberPlayhead.style.display = 'none';
+  }
+
+  // Main scrubber: marks
+  function placeMark(t, node) {
+    if (t == null) { node.hidden = true; return; }
+    const f = timeToFrac(t);
+    if (f < 0 || f > 1) { node.hidden = true; return; }
+    node.hidden = false;
+    node.style.left = (f * 100) + '%';
+  }
+  placeMark(state.inMark,  el.scrubberIn);
+  placeMark(state.outMark, el.scrubberOut);
+
+  // Main scrubber: selection band
+  if (state.inMark != null && state.outMark != null && state.outMark > state.inMark) {
+    const a = Math.max(timeToFrac(state.inMark),  0);
+    const b = Math.min(timeToFrac(state.outMark), 1);
+    if (b > a) {
+      el.scrubberSel.hidden = false;
+      el.scrubberSel.style.left = (a * 100) + '%';
+      el.scrubberSel.style.width = ((b - a) * 100) + '%';
+    } else {
+      el.scrubberSel.hidden = true;
+    }
+  } else {
+    el.scrubberSel.hidden = true;
+  }
+
+  // Minimap viewport
+  const mmStartPct = (state.viewStart / TOTAL_SEC) * 100;
+  const mmEndPct   = (state.viewEnd   / TOTAL_SEC) * 100;
+  el.minimapViewport.style.left  = mmStartPct + '%';
+  el.minimapViewport.style.width = (mmEndPct - mmStartPct) + '%';
+
+  // Minimap playhead
+  el.minimapPlayhead.style.left = ((state.playhead / TOTAL_SEC) * 100) + '%';
+
+  // Minimap marks
+  if (state.inMark != null) {
+    el.minimapIn.hidden = false;
+    el.minimapIn.style.left = ((state.inMark / TOTAL_SEC) * 100) + '%';
+  } else el.minimapIn.hidden = true;
+
+  if (state.outMark != null) {
+    el.minimapOut.hidden = false;
+    el.minimapOut.style.left = ((state.outMark / TOTAL_SEC) * 100) + '%';
+  } else el.minimapOut.hidden = true;
+
+  // Minimap selection band
+  if (state.inMark != null && state.outMark != null && state.outMark > state.inMark) {
+    const a = (state.inMark  / TOTAL_SEC) * 100;
+    const b = (state.outMark / TOTAL_SEC) * 100;
+    el.minimapSel.style.left  = a + '%';
+    el.minimapSel.style.width = (b - a) + '%';
+    el.minimapSel.style.display = '';
+  } else {
+    el.minimapSel.style.display = 'none';
+  }
+
+  // Minimap labels (fixed positions — full-range orientation)
+  el.minimapLabels.innerHTML = '';
+  for (let i = 0; i <= 4; i++) {
+    const t = (TOTAL_SEC / 4) * i;
+    const lbl = document.createElement('span');
+    lbl.style.left = (i * 25) + '%';
+    lbl.textContent = fmtHMS(t);
+    el.minimapLabels.appendChild(lbl);
+  }
+}
+
+// ─── Interactions ──────────────────────────────────────────────────────
+
+// Click main scrubber → seek
+el.scrubber.addEventListener('click', (e) => {
+  const rect = el.scrubber.getBoundingClientRect();
+  const f = (e.clientX - rect.left) / rect.width;
+  state.playhead = Math.max(0, Math.min(TOTAL_SEC, fracToTime(f)));
+  render();
+});
+
+// Wheel on main scrubber → zoom around cursor
+el.scrubber.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const rect = el.scrubber.getBoundingClientRect();
+  const cursorFrac = (e.clientX - rect.left) / rect.width;
+  const cursorTime = fracToTime(cursorFrac);
+  const factor = e.deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+  let newSpan = span() * factor;
+  newSpan = Math.max(MIN_SPAN, Math.min(TOTAL_SEC, newSpan));
+  state.viewStart = cursorTime - cursorFrac * newSpan;
+  state.viewEnd   = state.viewStart + newSpan;
+  clampView();
+  render();
+}, { passive: false });
+
+// Hover tooltip on main scrubber
+el.scrubber.addEventListener('mousemove', (e) => {
+  const rect = el.scrubber.getBoundingClientRect();
+  const f = (e.clientX - rect.left) / rect.width;
+  const t = fracToTime(f);
+  el.tooltip.textContent = fmtHMS(t);
+  el.tooltip.style.left = (e.clientX - rect.left) + 'px';
+  el.tooltip.style.top  = '0px';
+  el.tooltip.classList.add('visible');
+});
+el.scrubber.addEventListener('mouseleave', () => {
+  el.tooltip.classList.remove('visible');
+});
+
+// Minimap interactions
+let mmDrag = null;
+
+el.minimap.addEventListener('mousedown', (e) => {
+  const rect = el.minimap.getBoundingClientRect();
+  const f = (e.clientX - rect.left) / rect.width;
+  const clickTime = f * TOTAL_SEC;
+
+  // If click is inside the viewport rectangle: drag-pan
+  if (clickTime >= state.viewStart && clickTime <= state.viewEnd) {
+    mmDrag = { offset: clickTime - state.viewStart, rect };
+    el.minimapViewport.classList.add('dragging');
+  } else {
+    // Otherwise: jump (center viewport on clicked point)
+    const s = span();
+    state.viewStart = clickTime - s / 2;
+    clampView();
+    render();
+    // Then enter drag mode in case the user keeps holding
+    const newClickRect = el.minimap.getBoundingClientRect();
+    mmDrag = { offset: clickTime - state.viewStart, rect: newClickRect };
+    el.minimapViewport.classList.add('dragging');
+  }
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!mmDrag) return;
+  const f = (e.clientX - mmDrag.rect.left) / mmDrag.rect.width;
+  const clickTime = f * TOTAL_SEC;
+  state.viewStart = clickTime - mmDrag.offset;
+  clampView();
+  render();
+});
+
+window.addEventListener('mouseup', () => {
+  if (!mmDrag) return;
+  mmDrag = null;
+  el.minimapViewport.classList.remove('dragging');
+});
+
+// Keyboard
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'i' || e.key === 'I') {
+    state.inMark = state.playhead;
+    if (state.outMark != null && state.outMark <= state.inMark) state.outMark = null;
+    render();
+  } else if (e.key === 'o' || e.key === 'O') {
+    if (state.inMark != null && state.playhead <= state.inMark) {
+      // Reject: OUT must be after IN
+      el.lblOut.style.transition = 'color 0.1s'; el.lblOut.style.color = 'red';
+      setTimeout(() => { el.lblOut.style.color = ''; }, 250);
+      return;
+    }
+    state.outMark = state.playhead;
+    render();
+  } else if (e.key === 'Escape') {
+    state.inMark = null;
+    state.outMark = null;
+    render();
+  } else if (e.key === 'r' || e.key === 'R') {
+    resetView();
+  }
+});
+
+// Reset button
+function resetView() {
+  state.viewStart = 0;
+  state.viewEnd = TOTAL_SEC;
+  render();
+}
+el.btnReset.addEventListener('click', resetView);
+
+// Re-render on resize so tick layout adapts
+window.addEventListener('resize', () => render());
+
+// Initial render
+render();
+</script>
+</body>
+</html>
