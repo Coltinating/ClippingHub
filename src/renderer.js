@@ -143,6 +143,13 @@ function dbg(category, message, data) {
   if (window.clipper?.sendDebugLog) {
     window.clipper.sendDebugLog({ category, message, data });
   }
+  // Mirror to DevTools console so SEND/RECV/GET/SET/ACTION events are
+  // visible without opening the detached debug window. Gate via dbgConsole
+  // (default on) for users who want to silence it.
+  if (window.dbgConsole !== false) {
+    if (data !== undefined) console.log('[' + category + '] ' + message, data);
+    else console.log('[' + category + '] ' + message);
+  }
 }
 // Expose for external modules (batch-testing.js etc.)
 window.dbg = dbg;
