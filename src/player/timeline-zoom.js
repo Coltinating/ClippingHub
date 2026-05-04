@@ -56,6 +56,8 @@
         <span class="tlzoom-stat"><span class="tlzoom-stat-label">View</span><span class="tlzoom-stat-value" data-lbl="view">&mdash;</span></span>
         <span class="tlzoom-sep"></span>
         <span class="tlzoom-stat"><span class="tlzoom-stat-label">Span</span><span class="tlzoom-stat-value" data-lbl="span">&mdash;</span></span>
+        <span class="tlzoom-sep"></span>
+        <span class="tlzoom-stat"><span class="tlzoom-stat-label">Clips</span><span class="tlzoom-stat-value" data-lbl="clips">0</span></span>
         <span class="tlzoom-spacer"></span>
         <span class="tlzoom-stat in"><span class="tlzoom-stat-label">IN</span><span class="tlzoom-stat-value" data-lbl="in">&mdash;</span></span>
         <span class="tlzoom-sep"></span>
@@ -66,10 +68,7 @@
       </div>
       <div class="tlzoom-section-cap"><span><b>Anchor</b> &middot; where you are in the stream</span><span class="hint">read-only</span></div>
       <div class="tlzoom-minimap-wrap">
-        <div class="tlzoom-minimap">
-          <div class="tlzoom-minimap-selection" data-el="mmSel"></div>
-          <div class="tlzoom-minimap-mark in"  data-el="mmIn"  hidden></div>
-          <div class="tlzoom-minimap-mark out" data-el="mmOut" hidden></div>
+        <div class="tlzoom-minimap" data-el="minimap">
           <div class="tlzoom-minimap-viewport" data-el="mmViewport"></div>
           <div class="tlzoom-minimap-playhead" data-el="mmPlayhead"></div>
         </div>
@@ -78,9 +77,6 @@
       <div class="tlzoom-section-cap" style="margin-top:12px;"><span><b>Navigator</b> &middot; zoom &middot; scrub &middot; seek</span><span class="hint">drag bg / drag playhead / wheel</span></div>
       <div class="tlzoom-scrubber-wrap">
         <div class="tlzoom-scrubber" data-el="scrubber">
-          <div class="tlzoom-selection" data-el="sel" hidden></div>
-          <div class="tlzoom-mark in"  data-el="mIn"  hidden></div>
-          <div class="tlzoom-mark out" data-el="mOut" hidden></div>
           <div class="tlzoom-playhead" data-el="playhead"></div>
         </div>
         <div class="tlzoom-tooltip" data-el="tooltip">00:00:00</div>
@@ -96,16 +92,12 @@
       lblIn:       q('[data-lbl="in"]'),
       lblOut:      q('[data-lbl="out"]'),
       lblDur:      q('[data-lbl="dur"]'),
+      lblClips:    q('[data-lbl="clips"]'),
+      minimap:     q('[data-el="minimap"]'),
       mmViewport:  q('[data-el="mmViewport"]'),
       mmPlayhead:  q('[data-el="mmPlayhead"]'),
-      mmIn:        q('[data-el="mmIn"]'),
-      mmOut:       q('[data-el="mmOut"]'),
-      mmSel:       q('[data-el="mmSel"]'),
       mmLabels:    q('[data-el="mmLabels"]'),
       scrubber:    q('[data-el="scrubber"]'),
-      sel:         q('[data-el="sel"]'),
-      mIn:         q('[data-el="mIn"]'),
-      mOut:        q('[data-el="mOut"]'),
       playhead:    q('[data-el="playhead"]'),
       tooltip:     q('[data-el="tooltip"]'),
       btnReset:    q('[data-act="reset"]'),
@@ -119,12 +111,17 @@
     const state = { view: null /* {start, end} in absolute timeline coords */ };
     let renderQueued = false;
 
-    function getMarks() {
-      if (!window.ClipState) return { inMark: null, outMark: null };
-      const inT = window.ClipState.getPendingInTime();
-      const clips = window.ClipState.getPendingClips();
-      const last = clips[clips.length - 1];
-      if (inT != null) return { inMark: inT, outMark: null };
+    function getClipState() {
+      if (!window.ClipState) return { pendingInTime: null, clips: [] };
+      return {
+        pendingInTime: window.ClipState.getPendingInTime(),
+        clips: window.ClipState.getPendingClips() || [],
+      };
+    }
+    // Stats summary: latest clip wins for IN/OUT/DUR, pending IN takes precedence.
+    function getStatsMarks(cs) {
+      if (cs.pendingInTime != null) return { inMark: cs.pendingInTime, outMark: null };
+      const last = cs.clips[cs.clips.length - 1];
       if (last) return { inMark: last.inTime, outMark: last.outTime };
       return { inMark: null, outMark: null };
     }
@@ -155,11 +152,13 @@
       const span = view.end - view.start;
       const total = range.absEnd - range.absStart;
       const playhead = window.Player.els.vid.currentTime;
-      const marks = getMarks();
+      const cs = getClipState();
+      const marks = getStatsMarks(cs);
 
       els.lblPlayhead.textContent = fmtHMS(playhead - range.absStart);
       els.lblView.textContent = fmtHMS(view.start - range.absStart) + ' → ' + fmtHMS(view.end - range.absStart);
       els.lblSpan.textContent = fmtSpan(span);
+      els.lblClips.textContent = String(cs.clips.length + (cs.pendingInTime != null ? 1 : 0));
       els.lblIn.textContent  = marks.inMark  != null ? fmtHMS(marks.inMark  - range.absStart) : '—';
       els.lblOut.textContent = marks.outMark != null ? fmtHMS(marks.outMark - range.absStart) : '—';
       els.lblDur.textContent = (marks.inMark != null && marks.outMark != null && marks.outMark > marks.inMark)
@@ -193,48 +192,65 @@
         els.playhead.style.display = 'none';
       }
 
-      function placeMark(t, node) {
-        if (t == null) { node.hidden = true; return; }
-        const f = M.timeToFrac(view, t);
-        if (f < 0 || f > 1) { node.hidden = true; return; }
-        node.hidden = false;
-        node.style.left = (f * 100) + '%';
-      }
-      placeMark(marks.inMark,  els.mIn);
-      placeMark(marks.outMark, els.mOut);
+      // ─── Multi-clip rendering: one band+tag per pending clip on navigator,
+      //     slim band on anchor. Pending IN (no OUT yet) shown as a single line.
+      Array.from(els.scrubber.querySelectorAll('.tlzoom-clip, .tlzoom-pending-in')).forEach(n => n.remove());
+      Array.from(els.minimap.querySelectorAll('.tlzoom-mm-clip, .tlzoom-mm-pending-in')).forEach(n => n.remove());
 
-      if (marks.inMark != null && marks.outMark != null && marks.outMark > marks.inMark) {
-        const a = Math.max(M.timeToFrac(view, marks.inMark),  0);
-        const b = Math.min(M.timeToFrac(view, marks.outMark), 1);
-        if (b > a) {
-          els.sel.hidden = false;
-          els.sel.style.left = (a * 100) + '%';
-          els.sel.style.width = ((b - a) * 100) + '%';
-        } else els.sel.hidden = true;
-      } else els.sel.hidden = true;
+      cs.clips.forEach((clip, i) => {
+        if (clip.inTime == null || clip.outTime == null || clip.outTime <= clip.inTime) return;
+
+        // Navigator band — clip name tag inside.
+        const aF = M.timeToFrac(view, clip.inTime);
+        const bF = M.timeToFrac(view, clip.outTime);
+        if (bF >= 0 && aF <= 1) {
+          const a = Math.max(aF, 0);
+          const b = Math.min(bF, 1);
+          if (b > a) {
+            const band = document.createElement('div');
+            band.className = 'tlzoom-clip';
+            band.style.left = (a * 100) + '%';
+            band.style.width = ((b - a) * 100) + '%';
+            const tag = document.createElement('div');
+            tag.className = 'tlzoom-clip-tag';
+            tag.textContent = clip.name || ('Clip ' + (i + 1));
+            band.appendChild(tag);
+            els.scrubber.appendChild(band);
+          }
+        }
+
+        // Anchor (minimap) band — slim, no tag.
+        const mmA = ((clip.inTime  - range.absStart) / total) * 100;
+        const mmB = ((clip.outTime - range.absStart) / total) * 100;
+        if (mmB > mmA) {
+          const mmBand = document.createElement('div');
+          mmBand.className = 'tlzoom-mm-clip';
+          mmBand.style.left = mmA + '%';
+          mmBand.style.width = (mmB - mmA) + '%';
+          els.minimap.appendChild(mmBand);
+        }
+      });
+
+      // Pending IN (user marked IN but not yet OUT).
+      if (cs.pendingInTime != null) {
+        const pf = M.timeToFrac(view, cs.pendingInTime);
+        if (pf >= 0 && pf <= 1) {
+          const line = document.createElement('div');
+          line.className = 'tlzoom-pending-in';
+          line.style.left = (pf * 100) + '%';
+          els.scrubber.appendChild(line);
+        }
+        const mmLine = document.createElement('div');
+        mmLine.className = 'tlzoom-mm-pending-in';
+        mmLine.style.left = (((cs.pendingInTime - range.absStart) / total) * 100) + '%';
+        els.minimap.appendChild(mmLine);
+      }
 
       const mmStartPct = ((view.start - range.absStart) / total) * 100;
       const mmEndPct   = ((view.end   - range.absStart) / total) * 100;
       els.mmViewport.style.left  = mmStartPct + '%';
       els.mmViewport.style.width = (mmEndPct - mmStartPct) + '%';
       els.mmPlayhead.style.left = (((playhead - range.absStart) / total) * 100) + '%';
-
-      if (marks.inMark != null) {
-        els.mmIn.hidden = false;
-        els.mmIn.style.left = (((marks.inMark - range.absStart) / total) * 100) + '%';
-      } else els.mmIn.hidden = true;
-      if (marks.outMark != null) {
-        els.mmOut.hidden = false;
-        els.mmOut.style.left = (((marks.outMark - range.absStart) / total) * 100) + '%';
-      } else els.mmOut.hidden = true;
-
-      if (marks.inMark != null && marks.outMark != null && marks.outMark > marks.inMark) {
-        const a = ((marks.inMark  - range.absStart) / total) * 100;
-        const b = ((marks.outMark - range.absStart) / total) * 100;
-        els.mmSel.style.left = a + '%';
-        els.mmSel.style.width = (b - a) + '%';
-        els.mmSel.style.display = '';
-      } else els.mmSel.style.display = 'none';
 
       els.mmLabels.innerHTML = '';
       for (let i = 0; i <= 4; i++) {

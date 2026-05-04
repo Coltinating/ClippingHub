@@ -117,16 +117,48 @@
   font-family: 'Consolas', monospace;
   pointer-events: none; white-space: nowrap;
 }
-.tlzoom-selection {
+/* Per-clip block on the navigator — CapCut/Premiere style: translucent body,
+   IN-color left border, OUT-color right border, name tag pinned top-left. */
+.tlzoom-clip {
+  position: absolute; top: 0; bottom: 16px;
+  background: rgba(46,204,113,0.16);
+  border-left: 2px solid var(--green);
+  border-right: 2px solid var(--red);
+  pointer-events: none;
+  overflow: hidden;
+  min-width: 4px;
+}
+.tlzoom-clip-tag {
+  position: absolute; top: 2px; left: 3px;
+  font-size: 9px; font-weight: 500;
+  color: var(--text);
+  background: rgba(0,0,0,0.65);
+  padding: 1px 5px; border-radius: 2px;
+  white-space: nowrap;
+  max-width: calc(100% - 6px);
+  overflow: hidden; text-overflow: ellipsis;
+  pointer-events: none;
+  font-family: 'Segoe UI', sans-serif;
+}
+/* Single vertical bar shown while user is mid-mark (IN set, awaiting OUT). */
+.tlzoom-pending-in {
   position: absolute; top: 0; bottom: 0;
-  background: rgba(46,204,113,0.10);
-  border-left: 1px dashed rgba(46,204,113,0.4);
-  border-right: 1px dashed rgba(231,76,60,0.4);
+  width: 2px; background: var(--green);
+  box-shadow: 0 0 6px rgba(46,204,113,0.7);
   pointer-events: none;
 }
-.tlzoom-mark { position: absolute; top: 0; bottom: 0; width: 2px; pointer-events: none; }
-.tlzoom-mark.in  { background: var(--green); box-shadow: 0 0 6px rgba(46,204,113,0.6); }
-.tlzoom-mark.out { background: var(--red);   box-shadow: 0 0 6px rgba(231,76,60,0.6); }
+/* Anchor (minimap) per-clip slim band. No tag — strip is too short. */
+.tlzoom-mm-clip {
+  position: absolute; top: 0; bottom: 0;
+  background: rgba(46,204,113,0.45);
+  pointer-events: none;
+  min-width: 1px;
+}
+.tlzoom-mm-pending-in {
+  position: absolute; top: 0; bottom: 0;
+  width: 2px; background: var(--green);
+  pointer-events: none;
+}
 .tlzoom-playhead {
   position: absolute; top: 0; bottom: 0;
   width: 1px; background: var(--scrubber);
