@@ -231,7 +231,7 @@ const PANEL_CURRENT_LAYOUT_PATH = path.join(CONFIG_DIR, 'panel_current_layout.js
 const BUNDLED_LAYOUTS_DIR = path.join(__dirname, 'layouts');
 const DEFAULT_WORKSPACE_KEYS = ['minimal', 'collaboration', 'watch'];
 const DEFAULT_WORKSPACE_SET = new Set(DEFAULT_WORKSPACE_KEYS);
-const DEFAULTS_VERSION = 2;
+const DEFAULTS_VERSION = 3;
 const RETIRED_DEFAULT_KEYS = ['default', 'editing'];
 
 function ensureConfigDir() {

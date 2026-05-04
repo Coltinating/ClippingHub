@@ -12,7 +12,7 @@
         "type": "branch",
         "id": "b_main",
         "direction": "horizontal",
-        "ratio": 0.8,
+        "ratio": 0.75,
         "children": [
           { "type": "leaf", "id": "a_clipper", "panelType": "clipper" },
           { "type": "leaf", "id": "a_clips",   "panelType": "clips"   }
