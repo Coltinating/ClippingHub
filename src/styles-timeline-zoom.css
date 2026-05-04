@@ -90,6 +90,9 @@
   margin-bottom: 8px;
 }
 .tlzoom-minimap-labels span { position: absolute; top: 0; transform: translateX(-50%); }
+/* First and last labels anchor to the strip edges so they don't clip. */
+.tlzoom-minimap-labels span:first-child { left: 0 !important; transform: none; }
+.tlzoom-minimap-labels span:last-child  { left: auto !important; right: 0; transform: none; }
 
 /* Navigator (precise) — interactive zoomable strip. */
 .tlzoom-scrubber-wrap { position: relative; }
