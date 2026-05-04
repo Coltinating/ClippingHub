@@ -192,8 +192,15 @@ let pendingClips = [];
 //      Emits a 'marks-changed' window event on every mutation; consumers
 //      should debounce via rAF.
 window.ClipState = {
-  getPendingInTime: function () { return pendingInTime; },
-  getPendingClips:  function () { return pendingClips.slice(); },
+  getPendingInTime:    function () { return pendingInTime; },
+  getPendingClips:     function () { return pendingClips.slice(); },
+  getDownloadingClips: function () { return downloadingClips.slice(); },
+  getCompletedClips:   function () { return completedClips.slice(); },
+  getAllTimelineClips: function () {
+    return window.ClipStateHelpers
+      ? window.ClipStateHelpers.mergeClipsForTimeline(pendingClips, downloadingClips, completedClips)
+      : pendingClips.slice();
+  },
 };
 function emitMarksChanged() {
   try { window.dispatchEvent(new CustomEvent('marks-changed')); } catch (e) { /* no-op */ }
