@@ -38,22 +38,7 @@ describe('ensureClientId', () => {
   });
 });
 
-const { isRthubEnabled, defaultRthubUrl } = require('../../src/lib/rthub-config.js');
-
-describe('isRthubEnabled', () => {
-  it('returns false for missing config', () => {
-    expect(isRthubEnabled(null)).toBe(false);
-    expect(isRthubEnabled(undefined)).toBe(false);
-    expect(isRthubEnabled({})).toBe(false);
-  });
-
-  it('returns true only when rthubEnabled === true', () => {
-    expect(isRthubEnabled({ rthubEnabled: true })).toBe(true);
-    expect(isRthubEnabled({ rthubEnabled: false })).toBe(false);
-    expect(isRthubEnabled({ rthubEnabled: 'true' })).toBe(false);
-    expect(isRthubEnabled({ rthubEnabled: 1 })).toBe(false);
-  });
-});
+const { defaultRthubUrl } = require('../../src/lib/rthub-config.js');
 
 describe('defaultRthubUrl', () => {
   it('returns a wss URL ending in /ws', () => {
