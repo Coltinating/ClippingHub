@@ -481,6 +481,22 @@ var LEGACY_LAYOUTS_KEY = 'ch_saved_layouts';
 var LEGACY_ACTIVE_KEY = 'ch_active_workspace';
 var activeWorkspaceKey = 'default';
 
+// Display order for built-in workspace tabs. Mirrors DEFAULT_WORKSPACE_KEYS in
+// main.js; kept duplicated here so the renderer can sort without a round-trip.
+var BUILTIN_LAYOUT_ORDER = ['default', 'collaboration', 'minimal'];
+
+function orderedBuiltinKeys() {
+  var keys = Object.keys(builtinLayouts);
+  return keys.slice().sort(function (a, b) {
+    var ia = BUILTIN_LAYOUT_ORDER.indexOf(a);
+    var ib = BUILTIN_LAYOUT_ORDER.indexOf(b);
+    if (ia === -1 && ib === -1) return a.localeCompare(b);
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+}
+
 function normalizeTree(node) {
   if (!node) return;
   if (node.type === 'leaf') {
@@ -555,11 +571,12 @@ function autoSaveLayout() {
 function autoRestoreLayout() {
   if (window.clipper && window.clipper.loadPanelLayoutState) {
     return window.clipper.loadPanelLayoutState().then(function (state) {
-      var wanted = (state && state.activeWorkspace) ? state.activeWorkspace : 'minimal';
+      var wanted = (state && state.activeWorkspace) ? state.activeWorkspace : 'default';
       var layout = builtinLayouts[wanted] || userLayouts[wanted]
+        || builtinLayouts['default'] || userLayouts['default']
         || builtinLayouts.minimal || userLayouts.minimal
         || firstAvailableBuiltin();
-      activeWorkspaceKey = layout ? (layout._filename || wanted) : 'minimal';
+      activeWorkspaceKey = layout ? (layout._filename || wanted) : 'default';
       if (layout) applyLayout(layout);
 
       var loadCurrent = (window.clipper && window.clipper.loadPanelCurrentLayout)
@@ -582,7 +599,7 @@ function autoRestoreLayout() {
 
   try {
     var saved = localStorage.getItem(LAYOUT_KEY);
-    activeWorkspaceKey = localStorage.getItem(LEGACY_ACTIVE_KEY) || 'minimal';
+    activeWorkspaceKey = localStorage.getItem(LEGACY_ACTIVE_KEY) || 'default';
     if (saved) applyLayout(JSON.parse(saved));
   } catch (e) {}
   rebuildWorkspaceTabs(activeWorkspaceKey);
@@ -621,7 +638,7 @@ function applyPanelSystemMode() {
   if (!advanced) {
     redockAllFloating();
     var layout = builtinLayouts[activeWorkspaceKey] || userLayouts[activeWorkspaceKey]
-      || builtinLayouts.minimal || firstAvailableBuiltin();
+      || builtinLayouts['default'] || builtinLayouts.minimal || firstAvailableBuiltin();
     if (layout) applyLayout(layout);
     if (window.clipper && window.clipper.clearPanelCurrentLayout) {
       window.clipper.clearPanelCurrentLayout().catch(function () {});
@@ -808,7 +825,7 @@ function buildSavedLayoutsMenu() {
 function buildBuiltinLayoutsMenu() {
   var container = document.getElementById('builtin-layouts-menu');
   if (!container) return;
-  var keys = Object.keys(builtinLayouts);
+  var keys = orderedBuiltinKeys();
   if (keys.length === 0) {
     container.innerHTML = '<div class="dd-item disabled" style="font-style:italic;">No built-in layouts</div>';
     return;
@@ -862,7 +879,7 @@ function rebuildWorkspaceTabs(activeName) {
   if (!container) return;
   container.innerHTML = '';
 
-  var builtinKeys = Object.keys(builtinLayouts);
+  var builtinKeys = orderedBuiltinKeys();
   for (var i = 0; i < builtinKeys.length; i++) {
     var bk = builtinKeys[i];
     var bLayout = builtinLayouts[bk];
@@ -1150,6 +1167,18 @@ function startFloatDockDrag(floatId, info) {
 // (panel toggles live in layouts themselves). Function kept for API back-compat.
 updateViewChecks();
 
+function dismissBootSplash() {
+  var splash = document.getElementById('boot-splash');
+  if (!splash) return;
+  if (splash.classList.contains('is-leaving')) return;
+  splash.classList.add('is-leaving');
+  // After the fade-out transition, fully detach so it can never intercept
+  // pointer events even if a CSS bug clears pointer-events:none.
+  setTimeout(function () {
+    if (splash && splash.parentNode) splash.setAttribute('hidden', '');
+  }, 600);
+}
+
 loadBuiltinLayouts().then(function () {
   buildSavedLayoutsMenu();
   buildBuiltinLayoutsMenu();
@@ -1158,7 +1187,16 @@ loadBuiltinLayouts().then(function () {
   buildSavedLayoutsMenu();
   buildBuiltinLayoutsMenu();
   applyPanelSystemMode();
-}).catch(function () {});
+}).catch(function () {}).then(function () {
+  // One frame after the layout has been rendered, fade the splash. Wrapped in
+  // requestAnimationFrame so the user sees the final UI under the splash for
+  // a beat before it dissolves rather than a hard pop.
+  requestAnimationFrame(function () { requestAnimationFrame(dismissBootSplash); });
+});
+
+// Hard safety: if anything in the boot chain hangs, never trap the user
+// behind the splash forever.
+setTimeout(dismissBootSplash, 8000);
 
 window._panels = {
   closePanel: closePanel,

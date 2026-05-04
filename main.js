@@ -229,10 +229,16 @@ const PANEL_LAYOUTS_DIR = path.join(CONFIG_DIR, 'panel_layouts');
 const PANEL_LAYOUT_STATE_PATH = path.join(CONFIG_DIR, 'panel_layout_state.json');
 const PANEL_CURRENT_LAYOUT_PATH = path.join(CONFIG_DIR, 'panel_current_layout.json');
 const BUNDLED_LAYOUTS_DIR = path.join(__dirname, 'layouts');
-const DEFAULT_WORKSPACE_KEYS = ['minimal', 'collaboration', 'watch'];
+// Display order — matches the order of tabs in the workspace bar.
+const DEFAULT_WORKSPACE_KEYS = ['default', 'collaboration', 'minimal'];
 const DEFAULT_WORKSPACE_SET = new Set(DEFAULT_WORKSPACE_KEYS);
-const DEFAULTS_VERSION = 3;
-const RETIRED_DEFAULT_KEYS = ['default', 'editing'];
+const DEFAULTS_VERSION = 4;
+const RETIRED_DEFAULT_KEYS = ['editing', 'watch'];
+
+// v3 → v4: the *old* "Minimal" (clipper+clips) was renamed to "Default", and
+// the old "Watch" (clipper-only) was renamed to "Minimal". Existing installs
+// have an activeWorkspace pointer in the old namespace; remap to the new one.
+const ACTIVE_WORKSPACE_REMAP_V4 = { minimal: 'default', watch: 'minimal' };
 
 function ensureConfigDir() {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
@@ -296,16 +302,16 @@ function loadBundledDefaultLayouts() {
 function loadPanelLayoutState() {
   try {
     if (!fs.existsSync(PANEL_LAYOUT_STATE_PATH)) {
-      return { version: 1, defaultsVersion: DEFAULTS_VERSION, activeWorkspace: 'minimal' };
+      return { version: 1, defaultsVersion: DEFAULTS_VERSION, activeWorkspace: 'default' };
     }
     const parsed = JSON.parse(fs.readFileSync(PANEL_LAYOUT_STATE_PATH, 'utf-8'));
     return {
       version: Number(parsed && parsed.version) || 1,
       defaultsVersion: Number(parsed && parsed.defaultsVersion) || 1,
-      activeWorkspace: sanitizeLayoutKey(parsed && parsed.activeWorkspace ? parsed.activeWorkspace : 'minimal')
+      activeWorkspace: sanitizeLayoutKey(parsed && parsed.activeWorkspace ? parsed.activeWorkspace : 'default')
     };
   } catch {
-    return { version: 1, defaultsVersion: DEFAULTS_VERSION, activeWorkspace: 'minimal' };
+    return { version: 1, defaultsVersion: DEFAULTS_VERSION, activeWorkspace: 'default' };
   }
 }
 
@@ -314,7 +320,7 @@ function savePanelLayoutState(state) {
   const next = {
     version: 1,
     defaultsVersion: Number(state && state.defaultsVersion) || DEFAULTS_VERSION,
-    activeWorkspace: sanitizeLayoutKey(state && state.activeWorkspace ? state.activeWorkspace : 'minimal')
+    activeWorkspace: sanitizeLayoutKey(state && state.activeWorkspace ? state.activeWorkspace : 'default')
   };
   fs.writeFileSync(PANEL_LAYOUT_STATE_PATH, JSON.stringify(next, null, 2));
   return next;
@@ -355,11 +361,19 @@ function ensurePanelLayoutConfig() {
 
   const state = loadPanelLayoutState();
   if (!state.defaultsVersion || state.defaultsVersion < DEFAULTS_VERSION) {
+    const wasBeforeV4 = !state.defaultsVersion || state.defaultsVersion < 4;
     migrateRetiredDefaults();
     clearPanelCurrentLayout();
     let nextActive = state.activeWorkspace;
-    if (RETIRED_DEFAULT_KEYS.indexOf(nextActive) !== -1 || nextActive === 'default') {
-      nextActive = 'minimal';
+    // v3 → v4: remap stale activeWorkspace pointers to their renamed slots.
+    if (wasBeforeV4 && Object.prototype.hasOwnProperty.call(ACTIVE_WORKSPACE_REMAP_V4, nextActive)) {
+      nextActive = ACTIVE_WORKSPACE_REMAP_V4[nextActive];
+    }
+    if (RETIRED_DEFAULT_KEYS.indexOf(nextActive) !== -1) {
+      nextActive = 'default';
+    }
+    if (!DEFAULT_WORKSPACE_SET.has(nextActive)) {
+      nextActive = 'default';
     }
     savePanelLayoutState({ activeWorkspace: nextActive, defaultsVersion: DEFAULTS_VERSION });
   }
@@ -367,7 +381,7 @@ function ensurePanelLayoutConfig() {
   const defaults = loadBundledDefaultLayouts();
   ensureDefaultLayouts(PANEL_LAYOUTS_DIR, defaults);
   if (!fs.existsSync(PANEL_LAYOUT_STATE_PATH)) {
-    savePanelLayoutState({ activeWorkspace: 'minimal', defaultsVersion: DEFAULTS_VERSION });
+    savePanelLayoutState({ activeWorkspace: 'default', defaultsVersion: DEFAULTS_VERSION });
   }
 }
 

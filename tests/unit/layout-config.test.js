@@ -19,17 +19,17 @@ describe('layout-config', () => {
   it('creates missing default layout files and preserves existing files', () => {
     const dir = makeTempDir();
     const defaults = {
-      minimal: { name: 'Minimal', version: 1, tree: { type: 'leaf', panelType: 'clipper' } },
+      'default': { name: 'Default', version: 1, tree: { type: 'leaf', panelType: 'clipper' } },
       collaboration: { name: 'Collaboration', version: 1, tree: { type: 'leaf', panelType: 'collab' } },
-      watch: { name: 'Watch', version: 1, tree: { type: 'leaf', panelType: 'clipper' } }
+      minimal: { name: 'Minimal', version: 1, tree: { type: 'leaf', panelType: 'clipper' } }
     };
 
-    fs.writeFileSync(path.join(dir, 'minimal.json'), JSON.stringify({ name: 'Custom Minimal', version: 1, tree: { type: 'leaf', panelType: 'clips' } }, null, 2));
+    fs.writeFileSync(path.join(dir, 'default.json'), JSON.stringify({ name: 'Custom Default', version: 1, tree: { type: 'leaf', panelType: 'clips' } }, null, 2));
     cfg.ensureDefaultLayouts(dir, defaults);
 
-    expect(readJson(path.join(dir, 'minimal.json')).name).toBe('Custom Minimal');
+    expect(readJson(path.join(dir, 'default.json')).name).toBe('Custom Default');
     expect(readJson(path.join(dir, 'collaboration.json')).name).toBe('Collaboration');
-    expect(readJson(path.join(dir, 'watch.json')).name).toBe('Watch');
+    expect(readJson(path.join(dir, 'minimal.json')).name).toBe('Minimal');
   });
 
   it('saves layouts with stable slug keys and avoids collisions', () => {
