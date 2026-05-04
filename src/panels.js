@@ -1248,6 +1248,20 @@ window._panels = {
   var pending = null;
   var downloading = false;
   var autoHideTimer = null;
+  var currentVersion = '';
+
+  // Cache the running app version so we can recognize stale "update available"
+  // events that point at the version already installed (e.g. publisher metadata
+  // glitches, partial upgrades). When the offered version matches, suppress
+  // "Update Now" and only let the user dismiss.
+  if (api.getAppVersion) {
+    api.getAppVersion().then(function (v) { currentVersion = String(v || ''); }).catch(function () {});
+  }
+  function isSameAsInstalled(version) {
+    var a = String(version || '').replace(/^v/i, '').trim();
+    var b = currentVersion.replace(/^v/i, '').trim();
+    return !!a && !!b && a === b;
+  }
 
   var ICONS = {
     'checking':    '↻',
@@ -1297,6 +1311,16 @@ window._panels = {
   });
   api.onUpdateAvailable(function (info) {
     pending = info;
+    if (isSameAsInstalled(info && info.version)) {
+      // Offered version matches the running build — there's nothing to install.
+      // Show the up-to-date pill instead of a misleading "Update Now" button.
+      setBanner(
+        'up-to-date',
+        'You’re on the latest version (v' + currentVersion + ').',
+        { showDismiss: true, autoHide: 4000 }
+      );
+      return;
+    }
     setBanner(
       'available',
       '<strong>Update available:</strong> ClippingHub v' + (info.version || '') + ' is ready to install.',

@@ -94,6 +94,7 @@ html, body {
 .app {
   display: flex; flex-direction: column;
   height: 100vh; overflow: hidden;
+  position: relative; /* anchor for .update-banner overlay */
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -2660,10 +2661,14 @@ svg { display: block; }
   font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
 }
 
-/* ── Update banner (top drop-down — in document flow, pushes content down) ── */
+/* ── Update banner (top drop-down — overlays the header so it's clearly
+   above the menubar/logo; collapses to 0 height when hidden so it doesn't
+   intercept events). The .app container is position:relative below so the
+   banner anchors to the app top. ── */
 .update-banner {
-  position: relative;
-  z-index: 100;
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  z-index: 5000;
   overflow: hidden;
   background: var(--panel, #1a1a1c);
   border-bottom: 1px solid var(--border, #2a2a30);
@@ -2671,7 +2676,7 @@ svg { display: block; }
   font-size: 12px;
   max-height: 80px;
   transition: max-height .25s ease, border-bottom-width .25s ease, opacity .2s, background .2s, border-color .2s;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
 }
 .update-banner[hidden] {
   display: block;
@@ -3400,6 +3405,13 @@ body.basic-panels .area-header { cursor: default; }
    so it's not visually behind the next card's z-index:1 children. */
 .downloads-card .completed-actions-menu[open] { z-index: 5; }
 .downloads-card .completed-actions-popover { z-index: 10; }
+/* Without this, a later sibling card's positioned children (z-index:1)
+   paint over the absolutely-positioned popover that overflowed into their
+   area, swallowing clicks on Re-Stage / FFMPEG Log. Lifting the entire
+   open card above its siblings keeps the dropdown clickable. */
+.downloads-card:has(.completed-actions-menu[open]) {
+  z-index: 50;
+}
 .downloads-card-header {
   display: flex; align-items: center; justify-content: space-between;
   font-size: 11px;
@@ -3439,4 +3451,123 @@ body.basic-panels .area-header { cursor: default; }
 }
 .downloads-card-actions {
   display: flex; gap: 6px; margin-top: 4px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Boot splash — full-viewport intro shown until panels.js reports
+   the first restore pass is done. Logo wordmark with two counter-
+   rotating conic rings (the "spinner") + AF-gradient progress bar.
+   Removes itself via .is-leaving fade-out, then display:none.
+   ═══════════════════════════════════════════════════════════════ */
+.boot-splash {
+  position: fixed; inset: 0; z-index: 100000;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at center, #0c0c10 0%, #000 70%);
+  pointer-events: all;
+  opacity: 1;
+  transition: opacity 520ms cubic-bezier(.4,0,.2,1), transform 520ms cubic-bezier(.4,0,.2,1);
+  will-change: opacity, transform;
+}
+.boot-splash.is-leaving {
+  opacity: 0;
+  transform: scale(1.04);
+  pointer-events: none;
+}
+.boot-splash[hidden] { display: none; }
+
+.boot-splash-stage {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 28px;
+  animation: bootStageIn 700ms cubic-bezier(.16,1,.3,1) both;
+}
+
+.boot-splash-logo {
+  position: relative;
+  width: 220px; height: 220px;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.boot-splash-ring {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    var(--gradient-brand-start) 60deg,
+    var(--gradient-brand-middle) 150deg,
+    var(--gradient-brand-end) 240deg,
+    transparent 320deg
+  );
+  -webkit-mask: radial-gradient(circle, transparent 70px, #000 71px, #000 105px, transparent 106px);
+          mask: radial-gradient(circle, transparent 70px, #000 71px, #000 105px, transparent 106px);
+  filter: blur(0.5px);
+  animation: bootSpin 2.6s linear infinite;
+}
+.boot-splash-ring-2 {
+  -webkit-mask: radial-gradient(circle, transparent 86px, #000 87px, #000 96px, transparent 97px);
+          mask: radial-gradient(circle, transparent 86px, #000 87px, #000 96px, transparent 97px);
+  animation: bootSpinReverse 4.2s linear infinite;
+  opacity: 0.55;
+}
+
+.boot-splash-wordmark {
+  position: relative;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.18em;
+  color: #ffffff;
+  text-shadow: 0 0 24px rgba(123, 97, 255, 0.35);
+  animation: bootBreathe 3.2s ease-in-out infinite;
+}
+.boot-splash-hub {
+  background: linear-gradient(90deg, var(--gradient-brand-start), var(--gradient-brand-middle), var(--gradient-brand-end));
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradientShift 6s ease infinite;
+}
+
+.boot-splash-bar {
+  position: relative;
+  width: 200px; height: 2px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.boot-splash-bar > span {
+  position: absolute; top: 0; left: 0;
+  width: 40%; height: 100%;
+  background: linear-gradient(90deg, transparent, var(--gradient-brand-middle), var(--gradient-brand-end), transparent);
+  border-radius: 2px;
+  animation: bootBarSlide 1.6s cubic-bezier(.45,.05,.55,.95) infinite;
+  filter: drop-shadow(0 0 6px rgba(123,97,255,0.55));
+}
+
+@keyframes bootSpin {
+  to { transform: rotate(360deg); }
+}
+@keyframes bootSpinReverse {
+  to { transform: rotate(-360deg); }
+}
+@keyframes bootBreathe {
+  0%, 100% { opacity: 0.92; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.015); }
+}
+@keyframes bootBarSlide {
+  0%   { left: -45%; }
+  100% { left: 105%; }
+}
+@keyframes bootStageIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot-splash-ring,
+  .boot-splash-ring-2,
+  .boot-splash-bar > span,
+  .boot-splash-wordmark { animation-duration: 0.001s; }
 }
