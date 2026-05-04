@@ -206,7 +206,7 @@ describe('RthubClient', () => {
     c.connect();
     FakeWS.last._open();
     c.sendTimeline(1500);
-    c.sendPlayback('play', 1500, 1);
+    c.sendPlayback('playing', 1500, 1);
     c.sendSelection(['r1', 'r2']);
     c.sendCursor(2000);
     c.sendClipRange(0, 1000);
@@ -219,7 +219,7 @@ describe('RthubClient', () => {
     const tl = FakeWS.last.sent.find(m => m.type === 'timelineUpdate');
     expect(tl.positionMs).toBe(1500);
     const pb = FakeWS.last.sent.find(m => m.type === 'playbackUpdate');
-    expect(pb.state).toBe('play');
+    expect(pb.state).toBe('playing');
     expect(pb.rate).toBe(1);
   });
 

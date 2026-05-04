@@ -118,6 +118,50 @@ describe('chatToLegacy', () => {
   });
 });
 
+describe('sanitizeOutbound', () => {
+  it('keeps a valid color', () => {
+    const m = P.sanitizeOutbound({ type: 'peerProfile', color: '#5bb1ff' });
+    expect(m.color).toBe('#5bb1ff');
+  });
+  it('drops malformed color (#fff, "red", missing #)', () => {
+    expect(P.sanitizeOutbound({ type: 'peerProfile', color: '#fff' }).color).toBeUndefined();
+    expect(P.sanitizeOutbound({ type: 'peerProfile', color: 'red' }).color).toBeUndefined();
+    expect(P.sanitizeOutbound({ type: 'peerProfile', color: '5bb1ff' }).color).toBeUndefined();
+  });
+  it('drops out-of-enum role', () => {
+    expect(P.sanitizeOutbound({ type: 'peerProfile', role: 'admin' }).role).toBeUndefined();
+    expect(P.sanitizeOutbound({ type: 'peerProfile', role: 'helper' }).role).toBe('helper');
+  });
+  it('drops out-of-enum status on clipRangeUpsert', () => {
+    expect(P.sanitizeOutbound({ type: 'clipRangeUpsert', id: 'r1', status: 'wat' }).status).toBeUndefined();
+    expect(P.sanitizeOutbound({ type: 'clipRangeUpsert', id: 'r1', status: 'queued' }).status).toBe('queued');
+  });
+  it('truncates over-length strings to spec caps', () => {
+    const longName = 'a'.repeat(200);
+    expect(P.sanitizeOutbound({ type: 'peerProfile', name: longName }).name.length).toBe(80);
+  });
+  it('returns null for messages with required fields missing or invalid', () => {
+    expect(P.sanitizeOutbound({ type: 'clipRangeUpsert' })).toBeNull();
+    expect(P.sanitizeOutbound({ type: 'chatMessage', body: '' })).toBeNull();
+    expect(P.sanitizeOutbound({ type: 'chatMessage', id: '', body: 'hi' })).toBeNull();
+    expect(P.sanitizeOutbound({ type: 'delivery', toClientId: 'a', kind: 'wat', rangeId: 'r1' })).toBeNull();
+  });
+  it('passes through unknown types unchanged (forward-compat)', () => {
+    const m = P.sanitizeOutbound({ type: 'futureType', whatever: 1 });
+    expect(m).toEqual({ type: 'futureType', whatever: 1 });
+  });
+  it('drops invalid playback state but keeps required positionMs', () => {
+    expect(P.sanitizeOutbound({ type: 'playbackUpdate', state: 'play', positionMs: 100 })).toBeNull();
+    const ok = P.sanitizeOutbound({ type: 'playbackUpdate', state: 'playing', positionMs: 100 });
+    expect(ok.state).toBe('playing');
+    expect(ok.positionMs).toBe(100);
+  });
+  it('coerces negative positionMs to null (rejects)', () => {
+    expect(P.sanitizeOutbound({ type: 'timelineUpdate', positionMs: -5 })).toBeNull();
+    expect(P.sanitizeOutbound({ type: 'timelineUpdate', positionMs: 0 }).positionMs).toBe(0);
+  });
+});
+
 describe('deliveryToLegacy', () => {
   it('maps rthub delivery to the legacy delivery record collab-ui expects', () => {
     const msg = {

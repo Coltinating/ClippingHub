@@ -110,7 +110,10 @@
   };
 
   RthubClient.prototype._send = function (m) {
-    if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m));
+    if (!this.ws || this.ws.readyState !== 1) return;
+    var clean = P.sanitizeOutbound ? P.sanitizeOutbound(m) : m;
+    if (!clean) return;
+    this.ws.send(JSON.stringify(clean));
   };
 
   RthubClient.prototype._handleSnapshot = function (msg) {
