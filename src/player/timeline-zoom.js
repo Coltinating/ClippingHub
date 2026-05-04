@@ -1,0 +1,267 @@
+// Timeline-Zoom — interactive zoomable timeline mounted below the main player.
+// Reads playhead from window.Player.els.vid, span from vid.duration / vid.seekable,
+// marks from window.ClipState. Seeks via window.Player.timeline.seekTo(t).
+// Pure math is delegated to window.TimelineZoomMath.
+(function () {
+  'use strict';
+
+  const M = window.TimelineZoomMath;
+  const MIN_SPAN = 2;
+  const ZOOM_STEP = 1.15;
+  const PLAYHEAD_HIT_RADIUS = 9;
+  const EDGE_AUTOPAN_FRAC = 0.06;
+  const EDGE_AUTOPAN_PX_PER_FRAME = 6;
+  const DRAG_THRESHOLD_SCRUB = 2;
+  const DRAG_THRESHOLD_PAN = 4;
+
+  function pad2(n) { return String(n).padStart(2, '0'); }
+  function fmtHMS(s) {
+    if (!Number.isFinite(s)) s = 0;
+    s = Math.floor(Math.max(0, s));
+    return pad2(Math.floor(s / 3600)) + ':' + pad2(Math.floor((s % 3600) / 60)) + ':' + pad2(s % 60);
+  }
+  function fmtDur(s) {
+    if (!s || !Number.isFinite(s) || s < 0) return '0:00';
+    s = Math.floor(s);
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return h > 0 ? h + ':' + pad2(m) + ':' + pad2(sec) : m + ':' + pad2(sec);
+  }
+  function fmtSpan(s) {
+    if (s >= 3600) return (s / 3600).toFixed(s >= 7200 ? 0 : 1) + 'h';
+    if (s >= 60)   return (s / 60).toFixed(s >= 600 ? 0 : 1) + 'm';
+    return s.toFixed(s >= 10 ? 0 : 1) + 's';
+  }
+
+  function getTimelineRange() {
+    const P = window.Player;
+    const vid = P && P.els ? P.els.vid : null;
+    if (!vid) return null;
+    if (P.state.isLive) {
+      const sk = vid.seekable;
+      if (!sk || sk.length === 0) return null;
+      return { absStart: sk.start(0), absEnd: sk.end(sk.length - 1) };
+    }
+    if (Number.isFinite(vid.duration) && vid.duration > 0) {
+      return { absStart: 0, absEnd: vid.duration };
+    }
+    return null;
+  }
+
+  function mount(rootEl) {
+    rootEl.classList.add('tlzoom-root');
+    rootEl.innerHTML = `
+      <div class="tlzoom-stats">
+        <span class="tlzoom-stat"><span class="tlzoom-stat-label">Playhead</span><span class="tlzoom-stat-value" data-lbl="playhead">00:00:00</span></span>
+        <span class="tlzoom-sep"></span>
+        <span class="tlzoom-stat"><span class="tlzoom-stat-label">View</span><span class="tlzoom-stat-value" data-lbl="view">&mdash;</span></span>
+        <span class="tlzoom-sep"></span>
+        <span class="tlzoom-stat"><span class="tlzoom-stat-label">Span</span><span class="tlzoom-stat-value" data-lbl="span">&mdash;</span></span>
+        <span class="tlzoom-spacer"></span>
+        <span class="tlzoom-stat in"><span class="tlzoom-stat-label">IN</span><span class="tlzoom-stat-value" data-lbl="in">&mdash;</span></span>
+        <span class="tlzoom-sep"></span>
+        <span class="tlzoom-stat out"><span class="tlzoom-stat-label">OUT</span><span class="tlzoom-stat-value" data-lbl="out">&mdash;</span></span>
+        <span class="tlzoom-sep"></span>
+        <span class="tlzoom-stat"><span class="tlzoom-stat-label">DUR</span><span class="tlzoom-stat-value" data-lbl="dur">&mdash;</span></span>
+        <button type="button" class="tlzoom-reset-btn" data-act="reset" title="Reset zoom to full range">Reset view</button>
+      </div>
+      <div class="tlzoom-section-cap"><span><b>Anchor</b> &middot; where you are in the stream</span><span class="hint">read-only</span></div>
+      <div class="tlzoom-minimap-wrap">
+        <div class="tlzoom-minimap">
+          <div class="tlzoom-minimap-selection" data-el="mmSel"></div>
+          <div class="tlzoom-minimap-mark in"  data-el="mmIn"  hidden></div>
+          <div class="tlzoom-minimap-mark out" data-el="mmOut" hidden></div>
+          <div class="tlzoom-minimap-viewport" data-el="mmViewport"></div>
+          <div class="tlzoom-minimap-playhead" data-el="mmPlayhead"></div>
+        </div>
+      </div>
+      <div class="tlzoom-minimap-labels" data-el="mmLabels"></div>
+      <div class="tlzoom-section-cap" style="margin-top:12px;"><span><b>Navigator</b> &middot; zoom &middot; scrub &middot; seek</span><span class="hint">drag bg / drag playhead / wheel</span></div>
+      <div class="tlzoom-scrubber-wrap">
+        <div class="tlzoom-scrubber" data-el="scrubber">
+          <div class="tlzoom-selection" data-el="sel" hidden></div>
+          <div class="tlzoom-mark in"  data-el="mIn"  hidden></div>
+          <div class="tlzoom-mark out" data-el="mOut" hidden></div>
+          <div class="tlzoom-playhead" data-el="playhead"></div>
+        </div>
+        <div class="tlzoom-tooltip" data-el="tooltip">00:00:00</div>
+      </div>
+    `;
+
+    const q = (sel) => rootEl.querySelector(sel);
+    const els = {
+      root: rootEl,
+      lblPlayhead: q('[data-lbl="playhead"]'),
+      lblView:     q('[data-lbl="view"]'),
+      lblSpan:     q('[data-lbl="span"]'),
+      lblIn:       q('[data-lbl="in"]'),
+      lblOut:      q('[data-lbl="out"]'),
+      lblDur:      q('[data-lbl="dur"]'),
+      mmViewport:  q('[data-el="mmViewport"]'),
+      mmPlayhead:  q('[data-el="mmPlayhead"]'),
+      mmIn:        q('[data-el="mmIn"]'),
+      mmOut:       q('[data-el="mmOut"]'),
+      mmSel:       q('[data-el="mmSel"]'),
+      mmLabels:    q('[data-el="mmLabels"]'),
+      scrubber:    q('[data-el="scrubber"]'),
+      sel:         q('[data-el="sel"]'),
+      mIn:         q('[data-el="mIn"]'),
+      mOut:        q('[data-el="mOut"]'),
+      playhead:    q('[data-el="playhead"]'),
+      tooltip:     q('[data-el="tooltip"]'),
+      btnReset:    q('[data-act="reset"]'),
+    };
+
+    const state = { view: null /* {start, end} in absolute timeline coords */ };
+    let renderQueued = false;
+
+    function getMarks() {
+      if (!window.ClipState) return { inMark: null, outMark: null };
+      const inT = window.ClipState.getPendingInTime();
+      const clips = window.ClipState.getPendingClips();
+      const last = clips[clips.length - 1];
+      if (inT != null) return { inMark: inT, outMark: null };
+      if (last) return { inMark: last.inTime, outMark: last.outTime };
+      return { inMark: null, outMark: null };
+    }
+
+    function render() {
+      const range = getTimelineRange();
+      if (!range) { els.root.hidden = true; return; }
+      els.root.hidden = false;
+
+      // Lazy-init view to full range; rescope into bounds if range moved.
+      if (!state.view) {
+        state.view = { start: range.absStart, end: range.absEnd };
+      } else {
+        if (state.view.start < range.absStart) {
+          const delta = range.absStart - state.view.start;
+          state.view = { start: state.view.start + delta, end: state.view.end + delta };
+        }
+        if (state.view.end > range.absEnd) {
+          const sp = state.view.end - state.view.start;
+          state.view = { start: Math.max(range.absStart, range.absEnd - sp), end: range.absEnd };
+        }
+      }
+
+      const view = state.view;
+      const span = view.end - view.start;
+      const total = range.absEnd - range.absStart;
+      const playhead = window.Player.els.vid.currentTime;
+      const marks = getMarks();
+
+      els.lblPlayhead.textContent = fmtHMS(playhead - range.absStart);
+      els.lblView.textContent = fmtHMS(view.start - range.absStart) + ' → ' + fmtHMS(view.end - range.absStart);
+      els.lblSpan.textContent = fmtSpan(span);
+      els.lblIn.textContent  = marks.inMark  != null ? fmtHMS(marks.inMark  - range.absStart) : '—';
+      els.lblOut.textContent = marks.outMark != null ? fmtHMS(marks.outMark - range.absStart) : '—';
+      els.lblDur.textContent = (marks.inMark != null && marks.outMark != null && marks.outMark > marks.inMark)
+        ? fmtDur(marks.outMark - marks.inMark) : '—';
+
+      const sw = els.scrubber.clientWidth;
+
+      Array.from(els.scrubber.querySelectorAll('.tlzoom-tick, .tlzoom-tick-label')).forEach(n => n.remove());
+      const step = M.pickTickStep(span);
+      const firstTick = Math.ceil(view.start / step) * step;
+      for (let t = firstTick; t <= view.end; t += step) {
+        const f = M.timeToFrac(view, t);
+        if (f < 0 || f > 1) continue;
+        const x = f * sw;
+        const tick = document.createElement('div');
+        tick.className = 'tlzoom-tick major';
+        tick.style.left = x + 'px';
+        els.scrubber.appendChild(tick);
+        const lbl = document.createElement('div');
+        lbl.className = 'tlzoom-tick-label';
+        lbl.style.left = x + 'px';
+        lbl.textContent = span >= 60 ? fmtHMS(t - range.absStart) : fmtHMS(t - range.absStart).slice(3);
+        els.scrubber.appendChild(lbl);
+      }
+
+      const phF = M.timeToFrac(view, playhead);
+      if (phF >= 0 && phF <= 1) {
+        els.playhead.style.display = '';
+        els.playhead.style.left = (phF * 100) + '%';
+      } else {
+        els.playhead.style.display = 'none';
+      }
+
+      function placeMark(t, node) {
+        if (t == null) { node.hidden = true; return; }
+        const f = M.timeToFrac(view, t);
+        if (f < 0 || f > 1) { node.hidden = true; return; }
+        node.hidden = false;
+        node.style.left = (f * 100) + '%';
+      }
+      placeMark(marks.inMark,  els.mIn);
+      placeMark(marks.outMark, els.mOut);
+
+      if (marks.inMark != null && marks.outMark != null && marks.outMark > marks.inMark) {
+        const a = Math.max(M.timeToFrac(view, marks.inMark),  0);
+        const b = Math.min(M.timeToFrac(view, marks.outMark), 1);
+        if (b > a) {
+          els.sel.hidden = false;
+          els.sel.style.left = (a * 100) + '%';
+          els.sel.style.width = ((b - a) * 100) + '%';
+        } else els.sel.hidden = true;
+      } else els.sel.hidden = true;
+
+      const mmStartPct = ((view.start - range.absStart) / total) * 100;
+      const mmEndPct   = ((view.end   - range.absStart) / total) * 100;
+      els.mmViewport.style.left  = mmStartPct + '%';
+      els.mmViewport.style.width = (mmEndPct - mmStartPct) + '%';
+      els.mmPlayhead.style.left = (((playhead - range.absStart) / total) * 100) + '%';
+
+      if (marks.inMark != null) {
+        els.mmIn.hidden = false;
+        els.mmIn.style.left = (((marks.inMark - range.absStart) / total) * 100) + '%';
+      } else els.mmIn.hidden = true;
+      if (marks.outMark != null) {
+        els.mmOut.hidden = false;
+        els.mmOut.style.left = (((marks.outMark - range.absStart) / total) * 100) + '%';
+      } else els.mmOut.hidden = true;
+
+      if (marks.inMark != null && marks.outMark != null && marks.outMark > marks.inMark) {
+        const a = ((marks.inMark  - range.absStart) / total) * 100;
+        const b = ((marks.outMark - range.absStart) / total) * 100;
+        els.mmSel.style.left = a + '%';
+        els.mmSel.style.width = (b - a) + '%';
+        els.mmSel.style.display = '';
+      } else els.mmSel.style.display = 'none';
+
+      els.mmLabels.innerHTML = '';
+      for (let i = 0; i <= 4; i++) {
+        const t = (total / 4) * i;
+        const lbl = document.createElement('span');
+        lbl.style.left = (i * 25) + '%';
+        lbl.textContent = fmtHMS(t);
+        els.mmLabels.appendChild(lbl);
+      }
+    }
+
+    function scheduleRender() {
+      if (renderQueued) return;
+      renderQueued = true;
+      requestAnimationFrame(() => { renderQueued = false; render(); });
+    }
+
+    function resetView() {
+      state.view = null;
+      render();
+    }
+
+    if (window.Player && window.Player.on) {
+      window.Player.on('timeupdate', scheduleRender);
+      window.Player.on('streamready', () => { state.view = null; scheduleRender(); });
+    }
+    window.addEventListener('marks-changed', scheduleRender);
+    window.addEventListener('resize', scheduleRender);
+    els.btnReset.addEventListener('click', resetView);
+
+    rootEl._tlzoom = { state, els, render, scheduleRender, resetView, getTimelineRange, M, MIN_SPAN, ZOOM_STEP, PLAYHEAD_HIT_RADIUS, EDGE_AUTOPAN_FRAC, EDGE_AUTOPAN_PX_PER_FRAME, DRAG_THRESHOLD_SCRUB, DRAG_THRESHOLD_PAN, fmtHMS };
+
+    render();
+    return rootEl._tlzoom;
+  }
+
+  window.TimelineZoom = { mount };
+})();
