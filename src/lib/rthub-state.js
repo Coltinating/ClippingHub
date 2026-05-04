@@ -47,18 +47,27 @@
       }
       case 'presenceUpdate': {
         var lobby = this._ensureLobby();
-        if (msg.action === 'join') {
-          var i = lobby.members.findIndex(function (m) { return m.id === msg.clientId; });
-          var asMember = P.presenceToMember(msg);
-          if (i < 0) lobby.members.push(asMember);
-          else lobby.members[i] = asMember;
-        } else if (msg.action === 'leave') {
+        if (msg.action === 'leave') {
           lobby.members = lobby.members.filter(function (m) { return m.id !== msg.clientId; });
+          return;
+        }
+        // join + heartbeat: merge profile fields. join fires BEFORE peerProfile
+        // so it often carries no profile; a follow-up heartbeat carries it.
+        // Replacing instead of merging blanks role/name on every late frame.
+        var i = lobby.members.findIndex(function (m) { return m.id === msg.clientId; });
+        var patch = P.presenceToProfilePatch(msg);
+        if (i < 0) {
+          lobby.members.push(Object.assign(P.presenceToMember(msg), patch));
+        } else {
+          lobby.members[i] = Object.assign({}, lobby.members[i], patch);
         }
         return;
       }
       case 'chatMessage': {
-        this._ensureLobby().chat.push(P.chatToLegacy(msg));
+        var lobby2 = this._ensureLobby();
+        var msgId = msg && msg.id;
+        if (msgId && lobby2.chat.some(function (c) { return c.id === msgId; })) return;
+        lobby2.chat.push(P.chatToLegacy(msg));
         return;
       }
       case 'clipRangeUpsert': {

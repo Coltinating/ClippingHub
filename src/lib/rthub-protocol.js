@@ -137,12 +137,23 @@
     }
   }
 
+  // Local clipRange code keeps inTime/outTime in seconds (HTMLMediaElement
+  // currentTime). The rthub spec requires non-negative integer milliseconds
+  // (sanitizeOutbound's optNonNegInt rejects floats). Convert at the wire
+  // boundary so the round-trip preserves clip times.
   function rangeToUpsert(range) {
     var out = { type: 'clipRangeUpsert' };
     if (!range || typeof range !== 'object') return out;
     for (var i = 0; i < UPSERT_FIELDS.length; i++) {
       var k = UPSERT_FIELDS[i];
-      if (range[k] !== undefined && range[k] !== null) out[k] = range[k];
+      if (range[k] === undefined || range[k] === null) continue;
+      if (k === 'inTime' || k === 'outTime') {
+        var n = Number(range[k]);
+        if (!Number.isFinite(n) || n < 0) continue;
+        out[k] = Math.round(n * 1000);
+      } else {
+        out[k] = range[k];
+      }
     }
     return out;
   }
@@ -152,7 +163,14 @@
     if (!msg) return out;
     for (var i = 0; i < UPSERT_FIELDS.length; i++) {
       var k = UPSERT_FIELDS[i];
-      if (msg[k] !== undefined) out[k] = msg[k];
+      if (msg[k] === undefined) continue;
+      if (k === 'inTime' || k === 'outTime') {
+        var ms = Number(msg[k]);
+        if (!Number.isFinite(ms) || ms < 0) continue;
+        out[k] = ms / 1000;
+      } else {
+        out[k] = msg[k];
+      }
     }
     return out;
   }
@@ -170,6 +188,23 @@
       pfpDataUrl: null,
       assistUserId: p.assistUserId || null
     };
+  }
+
+  // Profile-only patch derived from a presenceUpdate — only includes fields
+  // actually carried by the frame. Used to MERGE into an existing member so
+  // that a follow-up frame missing role/name doesn't blank prior data.
+  // Per spec: presenceUpdate{action:'join'} fires before peerProfile and
+  // carries no profile; the heartbeat that follows carries it.
+  function presenceToProfilePatch(p) {
+    if (!p) return {};
+    var patch = {};
+    if (typeof p.name === 'string' && p.name) patch.name = p.name;
+    if (typeof p.role === 'string' && p.role) patch.role = p.role;
+    if (typeof p.color === 'string' && p.color) patch.color = p.color;
+    if (typeof p.xHandle === 'string') patch.xHandle = p.xHandle;
+    if (p.assistUserId !== undefined) patch.assistUserId = p.assistUserId || null;
+    if (typeof p.ts === 'number' && p.ts > 0) patch.lastSeenAt = p.ts;
+    return patch;
   }
 
   function chatToLegacy(m) {
@@ -203,6 +238,7 @@
     rangeToUpsert: rangeToUpsert,
     upsertToRange: upsertToRange,
     presenceToMember: presenceToMember,
+    presenceToProfilePatch: presenceToProfilePatch,
     chatToLegacy: chatToLegacy,
     deliveryToLegacy: deliveryToLegacy,
     sanitizeOutbound: sanitizeOutbound

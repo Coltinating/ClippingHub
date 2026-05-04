@@ -39,12 +39,35 @@ describe('RthubState', () => {
     expect(s.snapshot().members[0].name).toBe('Bob');
   });
 
-  it('presenceUpdate action=join overwrites existing entry (profile refresh)', () => {
+  it('presenceUpdate action=join merges new fields into existing entry (profile refresh)', () => {
     s.apply({ type: 'stateSnapshot', presence: [], chat: [], clipRanges: [] });
     s.apply({ type: 'presenceUpdate', clientId: 'p2', action: 'join', name: 'Bob', role: 'helper', ts: 1 });
     s.apply({ type: 'presenceUpdate', clientId: 'p2', action: 'join', name: 'Robert', role: 'helper', ts: 2 });
     expect(s.snapshot().members).toHaveLength(1);
     expect(s.snapshot().members[0].name).toBe('Robert');
+  });
+
+  it('presenceUpdate action=join without profile preserves prior role/name', () => {
+    s.apply({ type: 'stateSnapshot', presence: [], chat: [], clipRanges: [] });
+    s.apply({ type: 'presenceUpdate', clientId: 'p2', action: 'join', name: 'Bob', role: 'clipper', ts: 1 });
+    // Reconnect: server fires bare join BEFORE peerProfile resends
+    s.apply({ type: 'presenceUpdate', clientId: 'p2', action: 'join', ts: 2 });
+    expect(s.snapshot().members[0].name).toBe('Bob');
+    expect(s.snapshot().members[0].role).toBe('clipper');
+  });
+
+  it('presenceUpdate action=heartbeat merges peerProfile rebroadcast into existing member', () => {
+    s.apply({ type: 'stateSnapshot', presence: [], chat: [], clipRanges: [] });
+    s.apply({ type: 'presenceUpdate', clientId: 'p2', action: 'join', ts: 1 }); // bare join
+    s.apply({
+      type: 'presenceUpdate', clientId: 'p2', action: 'heartbeat',
+      name: 'Alice', role: 'clipper', color: '#5bb1ff', ts: 2
+    });
+    const m = s.snapshot().members[0];
+    expect(m.name).toBe('Alice');
+    expect(m.role).toBe('clipper');
+    expect(m.color).toBe('#5bb1ff');
+    expect(m.lastSeenAt).toBe(2);
   });
 
   it('presenceUpdate action=leave removes a member', () => {
@@ -64,12 +87,12 @@ describe('RthubState', () => {
     expect(s.snapshot().chat[0].text).toBe('hi');
   });
 
-  it('clipRangeUpsert inserts then updates by id', () => {
+  it('clipRangeUpsert inserts then updates by id (wire ms → seconds)', () => {
     s.apply({ type: 'stateSnapshot', presence: [], chat: [], clipRanges: [] });
-    s.apply({ type: 'clipRangeUpsert', id: 'r1', inTime: 100, status: 'queued' });
+    s.apply({ type: 'clipRangeUpsert', id: 'r1', inTime: 100000, status: 'queued' });
     expect(s.snapshot().clipRanges).toHaveLength(1);
     expect(s.snapshot().clipRanges[0].inTime).toBe(100);
-    s.apply({ type: 'clipRangeUpsert', id: 'r1', inTime: 200, status: 'done' });
+    s.apply({ type: 'clipRangeUpsert', id: 'r1', inTime: 200000, status: 'done' });
     expect(s.snapshot().clipRanges).toHaveLength(1);
     expect(s.snapshot().clipRanges[0].inTime).toBe(200);
     expect(s.snapshot().clipRanges[0].status).toBe('done');

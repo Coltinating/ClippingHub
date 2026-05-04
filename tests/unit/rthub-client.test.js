@@ -83,6 +83,47 @@ describe('RthubClient', () => {
     expect(events).toEqual([['j', 'p2'], ['l', 'p2']]);
   });
 
+  it('emits member:updated on heartbeat with merged profile', () => {
+    const c = build();
+    const updates = [];
+    c.on('member:updated', (m) => updates.push(m.member));
+    c.connect();
+    FakeWS.last._open();
+    FakeWS.last._msg({ type: 'stateSnapshot', presence: [], chat: [], clipRanges: [] });
+    FakeWS.last._msg({ type: 'presenceUpdate', clientId: 'p2', action: 'join', ts: 1 }); // bare
+    FakeWS.last._msg({
+      type: 'presenceUpdate', clientId: 'p2', action: 'heartbeat',
+      name: 'Alice', role: 'clipper', color: '#5bb1ff', ts: 2
+    });
+    expect(updates).toHaveLength(1);
+    expect(updates[0].id).toBe('p2');
+    expect(updates[0].name).toBe('Alice');
+    expect(updates[0].role).toBe('clipper');
+  });
+
+  it('setRole on self resends peerProfile with the new role', () => {
+    const c = build({ profile: { name: 'me', role: 'viewer' } });
+    c.connect();
+    FakeWS.last._open();
+    FakeWS.last._msg({ type: 'stateSnapshot', presence: [], chat: [], clipRanges: [] });
+    const before = FakeWS.last.sent.filter(m => m.type === 'peerProfile').length;
+    c.setRole(c.clientId, 'clipper');
+    const after = FakeWS.last.sent.filter(m => m.type === 'peerProfile');
+    expect(after.length).toBe(before + 1);
+    expect(after[after.length - 1].role).toBe('clipper');
+  });
+
+  it('setRole for a foreign clientId is a no-op (rthub roles are self-asserted)', () => {
+    const c = build({ profile: { name: 'me', role: 'viewer' } });
+    c.connect();
+    FakeWS.last._open();
+    FakeWS.last._msg({ type: 'stateSnapshot', presence: [], chat: [], clipRanges: [] });
+    const before = FakeWS.last.sent.filter(m => m.type === 'peerProfile').length;
+    c.setRole('not-me', 'clipper');
+    const after = FakeWS.last.sent.filter(m => m.type === 'peerProfile').length;
+    expect(after).toBe(before);
+  });
+
   it('emits chat:message when chatMessage arrives', () => {
     const c = build();
     const seen = [];
@@ -95,14 +136,14 @@ describe('RthubClient', () => {
     expect(seen[0].message.text).toBe('hi');
   });
 
-  it('upsertRange flattens and sends clipRangeUpsert', () => {
+  it('upsertRange flattens and sends clipRangeUpsert (seconds → ms on the wire)', () => {
     const c = build();
     c.connect();
     FakeWS.last._open();
     c.upsertRange({ id: 'r1', inTime: 100, status: 'queued', clipperId: 'me' });
     const out = FakeWS.last.sent.find(m => m.type === 'clipRangeUpsert');
     expect(out.id).toBe('r1');
-    expect(out.inTime).toBe(100);
+    expect(out.inTime).toBe(100000); // 100s → 100000ms
     expect(out.status).toBe('queued');
   });
 

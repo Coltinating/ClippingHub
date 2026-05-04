@@ -156,6 +156,12 @@
           if (existed) {
             this._emit('member:updated', { type: 'member:updated', member: P.presenceToMember(msg) });
           }
+        } else if (msg.action === 'heartbeat') {
+          // peerProfile re-broadcasts arrive as heartbeat — they carry the
+          // canonical role/name. Surface as member:updated so the UI rerenders.
+          var snap = this._state.snapshot();
+          var merged = snap && snap.members.find(function (m) { return m.id === msg.clientId; });
+          this._emit('member:updated', { type: 'member:updated', member: merged || P.presenceToMember(msg) });
         } else if (msg.action === 'leave') {
           this._emit('member:left', { type: 'member:left', memberId: msg.clientId });
         }
@@ -203,10 +209,18 @@
 
   RthubClient.prototype.sendChat = function (text) {
     var id = 'c_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-    this._send({
+    var frame = {
       type: 'chatMessage', id: id, body: text,
-      author: this.profile.name || '', userId: this.clientId
-    });
+      author: this.profile.name || '', userId: this.clientId,
+      ts: Date.now()
+    };
+    this._send(frame);
+    // rthub does not echo chatMessage to the sender; mirror the frame into our
+    // own state so callers see their message immediately. dedup-by-id in
+    // RthubState.apply makes this safe even if a future broker DOES echo.
+    this._state.apply(frame);
+    this._emit('chat:message', { type: 'chat:message', message: P.chatToLegacy(frame) });
+    return id;
   };
   RthubClient.prototype.upsertRange = function (range) {
     this._send(P.rangeToUpsert(range));
@@ -261,7 +275,15 @@
     return this.connect().then(function () { return self._state.snapshot(); });
   };
   RthubClient.prototype.leaveLobby = function () { this.disconnect(); };
-  RthubClient.prototype.setRole = function () { /* deferred — rthub spec has no server-authoritative role */ };
+  // rthub roles are self-asserted: each peer broadcasts their own role via
+  // peerProfile. We can only change OUR role; others must change theirs.
+  // Calls for other clientIds resolve as no-op so callers don't need to
+  // gate on identity.
+  RthubClient.prototype.setRole = function (clientId, role) {
+    if (!role) return;
+    if (clientId && clientId !== this.clientId) return;
+    this.updateProfile({ role: role });
+  };
   RthubClient.prototype.setAssist = function (assistUserId) {
     this.updateProfile({ assistUserId: assistUserId || null });
   };

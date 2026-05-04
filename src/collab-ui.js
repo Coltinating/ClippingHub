@@ -967,8 +967,11 @@ function openProfilePopover(userId, anchorEl) {
   if (isSelf) {
     if (iAmHelper) {
       addAction('Stop Assisting', 'btn-ghost', stopAssisting);
+    } else if (myRole() === 'clipper') {
+      addAction('Switch to Viewer', 'btn-ghost btn-xs', function () { setMemberRole(state.me.id, 'viewer'); });
+    } else if (myRole() === 'viewer') {
+      addAction('Switch to Clipper', 'btn-ghost btn-xs', function () { setMemberRole(state.me.id, 'clipper'); });
     }
-    // Viewer/clipper self -> no action; promotion/demotion is done by another clipper.
   } else if (m.role === 'clipper') {
     if (iAmAssistingThis) {
       addAction('Stop Assisting', 'btn-ghost', stopAssisting);
