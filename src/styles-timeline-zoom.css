@@ -179,6 +179,42 @@
   box-shadow: 0 0 0 2px rgba(0,0,0,0.7), 0 0 8px rgba(240,160,48,0.6);
 }
 
+/* Buffering: playhead turns red so the user can tell the video image hasn't
+   caught up to the scrub position yet. Triggered by HTMLVideoElement waiting/
+   stalled/seeking events on window.Player.els.vid. */
+.tlzoom-scrubber.buffering .tlzoom-playhead,
+.tlzoom-minimap.buffering .tlzoom-minimap-playhead {
+  background: var(--red);
+  box-shadow: 0 0 6px rgba(231,76,60,0.85);
+  transition: background 0.08s linear;
+}
+.tlzoom-scrubber.buffering .tlzoom-playhead::before {
+  background: var(--red);
+  filter: drop-shadow(0 0 4px rgba(231,76,60,0.6));
+}
+.tlzoom-scrubber.buffering .tlzoom-playhead::after {
+  background: var(--red);
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.7), 0 0 8px rgba(231,76,60,0.7);
+}
+/* Faint red tint along the scrubber background while buffering — subtle
+   peripheral cue without overwhelming the rest of the UI. */
+.tlzoom-scrubber.buffering {
+  box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 0 0 1px rgba(231,76,60,0.35);
+}
+.tlzoom-buffering-badge {
+  display: none;
+  font-size: 9px; font-weight: 600; letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--red);
+  font-family: 'Segoe UI', sans-serif;
+  animation: tlzPulse 1.2s ease-in-out infinite;
+}
+.tlzoom-buffering-badge.on { display: inline-block; }
+@keyframes tlzPulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
 .tlzoom-tooltip {
   position: absolute;
   transform: translate(-50%, -130%);

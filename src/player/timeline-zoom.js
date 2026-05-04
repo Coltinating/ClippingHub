@@ -64,6 +64,8 @@
         <span class="tlzoom-stat out"><span class="tlzoom-stat-label">OUT</span><span class="tlzoom-stat-value" data-lbl="out">&mdash;</span></span>
         <span class="tlzoom-sep"></span>
         <span class="tlzoom-stat"><span class="tlzoom-stat-label">DUR</span><span class="tlzoom-stat-value" data-lbl="dur">&mdash;</span></span>
+        <span class="tlzoom-sep"></span>
+        <span class="tlzoom-buffering-badge" data-el="bufBadge">Buffering</span>
         <button type="button" class="tlzoom-reset-btn" data-act="reset" title="Reset zoom to full range">Reset view</button>
       </div>
       <div class="tlzoom-section-cap"><span><b>Anchor</b> &middot; where you are in the stream</span><span class="hint">read-only</span></div>
@@ -100,6 +102,7 @@
       scrubber:    q('[data-el="scrubber"]'),
       playhead:    q('[data-el="playhead"]'),
       tooltip:     q('[data-el="tooltip"]'),
+      bufBadge:    q('[data-el="bufBadge"]'),
       btnReset:    q('[data-act="reset"]'),
     };
 
@@ -280,6 +283,33 @@
     window.addEventListener('marks-changed', scheduleRender);
     window.addEventListener('resize', scheduleRender);
     els.btnReset.addEventListener('click', resetView);
+
+    // ─── Buffering signal: turn the playhead red while video can't keep up.
+    // We track a counter (not a boolean) because seeking + waiting can stack
+    // and we only want to clear the buffering state once ALL signals settle.
+    let bufferingDepth = 0;
+    function setBuffering(on) {
+      bufferingDepth = Math.max(0, bufferingDepth + (on ? 1 : -1));
+      const isBuf = bufferingDepth > 0;
+      els.scrubber.classList.toggle('buffering', isBuf);
+      els.minimap.classList.toggle('buffering', isBuf);
+      els.bufBadge.classList.toggle('on', isBuf);
+    }
+    function bindBufferingEvents() {
+      const vid = window.Player && window.Player.els ? window.Player.els.vid : null;
+      if (!vid) { setTimeout(bindBufferingEvents, 100); return; }
+      // Suspended/loading frames → up; playable → down.
+      vid.addEventListener('waiting',  () => setBuffering(true));
+      vid.addEventListener('seeking',  () => setBuffering(true));
+      vid.addEventListener('stalled',  () => setBuffering(true));
+      vid.addEventListener('canplay',  () => setBuffering(false));
+      vid.addEventListener('playing',  () => setBuffering(false));
+      vid.addEventListener('seeked',   () => setBuffering(false));
+      // Reconcile: if vid.readyState is HAVE_FUTURE_DATA(3)+ we're playable.
+      // This catches the case where canplay/playing fired before we wired up.
+      if (vid.readyState >= 3) bufferingDepth = 0;
+    }
+    bindBufferingEvents();
 
     // ─── Mouse interactions ─────────────────────────────────────────
     let drag = null;
