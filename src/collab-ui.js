@@ -24,6 +24,15 @@ function dlog(cat, msg, data) {
   try { if (window.dbg) window.dbg(cat, msg, data); } catch (_) {}
 }
 
+function loggedServerGetConfig() {
+  dlog('GET', 'serverGetConfig');
+  return window.clipper.serverGetConfig();
+}
+function loggedServerSetConfig(cfg) {
+  dlog('SET', 'serverSetConfig', cfg);
+  return window.clipper.serverSetConfig(cfg);
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -481,11 +490,11 @@ async function connect(url, opts) {
   var serverCfg = null;
   if (window.clipper && window.clipper.serverSetConfig) {
     try {
-      serverCfg = (window.clipper.serverGetConfig ? await window.clipper.serverGetConfig() : {}) || {};
+      serverCfg = (window.clipper.serverGetConfig ? await loggedServerGetConfig() : {}) || {};
       serverCfg.url = clean;
       if (opts && opts.autoConnect != null) serverCfg.autoConnect = !!opts.autoConnect;
       if (opts && opts.sessionId) serverCfg.sessionId = String(opts.sessionId);
-      await window.clipper.serverSetConfig(serverCfg);
+      await loggedServerSetConfig(serverCfg);
     } catch (_) {}
   }
 
@@ -1181,7 +1190,7 @@ function bindUi() {
 
   // Prefill server URL + sessionId from disk config
   if (window.clipper && window.clipper.serverGetConfig) {
-    window.clipper.serverGetConfig().then(function (cfg) {
+    loggedServerGetConfig().then(function (cfg) {
       var defaultUrl = window.RthubConfig
         ? window.RthubConfig.defaultRthubUrl()
         : 'wss://rthub.1626.workers.dev/ws';
