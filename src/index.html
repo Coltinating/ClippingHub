@@ -63,10 +63,7 @@
               <span class="dd-label">Rumble Browser</span>
               <button class="dd-action-btn muted" id="ddRumbleBtn">Rumble</button>
             </div>
-            <div class="dd-row-with-action dd-row-split">
-              <span class="dd-label dd-label-clickable" id="ddSettings">Settings</span>
-              <button class="dd-action-btn warn" id="ddGoOnlineBtn">Collaboration</button>
-            </div>
+            <div class="dd-item" id="ddSettings">Settings</div>
             <div class="dd-sep"></div>
             <div class="dd-item" id="ddExit">Exit</div>
             <div class="dd-sep" id="menu-file-update-sep" style="display:none;"></div>
@@ -531,7 +528,7 @@
             <span class="lobby-label">Server URL</span>
             <input id="collabServerUrl" type="text" placeholder="ws://localhost:3535/ws">
           </label>
-          <label class="lobby-field" id="collabSessionIdField" data-rthub-only hidden>
+          <label class="lobby-field" id="collabSessionIdField">
             <span class="lobby-label">Session ID <span class="lobby-hint">(treat the link like a password)</span></span>
             <input id="collabSessionIdInput" type="text" maxlength="64" placeholder="e.g. ABCDEF1234" autocomplete="off">
           </label>
@@ -740,8 +737,6 @@
 <script src="lib/rthub-protocol.js"></script>
 <script src="lib/rthub-state.js"></script>
 <script src="lib/rthub-client.js"></script>
-<script src="lib/collab-client.js"></script>
-<script src="lib/collab-store.js"></script>
 <script src="collab-ui.js"></script>
 <script src="keybind-registry.js"></script>
 <script src="header-modals.js"></script>
