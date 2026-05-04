@@ -767,15 +767,24 @@ function setMemberRole(targetId, role) {
 }
 
 function assistClipper(clipperId) {
-  if (!state.lobby || !client) return;
+  if (!state.lobby || !client || !clipperId) return;
   dlog('ACTION', 'assistClipper', { clipperId: clipperId });
-  client.setAssist(clipperId, 'helper');
+  // Remember role we had before becoming a helper so Stop Helping restores
+  // it. Don't overwrite if we're already mid-help (helper -> reassigning).
+  if (state.me.role !== 'helper') state.me._priorRole = state.me.role || 'viewer';
+  updateLocalProfile({ role: 'helper', assistUserId: clipperId });
 }
 
 function stopAssisting() {
   if (!state.lobby || !client) return;
   dlog('ACTION', 'stopAssisting');
-  client.setAssist(null);
+  // Restore prior role; default to viewer if we don't remember.
+  // assistUserId stays on the wire (spec's peerProfile merge keeps omitted
+  // fields, no portable null-clear) — role='viewer' is enough for grouping
+  // and permission checks since both gate on role, not assistUserId.
+  var restore = state.me._priorRole || 'viewer';
+  state.me._priorRole = null;
+  updateLocalProfile({ role: restore });
 }
 
 var _rangesVersion = 0;
@@ -966,27 +975,29 @@ function openProfilePopover(userId, anchorEl) {
 
   if (isSelf) {
     if (iAmHelper) {
-      addAction('Stop Assisting', 'btn-ghost', stopAssisting);
+      addAction('Stop Helping', 'btn-ghost', stopAssisting);
     } else if (myRole() === 'clipper') {
       addAction('Switch to Viewer', 'btn-ghost btn-xs', function () { setMemberRole(state.me.id, 'viewer'); });
     } else if (myRole() === 'viewer') {
       addAction('Switch to Clipper', 'btn-ghost btn-xs', function () { setMemberRole(state.me.id, 'clipper'); });
     }
-  } else if (m.role === 'clipper') {
+  } else {
+    // Helper toggle — anyone can become a helper for any clipper, regardless
+    // of their own current role. Clicking again toggles off.
     if (iAmAssistingThis) {
-      addAction('Stop Assisting', 'btn-ghost', stopAssisting);
-    } else if (myRole() === 'viewer' || myRole() === 'helper') {
-      addAction('Assist ' + esc(m.name || 'Clipper'), 'btn-primary', function () { assistClipper(userId); });
+      addAction('Stop Helping', 'btn-primary', stopAssisting);
+    } else if (m.role === 'clipper') {
+      addAction('Become Helper', 'btn-primary', function () { assistClipper(userId); });
     }
     if (iAmClipper) {
-      addAction('Demote to Viewer', 'btn-ghost btn-xs', function () { setMemberRole(userId, 'viewer'); });
-    }
-  } else if (iAmClipper) {
-    if (m.role !== 'clipper') {
-      addAction('Promote to Clipper', 'btn-ghost btn-xs', function () { setMemberRole(userId, 'clipper'); });
-    }
-    if (m.role !== 'viewer') {
-      addAction('Demote to Viewer', 'btn-ghost btn-xs', function () { setMemberRole(userId, 'viewer'); });
+      if (m.role === 'clipper') {
+        addAction('Demote to Viewer', 'btn-ghost btn-xs', function () { setMemberRole(userId, 'viewer'); });
+      } else {
+        addAction('Promote to Clipper', 'btn-ghost btn-xs', function () { setMemberRole(userId, 'clipper'); });
+        if (m.role !== 'viewer') {
+          addAction('Demote to Viewer', 'btn-ghost btn-xs', function () { setMemberRole(userId, 'viewer'); });
+        }
+      }
     }
   }
 
