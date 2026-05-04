@@ -186,6 +186,19 @@ let pendingInTime = null;
 let pendingMarkRangeId = null;
 let pendingInFrameDataUrl = null;
 let pendingClips = [];
+
+// ─── ClipState shim — read-only view of pending mark state for external
+//      consumers (timeline-zoom). Backed by the existing module-level vars.
+//      Emits a 'marks-changed' window event on every mutation; consumers
+//      should debounce via rAF.
+window.ClipState = {
+  getPendingInTime: function () { return pendingInTime; },
+  getPendingClips:  function () { return pendingClips.slice(); },
+};
+function emitMarksChanged() {
+  try { window.dispatchEvent(new CustomEvent('marks-changed')); } catch (e) { /* no-op */ }
+}
+
 let downloadingClips = [];
 let completedClips = [];
 let captionTimelineClips = [];
@@ -697,6 +710,7 @@ function handleMarkIn() {
   if (collabRange && collabRange.id) pendingMarkRangeId = collabRange.id;
   dbg('MARK', 'IN set', { inTime: pendingInTime, seekableStart: markerState._seekableStart, seekableEnd: seekable.length > 0 ? seekable.end(seekable.length-1) : null, isLive: PS.isLive, currentTime: vid.currentTime });
   renderProgressMarkers();
+  emitMarksChanged();
 }
 
 function handleMarkOut() {
@@ -771,6 +785,7 @@ function handleMarkOut() {
   } else {
     pendingClips.push(clipObj);
     renderPendingClips();
+    emitMarksChanged();
   }
 
   cancelMarking({ removePendingRange: false });
@@ -793,6 +808,7 @@ function cancelMarking(opts) {
     window.CollabUI.removeClipRange(rangeId);
   }
   renderProgressMarkers();
+  emitMarksChanged();
 }
 
 /* ─── Progress bar markers ──────────────────────────────────── */
@@ -982,6 +998,7 @@ function renderPendingClips() {
         window.CollabUI.removeClipRange(removed.collabRangeId);
       }
       renderPendingClips();
+      emitMarksChanged();
       return;
     }
     if (btn.dataset.action === 'download') { dbg('ACTION', 'Download clip clicked', { idx, name: pendingClips[idx]?.name }); downloadClip(idx); }
@@ -1026,6 +1043,7 @@ function renderPendingClips() {
     if (btn.dataset.action === 'revoke-delivery') {
       pendingClips.splice(idx, 1);
       renderPendingClips();
+      emitMarksChanged();
     }
   };
   list.oninput = e => {
