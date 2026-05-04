@@ -13,7 +13,8 @@
     "dist:linux": "electron-builder --linux",
     "dist:all": "electron-builder -mwl",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check:rthub-spec": "node scripts/check-rthub-spec.js"
   },
   "dependencies": {
     "electron-updater": "^6.3.0",
