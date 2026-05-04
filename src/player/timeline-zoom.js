@@ -50,38 +50,37 @@
   function mount(rootEl) {
     rootEl.classList.add('tlzoom-root');
     rootEl.innerHTML = `
-      <div class="tlzoom-stats">
-        <span class="tlzoom-stat"><span class="tlzoom-stat-label">Playhead</span><span class="tlzoom-stat-value" data-lbl="playhead">00:00:00</span></span>
-        <span class="tlzoom-sep"></span>
-        <span class="tlzoom-stat"><span class="tlzoom-stat-label">View</span><span class="tlzoom-stat-value" data-lbl="view">&mdash;</span></span>
-        <span class="tlzoom-sep"></span>
-        <span class="tlzoom-stat"><span class="tlzoom-stat-label">Span</span><span class="tlzoom-stat-value" data-lbl="span">&mdash;</span></span>
-        <span class="tlzoom-sep"></span>
-        <span class="tlzoom-stat"><span class="tlzoom-stat-label">Clips</span><span class="tlzoom-stat-value" data-lbl="clips">0</span></span>
-        <span class="tlzoom-spacer"></span>
-        <span class="tlzoom-stat in"><span class="tlzoom-stat-label">IN</span><span class="tlzoom-stat-value" data-lbl="in">&mdash;</span></span>
-        <span class="tlzoom-sep"></span>
-        <span class="tlzoom-stat out"><span class="tlzoom-stat-label">OUT</span><span class="tlzoom-stat-value" data-lbl="out">&mdash;</span></span>
-        <span class="tlzoom-sep"></span>
-        <span class="tlzoom-stat"><span class="tlzoom-stat-label">DUR</span><span class="tlzoom-stat-value" data-lbl="dur">&mdash;</span></span>
-        <span class="tlzoom-sep"></span>
-        <span class="tlzoom-buffering-badge" data-el="bufBadge">Buffering</span>
-        <button type="button" class="tlzoom-reset-btn" data-act="reset" title="Reset zoom to full range">Reset view</button>
-      </div>
-      <div class="tlzoom-section-cap"><span><b>Anchor</b> &middot; where you are in the stream</span><span class="hint">read-only</span></div>
-      <div class="tlzoom-minimap-wrap">
-        <div class="tlzoom-minimap" data-el="minimap">
-          <div class="tlzoom-minimap-viewport" data-el="mmViewport"></div>
-          <div class="tlzoom-minimap-playhead" data-el="mmPlayhead"></div>
+      <div class="tlzoom-header" data-act="toggle" title="Click to collapse / expand">
+        <svg class="tlzoom-chev" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4.5l3 3 3-3"/></svg>
+        <span class="tlzoom-title">Timeline</span>
+        <div class="tlzoom-header-stats">
+          <span class="tlzoom-stat in"><span class="tlzoom-stat-label">IN</span><span class="tlzoom-stat-value" data-lbl="in">&mdash;</span></span>
+          <span class="tlzoom-stat out"><span class="tlzoom-stat-label">OUT</span><span class="tlzoom-stat-value" data-lbl="out">&mdash;</span></span>
+          <span class="tlzoom-stat dur"><span class="tlzoom-stat-label">DUR</span><span class="tlzoom-stat-value" data-lbl="dur">&mdash;</span></span>
         </div>
       </div>
-      <div class="tlzoom-minimap-labels" data-el="mmLabels"></div>
-      <div class="tlzoom-section-cap" style="margin-top:12px;"><span><b>Navigator</b> &middot; zoom &middot; scrub &middot; seek</span><span class="hint">drag bg / drag playhead / wheel</span></div>
-      <div class="tlzoom-scrubber-wrap">
-        <div class="tlzoom-scrubber" data-el="scrubber">
-          <div class="tlzoom-playhead" data-el="playhead"></div>
+      <div class="tlzoom-body">
+        <div class="tlzoom-minimap-wrap">
+          <div class="tlzoom-minimap" data-el="minimap">
+            <div class="tlzoom-minimap-viewport" data-el="mmViewport"></div>
+            <div class="tlzoom-minimap-playhead" data-el="mmPlayhead"></div>
+          </div>
         </div>
-        <div class="tlzoom-tooltip" data-el="tooltip">00:00:00</div>
+        <div class="tlzoom-minimap-labels" data-el="mmLabels"></div>
+        <div class="tlzoom-scrubber-wrap">
+          <div class="tlzoom-scrubber" data-el="scrubber">
+            <div class="tlzoom-playhead" data-el="playhead"></div>
+          </div>
+          <div class="tlzoom-tooltip" data-el="tooltip">00:00:00</div>
+        </div>
+        <div class="tlzoom-footer">
+          <span class="tlzoom-stat"><span class="tlzoom-stat-label">Playhead</span><span class="tlzoom-stat-value" data-lbl="playhead">00:00:00</span></span>
+          <span class="tlzoom-stat"><span class="tlzoom-stat-label">View</span><span class="tlzoom-stat-value" data-lbl="view">&mdash;</span><span class="tlzoom-stat-dim">&middot;</span><span class="tlzoom-stat-value" data-lbl="span">&mdash;</span></span>
+          <span class="tlzoom-stat"><span class="tlzoom-stat-label">Clips</span><span class="tlzoom-stat-value" data-lbl="clips">0</span></span>
+          <span class="tlzoom-spacer"></span>
+          <span class="tlzoom-buffering-badge" data-el="bufBadge">Buffering</span>
+          <button type="button" class="tlzoom-reset-btn" data-act="reset" title="Reset zoom to full range (R)">Reset view</button>
+        </div>
       </div>
     `;
 
@@ -321,6 +320,17 @@
     window.addEventListener('marks-changed', scheduleRender);
     window.addEventListener('resize', scheduleRender);
     els.btnReset.addEventListener('click', resetView);
+
+    // Header click toggles collapsed state. Don't fire when the click originates
+    // inside the header-stats group — the user is just reading the IN/OUT/DUR
+    // values, not trying to collapse.
+    const headerEl = rootEl.querySelector('[data-act="toggle"]');
+    if (headerEl) {
+      headerEl.addEventListener('click', (e) => {
+        if (e.target.closest('.tlzoom-header-stats')) return;
+        rootEl.classList.toggle('collapsed');
+      });
+    }
 
     // ─── Buffering signal: turn the playhead red while video can't keep up.
     // We track a counter (not a boolean) because seeking + waiting can stack

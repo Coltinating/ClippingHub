@@ -23,9 +23,15 @@
       Trackpad horizontal      pan horizontally
 
   Keyboard:
+      ← / →                    nudge playhead by 1 frame (1/30s)
+      Shift + ← / →            nudge by 1 second
+      Ctrl + ← / →             nudge by 10 seconds
       I / O                    mark IN / OUT at playhead
       Esc                      clear marks
       R                        reset to full zoom
+
+  Arrow nudges auto-follow: if the playhead leaves the view, the
+  view slides to keep it on screen (5% margin).
 
   Click vs drag is disambiguated by a 4px movement threshold. Edge
   auto-pan kicks in when scrubbing near the left/right edge of the view
@@ -36,123 +42,204 @@
 <meta charset="utf-8" />
 <title>Timeline Zoom + Minimap — Prototype</title>
 <style>
+  /* ─── ClippingHub palette (matches src/styles.css :root tokens) ───── */
   :root {
-    --bg: #0a0a0a;
-    --panel: #141414;
-    --panel-2: #1c1c1c;
-    --line: #2a2a2a;
-    --text: #e8e8e8;
-    --muted: #888;
-    --accent: #5b9dff;
-    --in: #2fbf71;
-    --out: #ff5757;
-    --selection: rgba(91, 157, 255, 0.18);
-    --viewport: rgba(91, 157, 255, 0.30);
-    --viewport-border: #5b9dff;
+    --bg:           #000000;
+    --surface:      #0a0a0a;
+    --surface-2:    #050505;
+    --input:        #141414;
+    --hover:        #1a1a1a;
+    --border:       #1f1f1f;
+    --border-l:     #2a2a2a;
+    --accent:       #7b61ff;
+    --accent-l:     #9582ff;
+    --accent-dim:   rgba(123, 97, 255, 0.18);
+    --text:         #ececec;
+    --text-pri:     #ffffff;
+    --muted:        #6a6a6a;
+    --dim:          #a0a0a0;
+    --in:           #2ecc71;
+    --out:          #e74c3c;
+    --scrubber:     #f0a030;          /* matches the app's --scrubber token */
+    --grad-start:   #00ccb1;
+    --grad-mid:     #7b61ff;
+    --grad-end:     #ff61dc;
+    --grad-h:       linear-gradient(90deg, var(--grad-start), var(--grad-mid), var(--grad-end));
+    --r:            4px;
   }
   * { box-sizing: border-box; }
   html, body {
     margin: 0; padding: 0;
     background: var(--bg);
     color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    font-size: 13px;
-    user-select: none;
-    -webkit-user-select: none;
+    font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 12px;
+    user-select: none; -webkit-user-select: none;
   }
   .page {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 32px 24px;
-  }
-  h1 {
-    font-size: 18px; font-weight: 500; margin: 0 0 4px;
-  }
-  .subtitle { color: var(--muted); margin: 0 0 24px; font-size: 12px; }
-
-  /* Fake video panel */
-  .video {
-    background: var(--panel);
-    height: 360px;
-    border-radius: 6px;
-    display: flex; align-items: center; justify-content: center;
-    margin-bottom: 16px;
-    color: var(--muted);
-    font-size: 13px;
-    border: 1px solid var(--line);
+    max-width: 1200px; margin: 0 auto;
+    padding: 14px 14px;
   }
 
-  /* Info bar */
-  .info {
-    display: flex; gap: 24px;
-    padding: 10px 14px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    margin-bottom: 8px;
-    font-variant-numeric: tabular-nums;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 12px;
+  /* ─── Top header: gradient title + reset on far right ────────────── */
+  .topbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 2px 12px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 12px;
   }
-  .info span b { color: var(--muted); font-weight: normal; margin-right: 6px; font-family: -apple-system, sans-serif; }
-  .info .in   { color: var(--in); }
-  .info .out  { color: var(--out); }
-  .info .dur  { color: var(--accent); }
-  .info .spacer { flex: 1; }
-  .info button {
-    background: transparent; color: var(--muted);
-    border: 1px solid var(--line); border-radius: 4px;
-    padding: 2px 10px; font-size: 11px; cursor: pointer;
+  /* Mirrors src/styles.css .header-logo : italic weight-800, "HUB" gradient */
+  .brand {
+    font-size: 15px; font-weight: 800;
+    font-style: italic; letter-spacing: 0.04em;
+    color: #fff;
   }
-  .info button:hover { color: var(--text); border-color: #444; }
+  .brand span {
+    background: linear-gradient(to right, var(--grad-start), var(--grad-mid), var(--grad-end));
+    background-size: 400% 400%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: gradShift 10s ease infinite;
+  }
+  @keyframes gradShift {
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  .topbar .crumb {
+    color: var(--muted); font-size: 10px; letter-spacing: 0.18em;
+    text-transform: uppercase; padding-left: 4px;
+    border-left: 1px solid var(--border); margin-left: 4px;
+    line-height: 1; padding-top: 2px; padding-bottom: 2px;
+  }
+  .topbar .spacer { flex: 1; }
+  /* Mirrors src/styles.css .header-btn — pill, ghost, hover-lift */
+  .ghost-btn {
+    background: transparent; color: var(--text-secondary, #a0a0a0);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+    height: 24px; padding: 0 14px;
+    font-size: 11px; font-weight: 500; cursor: pointer;
+    font-family: inherit; line-height: 22px;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+  }
+  .ghost-btn:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.15);
+    color: var(--text-pri);
+  }
 
-  /* Timeline container */
+  /* ─── Timeline section: collapsible wrapper with header + body + footer ── */
   .timeline {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 10px 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    overflow: hidden;
   }
 
-  /* Section caption */
-  .section-cap {
-    display: flex; align-items: baseline; justify-content: space-between;
-    color: var(--muted); font-size: 9px; letter-spacing: 0.18em;
-    text-transform: uppercase; margin: 4px 2px 4px;
-    font-family: ui-monospace, monospace;
+  /* Header — chevron + title + IN/OUT/DUR mini-stats. Click to collapse. */
+  .timeline-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px;
+    cursor: pointer; user-select: none;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.12s, border-color 0.15s;
   }
-  .section-cap b { color: var(--text); font-weight: 500; letter-spacing: 0.18em; }
-  .section-cap .hint { color: var(--muted); font-size: 9px; letter-spacing: 0.05em; text-transform: none; font-family: -apple-system, sans-serif; }
+  .timeline-header:hover { background: rgba(255,255,255,0.025); }
+  .timeline.collapsed .timeline-header { border-bottom-color: transparent; }
+  .timeline-header .chev {
+    width: 9px; height: 9px; color: var(--muted);
+    flex-shrink: 0; transition: transform 0.18s;
+  }
+  .timeline.collapsed .timeline-header .chev { transform: rotate(-90deg); }
+  .timeline-header .title {
+    font-size: 9px; font-weight: 600;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--text);
+  }
+  .header-stats {
+    margin-left: auto;
+    display: flex; gap: 12px;
+    font-family: 'Consolas', monospace; font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .header-stats .stat { display: inline-flex; align-items: baseline; gap: 5px; }
+  .header-stats .stat .lbl {
+    font-family: 'Segoe UI', sans-serif;
+    color: var(--muted); font-size: 9px;
+    letter-spacing: 0.16em; text-transform: uppercase; font-weight: 500;
+  }
+  .header-stats .stat .val { color: var(--text); }
+  .header-stats .stat.in  .val { color: var(--in); }
+  .header-stats .stat.out .val { color: var(--out); }
+  .header-stats .stat.dur .val { color: var(--accent-l); }
 
-  /* Anchor strip (the old "minimap") — always full range, NEVER interactive.
-     Pure read-only "you are here in the 5h stream" indicator. */
+  /* Body — wraps the strips and footer; hidden when collapsed */
+  .timeline-body { padding: 6px 8px 6px; }
+  .timeline.collapsed .timeline-body { display: none; }
+
+  /* Footer — Playhead/View readouts + Reset view (bottom right) */
+  .timeline-footer {
+    display: flex; align-items: center; gap: 14px;
+    padding: 6px 2px 0;
+    margin-top: 4px;
+    border-top: 1px solid var(--border);
+  }
+  .timeline-footer .readout {
+    display: inline-flex; align-items: baseline; gap: 5px;
+    font-family: 'Consolas', monospace; font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  .timeline-footer .readout .lbl {
+    font-family: 'Segoe UI', sans-serif;
+    color: var(--muted); font-size: 9px;
+    letter-spacing: 0.16em; text-transform: uppercase; font-weight: 500;
+  }
+  .timeline-footer .readout .val { color: var(--text); }
+  .timeline-footer .readout .dim { color: var(--muted); margin: 0 1px; }
+  .timeline-footer .spacer { flex: 1; }
+  .timeline-footer .reset-btn {
+    background: transparent; color: var(--dim);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+    height: 22px; padding: 0 12px;
+    font-size: 10.5px; font-weight: 500; cursor: pointer;
+    font-family: inherit; line-height: 20px;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+  }
+  .timeline-footer .reset-btn:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.15);
+    color: var(--text-pri);
+  }
+
+  /* ─── Anchor strip — purely visual, never interactive ──────────── */
   .minimap-wrap {
-    position: relative;
-    height: 18px;
-    margin-bottom: 4px;
-    pointer-events: none;          /* the entire strip swallows no input */
+    position: relative; height: 12px; margin-bottom: 2px;
+    pointer-events: none;
   }
   .minimap {
     position: absolute; inset: 0;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid var(--line);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
     border-radius: 2px;
     overflow: hidden;
     cursor: default;
   }
   .minimap-viewport {
     position: absolute; top: -1px; bottom: -1px;
-    background: var(--viewport);
-    border-left:  2px solid var(--viewport-border);
-    border-right: 2px solid var(--viewport-border);
-    box-shadow: 0 0 0 1px rgba(91,157,255,0.18), 0 0 8px rgba(91,157,255,0.25);
+    background: var(--accent-dim);
+    border-left:  2px solid var(--accent);
+    border-right: 2px solid var(--accent);
+    box-shadow: 0 0 0 1px rgba(123,97,255,0.20), 0 0 8px rgba(123,97,255,0.32);
     pointer-events: none;
     transition: left 80ms linear, width 80ms linear;
   }
   .minimap-playhead {
     position: absolute; top: 0; bottom: 0;
-    width: 1px; background: rgba(255,255,255,0.85);
+    width: 1px; background: var(--scrubber);
     pointer-events: none;
+    box-shadow: 0 0 4px rgba(240,160,48,0.7);
   }
   .minimap-mark {
     position: absolute; top: 0; bottom: 0;
@@ -162,194 +249,210 @@
   .minimap-mark.out { background: var(--out); }
   .minimap-selection {
     position: absolute; top: 0; bottom: 0;
-    background: var(--selection);
+    background: rgba(46,204,113,0.10);
     pointer-events: none;
   }
   .minimap-labels {
-    position: relative; height: 12px;
-    color: var(--muted); font-size: 10px;
+    position: relative; height: 10px;
+    color: var(--muted); font-size: 9px;
     font-variant-numeric: tabular-nums;
-    font-family: ui-monospace, monospace;
-    margin-bottom: 8px;
+    font-family: 'Consolas', monospace;
+    margin-bottom: 4px;
   }
   .minimap-labels span {
     position: absolute; top: 0;
     transform: translateX(-50%);
   }
 
-  /* Precise strip ("navigator") — the interactive timeline. Taller and
-     sharper than the anchor so it visually reads as the primary surface. */
+  /* ─── Navigator strip — the interactive timeline ────────────────── */
   .scrubber-wrap { position: relative; }
   .scrubber {
     position: relative;
-    height: 64px;
-    background: var(--panel-2);
-    border: 1px solid #353535;
+    height: 44px;
+    background: var(--input);
+    border: 1px solid var(--border-l);
     border-radius: 3px;
     overflow: hidden;
-    cursor: grab;                 /* default: pannable background */
-    box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset;
+    cursor: grab;
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.03) inset,
+      0 0 0 1px rgba(0,0,0,0.4);
   }
-  /* JS sets cursor: ew-resize when hovering near the playhead handle */
   .scrubber.panning   { cursor: grabbing; }
   .scrubber.scrubbing { cursor: ew-resize; }
   .scrubber-tick {
-    position: absolute; top: 0; bottom: 18px;
-    width: 1px; background: #2f2f2f;
+    position: absolute; top: 0; bottom: 13px;
+    width: 1px; background: #232323;
     pointer-events: none;
   }
-  .scrubber-tick.major { background: #4a4a4a; }
+  .scrubber-tick.major { background: #353535; }
   .scrubber-tick-label {
     position: absolute; bottom: 2px;
     transform: translateX(-50%);
     color: var(--muted);
-    font-size: 10px;
+    font-size: 9px;
     font-variant-numeric: tabular-nums;
-    font-family: ui-monospace, monospace;
-    pointer-events: none;
-    white-space: nowrap;
+    font-family: 'Consolas', monospace;
+    pointer-events: none; white-space: nowrap;
   }
   .scrubber-selection {
     position: absolute; top: 0; bottom: 0;
-    background: var(--selection);
+    background: rgba(46,204,113,0.10);
+    border-left:  1px dashed rgba(46,204,113,0.4);
+    border-right: 1px dashed rgba(231,76,60,0.4);
     pointer-events: none;
   }
   .scrubber-mark {
     position: absolute; top: 0; bottom: 0;
-    width: 2px;
-    pointer-events: none;
+    width: 2px; pointer-events: none;
   }
-  .scrubber-mark.in  { background: var(--in);  box-shadow: 0 0 6px var(--in); }
-  .scrubber-mark.out { background: var(--out); box-shadow: 0 0 6px var(--out); }
-  .scrubber-mark-flag {
-    position: absolute; top: 2px;
-    transform: translateX(-50%);
-    background: var(--in);
-    color: #061;
-    font-size: 9px; font-weight: 600;
-    padding: 1px 4px; border-radius: 2px;
-    font-family: ui-monospace, monospace;
-  }
-  .scrubber-mark-flag.out { background: var(--out); color: #410; transform: translateX(-50%); }
+  .scrubber-mark.in  { background: var(--in);  box-shadow: 0 0 6px rgba(46,204,113,0.6); }
+  .scrubber-mark.out { background: var(--out); box-shadow: 0 0 6px rgba(231,76,60,0.6); }
   .scrubber-playhead {
     position: absolute; top: 0; bottom: 0;
-    width: 1px; background: var(--text);
+    width: 1px; background: var(--scrubber);
     pointer-events: none;
-    box-shadow: 0 0 6px rgba(255,255,255,0.6);
+    box-shadow: 0 0 6px rgba(240,160,48,0.7);
   }
-  /* Triangle handle on top — bigger so it reads as a draggable grip */
   .scrubber-playhead::before {
     content: ''; position: absolute; left: -5px; top: 0;
-    width: 11px; height: 9px; background: var(--text);
+    width: 11px; height: 9px; background: var(--scrubber);
     clip-path: polygon(0 0, 100% 0, 50% 100%);
+    filter: drop-shadow(0 0 4px rgba(240,160,48,0.6));
   }
-  /* Subtle grab-affordance dot on the playhead line at vertical center */
   .scrubber-playhead::after {
     content: ''; position: absolute; left: -3px; top: 50%;
     transform: translateY(-50%);
     width: 7px; height: 7px; border-radius: 50%;
-    background: var(--text); opacity: 0.85;
-    box-shadow: 0 0 0 2px rgba(0,0,0,0.6), 0 0 8px rgba(255,255,255,0.4);
+    background: var(--scrubber); opacity: 0.95;
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.7), 0 0 8px rgba(240,160,48,0.6);
   }
+
   .tooltip {
     position: absolute;
     transform: translate(-50%, -130%);
     background: #000; color: var(--text);
-    padding: 3px 7px; border-radius: 3px;
-    font-size: 11px;
+    padding: 2px 6px; border-radius: 3px;
+    font-size: 10px;
     font-variant-numeric: tabular-nums;
-    font-family: ui-monospace, monospace;
+    font-family: 'Consolas', monospace;
     pointer-events: none;
-    border: 1px solid var(--line);
-    display: none;
-    z-index: 10;
-    white-space: nowrap;
+    border: 1px solid var(--border-l);
+    display: none; z-index: 10; white-space: nowrap;
   }
   .tooltip.visible { display: block; }
 
-  /* Help panel */
-  .help {
-    margin-top: 18px;
-    padding: 12px 14px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    color: var(--muted);
-    font-size: 11px;
-    line-height: 1.7;
+  /* ─── Grouped hint rows ──────────────────────────────────────────
+     Four labeled rows (Navigate / Zoom / Nudge / Mark). The leading
+     label is a fixed-width column so all the chip groups line up. */
+  .hint-strip {
+    display: flex; flex-direction: column; gap: 4px;
+    margin-top: 12px; padding: 0 1px;
   }
-  .help b { color: var(--text); font-weight: 500; }
-  .help kbd {
-    background: var(--panel-2); border: 1px solid var(--line);
+  .hint-row {
+    display: flex; align-items: center; flex-wrap: wrap;
+    gap: 5px;
+  }
+  .hint-row-label {
+    flex: 0 0 64px;
+    color: var(--muted); font-size: 9px; font-weight: 600;
+    letter-spacing: 0.18em; text-transform: uppercase;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 8px 2px 3px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--dim); font-size: 10px;
+    transition: border-color 0.12s, color 0.12s;
+  }
+  .chip:hover { border-color: var(--border-l); color: var(--text); }
+  .chip kbd {
+    background: var(--input); color: var(--text);
+    border: 1px solid var(--border-l);
     padding: 1px 6px; border-radius: 3px;
-    font-family: ui-monospace, monospace; font-size: 10px;
-    color: var(--text);
-  }
-  .help .grid {
-    display: grid; grid-template-columns: 140px 1fr; gap: 4px 16px;
+    font-family: 'Consolas', monospace; font-size: 10px;
+    font-weight: 500; line-height: 1.3;
+    min-width: 16px; text-align: center;
+    white-space: nowrap;
   }
 </style>
 </head>
 <body>
 <div class="page">
-  <h1>Scroll-zoom + Minimap Timeline — Prototype</h1>
-  <p class="subtitle">5h fake video · self-contained · non-destructive · open in any browser</p>
 
-  <div class="video">[fake video — playhead is the only thing that matters here]</div>
-
-  <div class="info">
-    <span><b>Playhead</b><span id="lblPlayhead">00:00:00</span></span>
-    <span><b>View</b><span id="lblView">00:00:00 → 05:00:00</span></span>
-    <span><b>Span</b><span id="lblSpan">5h</span></span>
-    <span class="spacer"></span>
-    <span class="in"><b>IN</b><span id="lblIn">—</span></span>
-    <span class="out"><b>OUT</b><span id="lblOut">—</span></span>
-    <span class="dur"><b>DUR</b><span id="lblDur">—</span></span>
-    <button id="btnReset" title="Reset to full 5h view (R)">Reset</button>
+  <div class="topbar">
+    <span class="brand">CLIPPING<span>HUB</span></span>
+    <span class="crumb">timeline · prototype</span>
   </div>
 
-  <div class="timeline">
-    <div class="section-cap">
-      <span><b>Anchor</b> · where you are in the stream</span>
-      <span class="hint">read-only</span>
-    </div>
-    <div class="minimap-wrap">
-      <div class="minimap" id="minimap">
-        <div class="minimap-selection" id="minimapSelection"></div>
-        <div class="minimap-mark in"  id="minimapIn"  hidden></div>
-        <div class="minimap-mark out" id="minimapOut" hidden></div>
-        <div class="minimap-viewport" id="minimapViewport"></div>
-        <div class="minimap-playhead" id="minimapPlayhead"></div>
+  <div class="timeline" id="timeline">
+    <div class="timeline-header" id="timelineToggle" title="Click to collapse / expand">
+      <svg class="chev" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4.5l3 3 3-3"/></svg>
+      <span class="title">Timeline</span>
+      <div class="header-stats">
+        <span class="stat in"><span class="lbl">IN</span><span class="val" id="lblIn">—</span></span>
+        <span class="stat out"><span class="lbl">OUT</span><span class="val" id="lblOut">—</span></span>
+        <span class="stat dur"><span class="lbl">DUR</span><span class="val" id="lblDur">—</span></span>
       </div>
     </div>
-    <div class="minimap-labels" id="minimapLabels"></div>
+    <div class="timeline-body">
+      <div class="minimap-wrap">
+        <div class="minimap" id="minimap">
+          <div class="minimap-selection" id="minimapSelection"></div>
+          <div class="minimap-mark in"  id="minimapIn"  hidden></div>
+          <div class="minimap-mark out" id="minimapOut" hidden></div>
+          <div class="minimap-viewport" id="minimapViewport"></div>
+          <div class="minimap-playhead" id="minimapPlayhead"></div>
+        </div>
+      </div>
+      <div class="minimap-labels" id="minimapLabels"></div>
 
-    <div class="section-cap" style="margin-top: 14px;">
-      <span><b>Navigator</b> · zoom, scrub, mark</span>
-      <span class="hint">drag bg = pan · drag playhead = scrub · wheel = zoom · click = seek</span>
-    </div>
-    <div class="scrubber-wrap">
-      <div class="scrubber" id="scrubber">
-        <div class="scrubber-selection" id="scrubberSelection" hidden></div>
-        <!-- ticks injected by render() -->
-        <div class="scrubber-mark in"  id="scrubberIn"  hidden></div>
-        <div class="scrubber-mark out" id="scrubberOut" hidden></div>
-        <div class="scrubber-playhead" id="scrubberPlayhead"></div>
+      <div class="scrubber-wrap">
+        <div class="scrubber" id="scrubber">
+          <div class="scrubber-selection" id="scrubberSelection" hidden></div>
+          <!-- ticks injected by render() -->
+          <div class="scrubber-mark in"  id="scrubberIn"  hidden></div>
+          <div class="scrubber-mark out" id="scrubberOut" hidden></div>
+          <div class="scrubber-playhead" id="scrubberPlayhead"></div>
+        </div>
+        <div class="tooltip" id="tooltip">00:00:00</div>
       </div>
-      <div class="tooltip" id="tooltip">00:00:00</div>
+
+      <div class="timeline-footer">
+        <span class="readout"><span class="lbl">Playhead</span><span class="val" id="lblPlayhead">00:00:00</span></span>
+        <span class="readout"><span class="lbl">View</span><span class="val" id="lblView">00:00:00 → 05:00:00</span><span class="dim">·</span><span class="val" id="lblSpan">5h</span></span>
+        <span class="spacer"></span>
+        <button id="btnReset" class="reset-btn" title="Reset to full 5h view (R)">Reset view</button>
+      </div>
     </div>
   </div>
 
-  <div class="help">
-    <div class="grid">
-      <span><kbd>Drag</kbd> background</span><span>pan the timeline left/right (CapCut/Vegas-style)</span>
-      <span><kbd>Drag</kbd> playhead</span><span>scrub through the video; auto-pans near edges</span>
-      <span><kbd>Click</kbd></span><span>seek playhead to that point</span>
-      <span><kbd>Wheel</kbd></span><span>zoom in/out around cursor</span>
-      <span><kbd>Shift</kbd> + <kbd>Wheel</kbd></span><span>pan horizontally (or use trackpad horizontal scroll)</span>
-      <span><kbd>I</kbd> / <kbd>O</kbd></span><span>mark IN / OUT at playhead</span>
-      <span><kbd>Esc</kbd></span><span>clear marks</span>
-      <span><kbd>R</kbd></span><span>reset to full zoom</span>
+  <div class="hint-strip">
+    <div class="hint-row">
+      <span class="hint-row-label">Navigate</span>
+      <span class="chip"><kbd>drag</kbd>pan</span>
+      <span class="chip"><kbd>drag playhead</kbd>scrub</span>
+      <span class="chip"><kbd>click</kbd>seek</span>
+    </div>
+    <div class="hint-row">
+      <span class="hint-row-label">Zoom</span>
+      <span class="chip"><kbd>wheel</kbd>zoom</span>
+      <span class="chip"><kbd>shift + wheel</kbd>pan</span>
+    </div>
+    <div class="hint-row">
+      <span class="hint-row-label">Nudge</span>
+      <span class="chip"><kbd>← →</kbd>1 frame</span>
+      <span class="chip"><kbd>shift + ← →</kbd>1 second</span>
+      <span class="chip"><kbd>ctrl + ← →</kbd>10 seconds</span>
+    </div>
+    <div class="hint-row">
+      <span class="hint-row-label">Mark</span>
+      <span class="chip"><kbd>I</kbd>in</span>
+      <span class="chip"><kbd>O</kbd>out</span>
+      <span class="chip"><kbd>esc</kbd>clear</span>
+      <span class="chip"><kbd>R</kbd>reset view</span>
     </div>
   </div>
 </div>
@@ -776,6 +879,31 @@ el.scrubber.addEventListener('mouseleave', () => {
   el.scrubber.style.cursor = '';   // reset to the CSS default ('grab') — don't leave it stuck on ew-resize
 });
 
+// ─── Arrow-step nudges (NLE-style) ─────────────────────────────────────
+// Plain  → 1 frame  (assumes 30fps; the prototype has no real source fps)
+// Shift  → 1 second
+// Ctrl   → 10 seconds
+// Auto-pan kicks in if the stepped playhead leaves the visible view —
+// scrolls the navigator so the playhead stays in frame at any zoom level.
+const ASSUMED_FPS  = 30;
+const NUDGE_FRAME  = 1 / ASSUMED_FPS;
+const NUDGE_SEC    = 1;
+const NUDGE_BIG    = 10;
+
+function nudgePlayhead(seconds) {
+  state.playhead = Math.max(0, Math.min(TOTAL_SEC, state.playhead + seconds));
+  // Follow the playhead: if it left the view, slide the view to keep it
+  // inside (with a 5% lead-in margin so it's not glued to the edge).
+  const sp = state.viewEnd - state.viewStart;
+  const margin = sp * 0.05;
+  if (state.playhead < state.viewStart + margin) {
+    shiftView(state.playhead - (state.viewStart + margin));
+  } else if (state.playhead > state.viewEnd - margin) {
+    shiftView(state.playhead - (state.viewEnd - margin));
+  }
+  render();
+}
+
 // Keyboard
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -798,6 +926,11 @@ document.addEventListener('keydown', (e) => {
     render();
   } else if (e.key === 'r' || e.key === 'R') {
     resetView();
+  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    e.preventDefault();
+    const dir = e.key === 'ArrowRight' ? +1 : -1;
+    const step = e.ctrlKey ? NUDGE_BIG : (e.shiftKey ? NUDGE_SEC : NUDGE_FRAME);
+    nudgePlayhead(dir * step);
   }
 });
 
@@ -808,6 +941,17 @@ function resetView() {
   render();
 }
 el.btnReset.addEventListener('click', resetView);
+
+// ─── Timeline collapse/expand ──────────────────────────────────────────
+(function initTimelineCollapse(){
+  const tl = document.getElementById('timeline');
+  const hdr = document.getElementById('timelineToggle');
+  hdr.addEventListener('click', e => {
+    // ignore clicks bubbling up from the header-stats text (they shouldn't toggle)
+    if (e.target.closest('.header-stats') && e.target !== hdr) return;
+    tl.classList.toggle('collapsed');
+  });
+})();
 
 // Re-render on resize so tick layout adapts
 window.addEventListener('resize', () => render());

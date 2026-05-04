@@ -7,7 +7,6 @@
   --tlz-accent-dim: rgba(123, 97, 255, 0.18);
 
   display: block;
-  padding: 10px 12px 12px;
   margin-top: 8px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -17,17 +16,39 @@
   color: var(--text);
   user-select: none;
   -webkit-user-select: none;
+  overflow: hidden;
 }
 .tlzoom-root[hidden] { display: none; }
 
-/* Compact stat strip showing playhead / view start / view end / span / IN / OUT / DUR. */
-.tlzoom-stats {
-  display: flex; align-items: baseline; gap: 16px;
-  padding: 0 2px 8px;
-  font-family: 'Consolas', ui-monospace, monospace;
-  font-size: 11px; font-variant-numeric: tabular-nums;
+/* ─── Header — chevron + title + IN/OUT/DUR mini-stats. Click to collapse. ── */
+.tlzoom-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer; user-select: none;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.12s, border-color 0.15s;
 }
-.tlzoom-stat { display: inline-flex; align-items: baseline; gap: 6px; }
+.tlzoom-header:hover { background: rgba(255,255,255,0.025); }
+.tlzoom-root.collapsed .tlzoom-header { border-bottom-color: transparent; }
+.tlzoom-chev {
+  width: 9px; height: 9px; color: var(--muted);
+  flex-shrink: 0; transition: transform 0.18s;
+}
+.tlzoom-root.collapsed .tlzoom-chev { transform: rotate(-90deg); }
+.tlzoom-title {
+  font-size: 9px; font-weight: 600;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text);
+}
+.tlzoom-header-stats {
+  margin-left: auto;
+  display: flex; gap: 12px;
+  font-family: 'Consolas', monospace; font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* shared stat group used in both header (IN/OUT/DUR) and footer (Playhead/View/Clips) */
+.tlzoom-stat { display: inline-flex; align-items: baseline; gap: 5px; }
 .tlzoom-stat-label {
   color: var(--muted); font-size: 9px; letter-spacing: 0.16em;
   text-transform: uppercase; font-family: 'Segoe UI', sans-serif; font-weight: 500;
@@ -35,17 +56,28 @@
 .tlzoom-stat-value { color: var(--text); }
 .tlzoom-stat.in  .tlzoom-stat-value { color: var(--green); }
 .tlzoom-stat.out .tlzoom-stat-value { color: var(--red); }
-.tlzoom-stats .tlzoom-spacer { flex: 1; }
-.tlzoom-stats .tlzoom-sep {
-  width: 1px; height: 12px; background: var(--border);
-  align-self: center; margin: 0 2px;
+.tlzoom-stat.dur .tlzoom-stat-value { color: var(--accent-l, #9582ff); }
+.tlzoom-stat-dim { color: var(--muted); margin: 0 2px; }
+
+/* ─── Body — strips + footer. Hidden when collapsed. ── */
+.tlzoom-body { padding: 6px 8px 6px; }
+.tlzoom-root.collapsed .tlzoom-body { display: none; }
+
+/* ─── Footer — Playhead / View / Clips + buffering badge + Reset view (right). ── */
+.tlzoom-footer {
+  display: flex; align-items: center; gap: 14px;
+  padding: 6px 2px 0; margin-top: 4px;
+  border-top: 1px solid var(--border);
+  font-family: 'Consolas', monospace; font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
+.tlzoom-spacer { flex: 1; }
 .tlzoom-reset-btn {
   background: transparent; color: var(--muted);
   border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
   height: 22px; padding: 0 12px;
-  font-size: 10px; font-weight: 500; cursor: pointer;
-  font-family: inherit;
+  font-size: 10.5px; font-weight: 500; cursor: pointer;
+  font-family: inherit; line-height: 20px;
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 .tlzoom-reset-btn:hover {
@@ -55,7 +87,7 @@
 }
 
 /* Anchor (minimap) — full-range orientation strip. Pointer-events disabled. */
-.tlzoom-minimap-wrap { position: relative; height: 16px; margin-bottom: 3px; pointer-events: none; }
+.tlzoom-minimap-wrap { position: relative; height: 12px; margin-bottom: 2px; pointer-events: none; }
 .tlzoom-minimap {
   position: absolute; inset: 0;
   background: var(--bg);
@@ -83,11 +115,11 @@
   background: rgba(46,204,113,0.10);
 }
 .tlzoom-minimap-labels {
-  position: relative; height: 11px;
+  position: relative; height: 10px;
   color: var(--muted); font-size: 9px;
   font-variant-numeric: tabular-nums;
   font-family: 'Consolas', monospace;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 .tlzoom-minimap-labels span { position: absolute; top: 0; transform: translateX(-50%); }
 /* First and last labels anchor to the strip edges so they don't clip. */
@@ -98,7 +130,7 @@
 .tlzoom-scrubber-wrap { position: relative; }
 .tlzoom-scrubber {
   position: relative;
-  height: 60px;
+  height: 44px;
   background: var(--input, #141414);
   border: 1px solid var(--border-l, #2a2a2a);
   border-radius: 3px;
@@ -109,7 +141,7 @@
 .tlzoom-scrubber.panning   { cursor: grabbing; }
 .tlzoom-scrubber.scrubbing { cursor: ew-resize; }
 .tlzoom-tick {
-  position: absolute; top: 0; bottom: 16px;
+  position: absolute; top: 0; bottom: 13px;
   width: 1px; background: #232323; pointer-events: none;
 }
 .tlzoom-tick.major { background: #353535; }
@@ -123,7 +155,7 @@
 /* Per-clip block on the navigator — CapCut/Premiere style: translucent body,
    IN-color left border, OUT-color right border, name tag pinned top-left. */
 .tlzoom-clip {
-  position: absolute; top: 0; bottom: 16px;
+  position: absolute; top: 0; bottom: 13px;
   pointer-events: auto;
   cursor: pointer;
   overflow: hidden;
@@ -272,13 +304,3 @@
 }
 .tlzoom-tooltip.visible { display: block; }
 
-.tlzoom-section-cap {
-  display: flex; align-items: baseline; justify-content: space-between;
-  color: var(--muted); font-size: 9px; letter-spacing: 0.16em;
-  text-transform: uppercase; margin: 0 1px 5px;
-}
-.tlzoom-section-cap b { color: var(--text); font-weight: 600; }
-.tlzoom-section-cap .hint {
-  color: var(--muted); font-size: 9px; letter-spacing: 0.04em;
-  text-transform: none; font-family: 'Consolas', monospace;
-}
