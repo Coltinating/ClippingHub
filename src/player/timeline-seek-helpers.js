@@ -1,5 +1,7 @@
 // Pure helper for computing seek targets. Extracted from src/player/timeline.js
 // so it can be unit-tested without a real HTMLVideoElement.
+(function () {
+'use strict';
 
 function computeSeekTarget(ctx, target) {
   if (ctx.isLive) {
@@ -13,3 +15,4 @@ function computeSeekTarget(ctx, target) {
 const exportsObj = { computeSeekTarget };
 if (typeof module !== 'undefined' && module.exports) module.exports = exportsObj;
 if (typeof window !== 'undefined') window.TimelineSeekHelpers = exportsObj;
+})();

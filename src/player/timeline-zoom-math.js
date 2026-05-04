@@ -1,6 +1,8 @@
 // Pure math for the timeline-zoom component. No DOM, no state, no side effects.
 // Hybrid CJS/window export — loadable by vitest (require) and by the renderer
 // (<script> tag → window.TimelineZoomMath).
+(function () {
+'use strict';
 
 function timeToFrac(view, t) {
   const span = view.end - view.start;
@@ -65,3 +67,4 @@ if (typeof module !== 'undefined' && module.exports) {
 if (typeof window !== 'undefined') {
   window.TimelineZoomMath = exportsObj;
 }
+})();
