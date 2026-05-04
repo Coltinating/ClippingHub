@@ -610,24 +610,13 @@
         </div>
         <div class="hub-resize-handle" data-resize="0"></div>
 
-        <!-- Processing -->
-        <div class="hub-group hub-group-processing">
+        <!-- Downloads (unified: in-progress + completed) -->
+        <div class="hub-group hub-group-downloads">
+          <!-- Back-compat anchor: keeps document.getElementById('downloadingClipList') non-null
+               until Task 2.3 consolidates rendering into a single Downloads list. -->
+          <div id="downloadingClipList" hidden></div>
           <div class="hub-group-title">
-            <span class="hub-group-label"><span class="hub-status-dot"></span>Processing</span>
-          </div>
-          <div class="clip-list" id="downloadingClipList">
-            <div class="empty-state" id="downloadingEmpty">
-              <svg class="empty-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" width="24" height="24"><circle cx="10" cy="10" r="7.5"/><polyline points="10 5.5 10 10 13.5 12.5"/></svg>
-              <small>Clips being processed will appear here</small>
-            </div>
-          </div>
-        </div>
-        <div class="hub-resize-handle" data-resize="1"></div>
-
-        <!-- Completed Clips -->
-        <div class="hub-group hub-group-completed">
-          <div class="hub-group-title">
-            <span class="hub-group-label"><span class="hub-status-dot"></span>Done</span>
+            <span class="hub-group-label"><span class="hub-status-dot"></span>Downloads</span>
             <div class="hub-group-actions">
               <button class="btn btn-ghost btn-xs clear-btn" id="clearCompleted" title="Clear list">Clear</button>
               <button class="btn btn-ghost btn-xs btn-icon" id="openCompletedFolder" title="Open output folder">
