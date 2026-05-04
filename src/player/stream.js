@@ -128,6 +128,9 @@
           var lvl = parseInt(qSel.value);
           log('Quality changed', { level: lvl, label: qSel.options[qSel.selectedIndex] && qSel.options[qSel.selectedIndex].text });
           hls.currentLevel = lvl;
+          // Drop focus so a subsequent Space press hits the global play/pause
+          // handler instead of re-opening this <select>'s native dropdown.
+          qSel.blur();
         };
       } else {
         qSel.style.display = 'none';
