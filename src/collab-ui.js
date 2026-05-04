@@ -343,6 +343,14 @@ function setStatus(msg) {
   renderStatus();
 }
 
+function setStatusKind(kind) {
+  var el = document.getElementById('collabConnStatusMsg');
+  if (!el) return;
+  el.classList.remove('error', 'success');
+  if (kind === 'error') el.classList.add('error');
+  else if (kind === 'success') el.classList.add('success');
+}
+
 function setStage(next) {
   connStage = next;
   var off = document.getElementById('collabStageOffline');
@@ -484,8 +492,9 @@ function makeRthubStoreProxy(rthubClient) {
 
 async function connect(url, opts) {
   var clean = String(url || '').trim();
-  if (!clean) { setStatus('Enter a server URL'); return; }
-  if (!window.RthubClient) { setStatus('Rthub client not loaded'); return; }
+  setStatusKind('');
+  if (!clean) { setStatusKind('error'); setStatus('Enter a server URL'); return; }
+  if (!window.RthubClient) { setStatusKind('error'); setStatus('Rthub client not loaded'); return; }
 
   var serverCfg = null;
   if (window.clipper && window.clipper.serverSetConfig) {
@@ -499,10 +508,19 @@ async function connect(url, opts) {
   }
 
   var sessionId = (opts && opts.sessionId) || (serverCfg && serverCfg.sessionId) || state.lastCode || '';
-  if (!sessionId) { setStage('offline'); setStatus('Pick a session ID first'); return; }
+  if (!sessionId) {
+    setStage('offline');
+    setStatusKind('error');
+    setStatus('Pick a session ID first, or click Create');
+    return;
+  }
+
+  var host = '';
+  try { host = new URL(clean).host; } catch (_) { host = clean; }
 
   setStage('connecting');
-  setStatus('');
+  setStatusKind('');
+  setStatus('Connecting to ' + host + ' (session ' + safeCode(sessionId) + ')…');
   if (client) { try { client.disconnect(); } catch (_) {} }
 
   state.lastCode = safeCode(sessionId);
@@ -517,9 +535,13 @@ async function connect(url, opts) {
   try {
     await client.connect();
     setStage('in-lobby');
+    setStatusKind('success');
+    setStatus('Joined session ' + safeCode(sessionId));
   } catch (e) {
     setStage('offline');
-    setStatus('Could not connect: ' + (e && e.message ? e.message : 'error'));
+    setStatusKind('error');
+    var msg = (e && e.message) ? e.message : 'connection error';
+    setStatus('Could not connect to ' + host + ' — ' + msg);
   }
 }
 
@@ -1239,6 +1261,7 @@ function bindUi() {
       var sid = sessionIdInput ? sessionIdInput.value.trim() : '';
       dlog('ACTION', 'collab join', { url: url, sessionId: sid });
       if (!sid) {
+        setStatusKind('error');
         setStatus('Enter a session ID, or click Create to start a new one');
         return;
       }
