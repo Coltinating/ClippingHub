@@ -7,6 +7,7 @@
 <title>Clipping Hub</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles-timeline-zoom.css">
 <link rel="stylesheet" href="tutorial/tutorial.css">
 </head>
 <body>
@@ -438,6 +439,9 @@
             </div>
           </div>
 
+          <!-- Advanced timeline-zoom — precision scrub/zoom, mounted below the player. -->
+          <div id="timelineZoomWrap" hidden></div>
+
           <!-- Split splitter — draggable divider between Player A and B -->
           <div class="split-splitter" id="splitSplitter" style="display:none"></div>
 
@@ -689,6 +693,8 @@
 <script src="player/stream.js"></script>
 <script src="player/controls.js"></script>
 <script src="player/timeline-seek-helpers.js"></script>
+<script src="player/timeline-zoom-math.js"></script>
+<script src="player/timeline-zoom.js"></script>
 <script src="player/timeline.js"></script>
 <script src="player/preview.js"></script>
 <script src="player/keybinds.js"></script>

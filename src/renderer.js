@@ -1930,6 +1930,16 @@ document.addEventListener('DOMContentLoaded', () => {
     ensureShazamProgressBound();
   }
 
+  // Mount the timeline-zoom component below the player.
+  (function initTimelineZoom() {
+    if (!window.Player || !window.TimelineZoom) {
+      setTimeout(initTimelineZoom, 50);
+      return;
+    }
+    const wrap = document.getElementById('timelineZoomWrap');
+    if (wrap && !wrap._tlzoom) window.TimelineZoom.mount(wrap);
+  })();
+
   $('downloadingClipList').addEventListener('click', e => {
     const cancelBtn = e.target.closest('.dl-cancel-btn');
     if (cancelBtn) {
