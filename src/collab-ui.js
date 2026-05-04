@@ -449,13 +449,18 @@ function attachClientHandlers() {
 }
 
 function peerProfilePayload() {
-  return {
-    name: state.me.name || '',
-    color: state.me.color || '#5bb1ff',
-    role: state.me.role || 'clipper',
-    xHandle: state.me.xHandle || '',
-    assistUserId: state.me.assistUserId || ''
+  // Spec defines peerProfile merge: empty fields overwrite. Only include
+  // keys with real values so reconnects don't clobber prior broker state.
+  var raw = {
+    name: state.me.name,
+    color: state.me.color,
+    role: state.me.role,
+    xHandle: state.me.xHandle,
+    assistUserId: state.me.assistUserId
   };
+  var out = {};
+  for (var k in raw) if (raw[k] != null && raw[k] !== '') out[k] = raw[k];
+  return out;
 }
 
 function makeRthubStoreProxy(rthubClient) {
