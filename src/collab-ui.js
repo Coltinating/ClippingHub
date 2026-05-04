@@ -193,18 +193,10 @@ function updateLocalProfile(partial) {
   savePrefs();
   try {
     if (client && client.updateProfile) {
-      // RthubClient expects the rthub peerProfile shape (name/color/role/xHandle/assistUserId);
-      // legacy CollabClient expects the full mePayload (id + profile).
-      var isRthub = !!(window.RthubClient && client instanceof window.RthubClient);
-      client.updateProfile(isRthub ? peerProfilePayload() : mePayload());
+      client.updateProfile(peerProfilePayload());
     }
   } catch (_) {}
   emit();
-}
-
-function mePayload() {
-  if (window.Profile && window.Profile.buildProfilePayload) return window.Profile.buildProfilePayload(state.me);
-  return { id: state.me.id, name: state.me.name };
 }
 
 function findMemberById(memberId) {
@@ -220,8 +212,7 @@ function myMember() {
 }
 
 function myRole() {
-  // In a lobby: server (legacy) or peerProfile broadcast (rthub) is the source of truth.
-  // Out of lobby: fall back to the locally chosen role from state.me.role.
+  // In lobby: peerProfile broadcast is the source of truth. Else local choice.
   var fromMember = myMember() && myMember().role;
   if (fromMember) return fromMember;
   return state.me.role || 'viewer';
@@ -346,10 +337,8 @@ function setStatus(msg) {
 function setStage(next) {
   connStage = next;
   var off = document.getElementById('collabStageOffline');
-  var noLob = document.getElementById('collabStageNoLobby');
   var inLob = document.getElementById('collabStageInLobby');
   if (off) off.hidden = (next !== 'offline');
-  if (noLob) noLob.hidden = (next !== 'no-lobby');
   if (inLob) inLob.hidden = (next !== 'in-lobby');
   var pill = document.getElementById('collabConnStatus');
   if (pill) {
@@ -442,9 +431,8 @@ function attachClientHandlers() {
     state.lobby = null;
     emit();
   });
-  // Realtime sync surfaces (rthub only — CollabClient never emits these).
-  // Re-broadcast on the panel bus so renderer/timeline modules can subscribe
-  // without a hard dependency on the client implementation.
+  // Realtime sync surfaces re-broadcast on the panel bus so renderer/timeline
+  // modules can subscribe without a hard dependency on the client implementation.
   if (window._panelBus && window._panelBus.emit && client.on) {
     var bus = window._panelBus;
     var SYNC_EVENTS = [
@@ -483,6 +471,7 @@ function makeRthubStoreProxy(rthubClient) {
 async function connect(url, opts) {
   var clean = String(url || '').trim();
   if (!clean) { setStatus('Enter a server URL'); return; }
+  if (!window.RthubClient) { setStatus('Rthub client not loaded'); return; }
 
   var serverCfg = null;
   if (window.clipper && window.clipper.serverSetConfig) {
@@ -495,50 +484,25 @@ async function connect(url, opts) {
     } catch (_) {}
   }
 
-  var useRthub = !!(window.RthubConfig && window.RthubConfig.isRthubEnabled
-    && window.RthubConfig.isRthubEnabled(serverCfg));
-
-  if (useRthub && !window.RthubClient) {
-    setStatus('Rthub client not loaded');
-    return;
-  }
-  if (!useRthub && (!window.CollabClient || !window.CollabStore)) {
-    setStatus('Collab client not loaded');
-    return;
-  }
+  var sessionId = (opts && opts.sessionId) || (serverCfg && serverCfg.sessionId) || state.lastCode || '';
+  if (!sessionId) { setStage('offline'); setStatus('Pick a session ID first'); return; }
 
   setStage('connecting');
   setStatus('');
   if (client) { try { client.disconnect(); } catch (_) {} }
 
-  if (useRthub) {
-    var sessionId = (opts && opts.sessionId) || (serverCfg && serverCfg.sessionId) || state.lastCode || '';
-    if (!sessionId) { setStage('offline'); setStatus('Pick a session ID first'); return; }
-    state.lastCode = safeCode(sessionId);
-    client = new window.RthubClient({
-      url: clean,
-      sessionId: sessionId,
-      clientId: state.me.id,
-      profile: peerProfilePayload()
-    });
-    store = makeRthubStoreProxy(client);
-    attachClientHandlers();
-    try {
-      await client.connect();
-      setStage('in-lobby');
-    } catch (e) {
-      setStage('offline');
-      setStatus('Could not connect: ' + (e && e.message ? e.message : 'error'));
-    }
-    return;
-  }
-
-  client = new window.CollabClient({ url: clean, user: mePayload() });
-  store = new window.CollabStore();
+  state.lastCode = safeCode(sessionId);
+  client = new window.RthubClient({
+    url: clean,
+    sessionId: sessionId,
+    clientId: state.me.id,
+    profile: peerProfilePayload()
+  });
+  store = makeRthubStoreProxy(client);
   attachClientHandlers();
   try {
     await client.connect();
-    setStage('no-lobby');
+    setStage('in-lobby');
   } catch (e) {
     setStage('offline');
     setStatus('Could not connect: ' + (e && e.message ? e.message : 'error'));
@@ -559,85 +523,6 @@ function disconnect() {
   _seenDeliveryIds.clear();
   setStage('offline');
   emit();
-}
-
-async function createLobby(name, password, code) {
-  dlog('ACTION', 'createLobby', { name: name, hasPass: !!password, code: code });
-  if (!client || !client.connected) { setStatus('Not connected'); return null; }
-  try {
-    var lobby = await client.createLobby({ name: name, password: password || '', code: safeCode(code || '') });
-    setStatus('Joined Lobby - code ' + (lobby ? lobby.code : ''));
-    return lobby;
-  } catch (e) {
-    dlog('ERROR', 'createLobby failed', { message: e && e.message });
-    setStatus(e && e.message ? e.message : 'Create failed');
-    return null;
-  }
-}
-
-function showNameTakenModal(opts) {
-  return new Promise(function (resolve) {
-    var modal = document.getElementById('nameTakenModal');
-    if (!modal) return resolve(null);
-    var attemptedEl = document.getElementById('nameTakenAttempt');
-    var suggestionEl = document.getElementById('nameTakenSuggestion');
-    var input = document.getElementById('nameTakenCustomInput');
-    var acceptSuggestion = document.getElementById('nameTakenAcceptSuggestion');
-    var acceptCustom = document.getElementById('nameTakenAcceptCustom');
-    var cancelBtn = document.getElementById('nameTakenCancel');
-    if (attemptedEl) attemptedEl.textContent = opts.attempted || '';
-    if (suggestionEl) suggestionEl.textContent = opts.suggestion || '';
-    if (input) input.value = '';
-    modal.hidden = false;
-    function done(name) {
-      modal.hidden = true;
-      acceptSuggestion.removeEventListener('click', onSuggestion);
-      acceptCustom.removeEventListener('click', onCustom);
-      cancelBtn.removeEventListener('click', onCancel);
-      resolve(name);
-    }
-    function onSuggestion() { done(opts.suggestion); }
-    function onCustom() {
-      var v = (input && input.value || '').trim();
-      if (!v) return;
-      done(v);
-    }
-    function onCancel() { done(null); }
-    acceptSuggestion.addEventListener('click', onSuggestion);
-    acceptCustom.addEventListener('click', onCustom);
-    cancelBtn.addEventListener('click', onCancel);
-    if (input) try { input.focus(); } catch (_) {}
-  });
-}
-
-async function joinLobby(code, password) {
-  dlog('ACTION', 'joinLobby', { code: code, hasPass: !!password });
-  if (!client || !client.connected) { setStatus('Not connected'); return null; }
-  var cleanCode = safeCode(code);
-  if (!cleanCode) { setStatus('Enter join code'); return null; }
-  try {
-    var lobby = await client.joinLobby({ code: cleanCode, password: password || '' });
-    setStatus('Joined Lobby - code ' + (lobby ? lobby.code : ''));
-    return lobby;
-  } catch (e) {
-    if (e && e.code === 'name_taken') {
-      var newName = await showNameTakenModal({
-        attempted: state.me.name,
-        suggestion: e.suggestion
-      });
-      if (!newName) {
-        setStatus('Join cancelled');
-        return null;
-      }
-      updateLocalProfile({ name: newName });
-      // Wait one tick for profile:update-ack to round-trip so presence is fresh on retry.
-      await new Promise(function (r) { setTimeout(r, 50); });
-      return joinLobby(code, password);
-    }
-    dlog('ERROR', 'joinLobby failed', { message: e && e.message });
-    setStatus(e && e.message ? e.message : 'Join failed');
-    return null;
-  }
 }
 
 async function leaveLobby() {
@@ -902,7 +787,8 @@ function subscribe(fn) {
 
 async function simulate() {
   if (!state.lobby) {
-    await createLobby('Sim Lobby', 'demo', '');
+    state.lobby = { code: 'SIM-LOCAL', name: 'Sim Lobby', members: [], chat: [], clipRanges: [], deliveries: [] };
+    setStage('in-lobby');
   }
   upsertClipRange({ id: 'sim_mark', userId: 'sim_a', userName: 'Editor A', inTime: 35, outTime: 74, status: 'marking' });
   upsertClipRange({ id: 'sim_queue', userId: 'sim_b', userName: 'Editor B', inTime: 102, outTime: 136, status: 'queued' });
@@ -1276,64 +1162,31 @@ function bindCollabTabs() {
   });
 }
 
-function bindStageTabs() {
-  var tabs = document.querySelectorAll('.lobby-tab[data-stage-tab]');
-  tabs.forEach(function (tabBtn) {
-    tabBtn.addEventListener('click', function () {
-      var key = tabBtn.dataset.stageTab;
-      tabs.forEach(function (t) { t.classList.toggle('active', t === tabBtn); });
-      document.querySelectorAll('.lobby-tab-panel[data-stage-panel]').forEach(function (panel) {
-        panel.hidden = panel.dataset.stagePanel !== key;
-      });
-    });
-  });
-}
-
 function bindUi() {
-  var createBtn = document.getElementById('collabCreateBtn');
-  var joinBtn = document.getElementById('collabJoinBtn');
   var leaveBtn = document.getElementById('collabLeaveBtn');
   var sendBtn = document.getElementById('collabChatSend');
   var chatInput = document.getElementById('collabChatInput');
   var activityList = document.getElementById('collabActivityList');
   var connectBtn = document.getElementById('collabConnectBtn');
-  var disconnectBtn = document.getElementById('collabDisconnectBtn');
   var resetBtn = document.getElementById('collabResetUrlBtn');
   var serverUrlInput = document.getElementById('collabServerUrl');
-
-  bindStageTabs();
-  bindCollabTabs();
-
   var sessionIdInput = document.getElementById('collabSessionIdInput');
 
-  function applyRthubModeUi(enabled) {
-    document.querySelectorAll('[data-rthub-only]').forEach(function (el) {
-      el.hidden = !enabled;
-    });
-    // Legacy-only elements (e.g. stage B's create/join tabs) keep their stage-driven
-    // visibility: setStage('in-lobby') already skips them under rthub mode because
-    // connect() jumps straight from connecting → in-lobby.
-  }
+  bindCollabTabs();
 
   // Prefill server URL + sessionId from disk config
   if (window.clipper && window.clipper.serverGetConfig) {
     window.clipper.serverGetConfig().then(function (cfg) {
-      var rthubOn = !!(window.RthubConfig && window.RthubConfig.isRthubEnabled && window.RthubConfig.isRthubEnabled(cfg));
-      applyRthubModeUi(rthubOn);
-      if (rthubOn && serverUrlInput && !serverUrlInput.value) {
-        serverUrlInput.value = (cfg && cfg.url) || (window.RthubConfig && window.RthubConfig.defaultRthubUrl());
-      } else if (serverUrlInput && cfg && cfg.url && !serverUrlInput.value) {
-        serverUrlInput.value = cfg.url;
+      var defaultUrl = window.RthubConfig
+        ? window.RthubConfig.defaultRthubUrl()
+        : 'wss://rthub.1626.workers.dev/ws';
+      if (serverUrlInput && !serverUrlInput.value) {
+        serverUrlInput.value = (cfg && cfg.url) || defaultUrl;
       }
       if (sessionIdInput && !sessionIdInput.value) {
         sessionIdInput.value = (cfg && cfg.sessionId) || state.lastCode || '';
       }
-      if (cfg && cfg.autoConnect && cfg.url) {
-        connect(cfg.url, { autoConnect: true, sessionId: sessionIdInput ? sessionIdInput.value.trim() : '' });
-      }
     });
-  } else {
-    applyRthubModeUi(false);
   }
 
   if (connectBtn) {
@@ -1345,17 +1198,11 @@ function bindUi() {
   }
   if (resetBtn && serverUrlInput) {
     resetBtn.onclick = function () {
-      var rthubOn = !!(window.RthubConfig && window.RthubConfig.isRthubEnabled
-        && window.clipper && window.clipper.serverGetConfig);
-      // Async best-effort; for the reset action just check the field's current visibility.
-      var field = document.getElementById('collabSessionIdField');
-      var inRthubMode = field && !field.hidden;
-      serverUrlInput.value = inRthubMode
-        ? (window.RthubConfig ? window.RthubConfig.defaultRthubUrl() : 'wss://rthub.1626.workers.dev/ws')
-        : 'ws://localhost:3535/ws';
+      serverUrlInput.value = window.RthubConfig
+        ? window.RthubConfig.defaultRthubUrl()
+        : 'wss://rthub.1626.workers.dev/ws';
     };
   }
-  if (disconnectBtn) disconnectBtn.onclick = function () { disconnect(); };
 
   var copyBtn = document.getElementById('lobbyCopyCodeBtn');
   if (copyBtn) copyBtn.addEventListener('click', function () {
@@ -1364,40 +1211,6 @@ function bindUi() {
       setStatus('Code copied');
     }
   });
-
-  function ensureProfileName() {
-    var clean = normalizeName(state.me.name);
-    if (!clean) {
-      setStatus('Set your name in the top-right profile card first');
-      return false;
-    }
-    return true;
-  }
-
-  if (createBtn) {
-    createBtn.onclick = async function () {
-      if (!ensureProfileName()) return;
-      var nameInput = document.getElementById('collabLobbyNameInput');
-      var passInput = document.getElementById('collabLobbyPasswordInputCreate');
-      await createLobby(
-        nameInput ? nameInput.value : '',
-        passInput ? passInput.value : '',
-        ''
-      );
-    };
-  }
-
-  if (joinBtn) {
-    joinBtn.onclick = async function () {
-      if (!ensureProfileName()) return;
-      var passInput = document.getElementById('collabLobbyPasswordInputJoin');
-      var codeInput = document.getElementById('collabLobbyCodeInput');
-      await joinLobby(
-        codeInput ? codeInput.value : '',
-        passInput ? passInput.value : ''
-      );
-    };
-  }
 
   if (leaveBtn) leaveBtn.onclick = function () { leaveLobby(); };
 
@@ -1444,11 +1257,8 @@ window.CollabUI = {
   getState: function () { return state; },
   setState: setState,
   updateLocalProfile: updateLocalProfile,
-  mePayload: mePayload,
   connect: connect,
   disconnect: disconnect,
-  createLobby: createLobby,
-  joinLobby: joinLobby,
   leaveLobby: leaveLobby,
   refreshLobby: refreshLobby,
   addChat: addChat,
@@ -1472,7 +1282,7 @@ window.CollabUI = {
   canMarkClips: canMarkClipsLocal,
   canSendDelivery: canSendDeliveryLocal,
   canConsumeDeliveries: canConsumeDeliveriesLocal,
-  // Realtime sync senders (rthub only — no-op when legacy CollabClient is active).
+  // Realtime sync senders.
   sendTimeline:  function (ms)              { if (client && client.sendTimeline)  client.sendTimeline(ms); },
   sendPlayback:  function (state, ms, rate) { if (client && client.sendPlayback)  client.sendPlayback(state, ms, rate); },
   sendSelection: function (ids)             { if (client && client.sendSelection) client.sendSelection(ids); },
