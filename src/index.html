@@ -539,40 +539,6 @@
           <div class="lobby-status" id="collabConnStatusMsg" aria-live="polite"></div>
         </div>
 
-        <!-- Stage B: connected, no lobby (legacy server only — rthub jumps straight to in-lobby) -->
-        <div class="collab-stage" id="collabStageNoLobby" hidden data-legacy-only>
-          <div class="lobby-tabs" role="tablist">
-            <button class="lobby-tab active" id="lobbyTabCreate" data-stage-tab="create" role="tab" type="button">Create</button>
-            <button class="lobby-tab" id="lobbyTabJoin" data-stage-tab="join" role="tab" type="button">Join</button>
-          </div>
-          <div class="lobby-tab-panel" id="lobbyPanelCreate" data-stage-panel="create">
-            <label class="lobby-field">
-              <span class="lobby-label">Lobby Name</span>
-              <input id="collabLobbyNameInput" type="text" placeholder="Night Shift Clips">
-            </label>
-            <label class="lobby-field">
-              <span class="lobby-label">Password <span class="lobby-hint">(optional)</span></span>
-              <input id="collabLobbyPasswordInputCreate" type="password" placeholder="········">
-            </label>
-            <button class="btn btn-primary lobby-primary" id="collabCreateBtn" type="button">Create Lobby</button>
-          </div>
-          <div class="lobby-tab-panel" id="lobbyPanelJoin" data-stage-panel="join" hidden>
-            <label class="lobby-field">
-              <span class="lobby-label">Join Code</span>
-              <input id="collabLobbyCodeInput" type="text" maxlength="8" placeholder="AB12CD" autocomplete="off">
-            </label>
-            <label class="lobby-field">
-              <span class="lobby-label">Password</span>
-              <input id="collabLobbyPasswordInputJoin" type="password" placeholder="········">
-            </label>
-            <button class="btn btn-primary lobby-primary" id="collabJoinBtn" type="button">Join Lobby</button>
-          </div>
-          <div class="lobby-status" id="collabSessionStatus" aria-live="polite"></div>
-          <div class="lobby-row collab-disconnect-row">
-            <button class="btn btn-ghost btn-xs" id="collabDisconnectBtn" type="button">Disconnect</button>
-          </div>
-        </div>
-
         <!-- Stage C: in lobby -->
         <div class="collab-stage" id="collabStageInLobby" hidden>
           <div class="collab-conn-bar">
