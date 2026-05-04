@@ -379,7 +379,7 @@ function applyLobbySnapshot(lobby) {
     state.chat = [];
     state.clipRanges = [];
     bumpRangesVersion();
-    setStage(client && client.connected ? 'no-lobby' : 'offline');
+    setStage('offline');
     savePrefs();
     emit();
     return;
