@@ -3141,3 +3141,57 @@ body.basic-panels .area-header { cursor: default; }
   border-left: 4px solid var(--accent);
   box-shadow: 0 0 0 1px rgba(123, 97, 255, 0.25);
 }
+
+/* Unified Downloads cards: in-progress (greyed-out, pulsing progress bar)
+   and done (full-opacity). The completed-card class above stays intact for
+   drag/post integration. */
+.downloads-card {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  background: var(--surface);
+  transition: opacity 0.18s, background 0.18s;
+}
+.downloads-card.state-in-progress {
+  opacity: 0.7;
+  background: rgba(240, 160, 48, 0.05);
+  border-color: rgba(240, 160, 48, 0.3);
+}
+.downloads-card.state-in-progress .downloads-card-name {
+  color: var(--muted);
+}
+.downloads-card.state-done {
+  opacity: 1;
+}
+.downloads-card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+.downloads-card-name {
+  font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 70%;
+}
+.downloads-card-phase {
+  font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--scrubber);
+  font-family: 'Segoe UI', sans-serif;
+}
+.downloads-progress {
+  height: 3px; background: var(--input, #141414);
+  border-radius: 2px; overflow: hidden; margin: 4px 0;
+}
+.downloads-progress-fill {
+  height: 100%; background: var(--scrubber);
+  transition: width 0.2s linear;
+}
+.downloads-progress-text {
+  font-size: 10px; color: var(--muted);
+  font-family: 'Consolas', monospace;
+  margin-bottom: 4px;
+}
+.downloads-card-actions {
+  display: flex; gap: 6px; margin-top: 4px;
+}

@@ -612,9 +612,6 @@
 
         <!-- Downloads (unified: in-progress + completed) -->
         <div class="hub-group hub-group-downloads">
-          <!-- Back-compat anchor: keeps document.getElementById('downloadingClipList') non-null
-               until Task 2.3 consolidates rendering into a single Downloads list. -->
-          <div id="downloadingClipList" hidden></div>
           <div class="hub-group-title">
             <span class="hub-group-label"><span class="hub-status-dot"></span>Downloads</span>
             <div class="hub-group-actions">
@@ -624,8 +621,8 @@
               </button>
             </div>
           </div>
-          <div class="clip-list" id="completedClipList">
-            <div class="empty-state" id="completedEmpty">
+          <div class="clip-list" id="downloadsList">
+            <div class="empty-state" id="downloadsEmpty">
               <svg class="empty-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" width="24" height="24"><path d="M10 13.5V3m0 10.5l-3.5-3.5M10 13.5l3.5-3.5"/><path d="M3 15.5v.5a1.5 1.5 0 001.5 1.5h11A1.5 1.5 0 0017 16v-.5"/></svg>
               <small>Downloads appear here — drag to post</small>
             </div>

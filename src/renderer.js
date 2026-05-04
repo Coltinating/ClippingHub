@@ -1882,7 +1882,119 @@ async function processDownloadQueue() {
   processDownloadQueue();
 }
 
-function renderDownloadingClips() {
+// ─── Unified Downloads renderer ──────────────────────────────
+// In-progress downloads sit on top (greyed-out, with progress + cancel),
+// finished downloads sit below (drag-to-post + open folder + caption etc.).
+// Both states share the same list container `#downloadsList`.
+function renderDownloads() {
+  const list = $('downloadsList');
+  if (!list) return;
+
+  upsertCaptionTimelineFromCompleted();
+
+  if (downloadingClips.length === 0 && completedClips.length === 0) {
+    list.innerHTML = '<div class="empty-state"><small>No downloads yet</small></div>';
+    updateClipCount();
+    syncHubState();
+    syncPostCaptionState();
+    return;
+  }
+
+  const showFfmpegLog = userConfig.devFeatures?.ffmpegLogs;
+
+  const inProgressHtml = downloadingClips.map(dl => `
+    <div class="downloads-card state-in-progress" data-clip-id="${escAttr(dl.id)}">
+      <div class="downloads-card-header">
+        <span class="downloads-card-name" title="${escAttr(dl.name)}">${escH(dl.name)}</span>
+        <span class="downloads-card-phase">Downloading</span>
+      </div>
+      <div class="downloads-progress"><div class="downloads-progress-fill" style="width:${dl.progress}%"></div></div>
+      <div class="downloads-progress-text">${dl.progress}% &mdash; processing with ffmpeg...</div>
+      <div class="downloads-card-actions">
+        <button class="btn btn-danger btn-xs dl-cancel-btn" data-id="${escAttr(dl.id)}" title="Cancel download">Cancel</button>
+      </div>
+    </div>`).join('');
+
+  const completedHtml = completedClips.map((clip, idx) => `
+    <div class="completed-card downloads-card state-done" draggable="true" data-path="${escAttr(clip.displayPath || clip.filePath)}" data-clip-idx="${idx}">
+      <div class="completed-card-main">
+        <div class="completed-card-header">
+          <span class="completed-card-icon">&#127916;</span>
+          <div class="completed-card-info">
+            <div class="completed-card-name" title="${escAttr(clip.name)}">${escH(clip.name)}${renderAttributionBadge(clip)}</div>
+            <div class="completed-card-summary${(clip.caption || '').trim() ? '' : ' empty'}" title="${escAttr((clip.caption || '').trim() || 'No caption/summary set')}">${escH((clip.caption || '').trim() || 'No caption/summary set')}</div>
+            <div class="completed-card-file" title="${escAttr(clip.fileName || '')}">${escH(clip.fileName || '')}${clip.fileSize ? ` &middot; ${fmtSize(clip.fileSize)}` : ''}</div>
+          </div>
+        </div>
+        <div class="completed-card-actions-row">
+          <button class="btn btn-ghost btn-xs completed-open-btn" data-action="show" data-idx="${idx}" title="Open in folder">Open Folder</button>
+          <button class="btn btn-ghost btn-xs completed-open-btn" data-action="copycaption" data-idx="${idx}" title="Copy post caption">Copy Caption</button>
+          <details class="completed-actions-menu">
+            <summary class="btn btn-ghost btn-xs completed-actions-trigger" title="More actions">More &#9662;</summary>
+            <div class="completed-actions-popover">
+              <button class="completed-action-item action-x" data-action="postcaption" data-idx="${idx}" title="Open X post caption editor">&#120143; Caption</button>
+              ${clip.m3u8Url ? `<button class="completed-action-item action-restage" data-action="restage" data-idx="${idx}" title="Send back to Pending">Re-Stage</button>` : ''}
+              ${showFfmpegLog ? `<button class="completed-action-item action-log" data-action="ffmpeglog" data-idx="${idx}" title="View FFMPEG Log">FFMPEG Log</button>` : ''}
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>`).join('');
+
+  list.innerHTML = inProgressHtml + completedHtml;
+
+  list.querySelectorAll('.completed-card').forEach(card => {
+    const idx = parseInt(card.dataset.clipIdx, 10);
+    card.addEventListener('dragstart', e => {
+      e.preventDefault();
+      window.clipper.startDrag(completedClips[idx].filePath);
+    });
+  });
+
+  list.onclick = e => {
+    const cancelBtn = e.target.closest('.dl-cancel-btn');
+    if (cancelBtn) {
+      const id = cancelBtn.dataset.id;
+      const dl = downloadingClips.find(d => d.id === id);
+      if (dl) {
+        dbg('ACTION', 'Cancel download', { name: dl.name });
+        window.clipper.cancelClip(dl.name);
+        if (dl.clip && window.CancelRestore) {
+          const restored = window.CancelRestore.restoreCancelledClip(dl.clip);
+          pendingClips.push(restored);
+        }
+        downloadingClips = downloadingClips.filter(d => d.id !== id);
+        if (activeDownloadId === id) activeDownloadId = null;
+        renderPendingClips();
+        renderDownloads();
+        emitMarksChanged();
+        processDownloadQueue();
+      }
+      return;
+    }
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const ci = parseInt(btn.dataset.idx, 10);
+    const menu = btn.closest('.completed-actions-menu');
+    if (menu && menu.hasAttribute('open')) menu.removeAttribute('open');
+    if (btn.dataset.action === 'postcaption') { openPostCaptionWindow(ci, { tab: 'caption', source: 'clip-card' }); return; }
+    if (btn.dataset.action === 'show') { dbg('ACTION', 'Show in folder', { name: completedClips[ci]?.name }); window.clipper.showInFolder(completedClips[ci].filePath); }
+    if (btn.dataset.action === 'copycaption') {
+      const clip = completedClips[ci];
+      const text = clip ? (clip.postCaption || clip.caption || '').trim() : '';
+      if (text && window.clipper && window.clipper.copyText) window.clipper.copyText(text);
+    }
+    if (btn.dataset.action === 'ffmpeglog') { dbg('ACTION', 'View FFMPEG log', { name: completedClips[ci]?.name }); window.clipper.openClipFfmpegLog(completedClips[ci].name); }
+    if (btn.dataset.action === 'restage') { showRestageConfirmation(ci, completedClips[ci]); }
+  };
+
+  updateClipCount();
+  syncHubState();
+  syncPostCaptionState();
+}
+
+function renderDownloadingClips() { renderDownloads(); }
+function _LEGACY_renderDownloadingClips_unused() {
   const list = $('downloadingClipList');
 
   if (downloadingClips.length === 0) {
@@ -1965,32 +2077,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  $('downloadingClipList').addEventListener('click', e => {
-    const cancelBtn = e.target.closest('.dl-cancel-btn');
-    if (cancelBtn) {
-      const id = cancelBtn.dataset.id;
-      const dl = downloadingClips.find(d => d.id === id);
-      if (dl) {
-        dbg('ACTION', 'Cancel download', { name: dl.name });
-        window.clipper.cancelClip(dl.name);
-        // Restore the original clip to the pending panel instead of dropping it.
-        if (dl.clip && window.CancelRestore) {
-          const restored = window.CancelRestore.restoreCancelledClip(dl.clip);
-          pendingClips.push(restored);
-        }
-        downloadingClips = downloadingClips.filter(d => d.id !== id);
-        if (activeDownloadId === id) activeDownloadId = null;
-        renderPendingClips();
-        renderDownloadingClips();
-        emitMarksChanged();
-        processDownloadQueue();
-      }
-    }
-  });
+  // Cancel-button + completed-card click delegation is wired inside
+  // renderDownloads() since both card types live in the unified Downloads list.
 });
 
 /* ─── Completed ─────────────────────────────────────────────── */
-function renderCompletedClips() {
+function renderCompletedClips() { renderDownloads(); }
+function _LEGACY_renderCompletedClips_unused() {
   const list = $('completedClipList');
   upsertCaptionTimelineFromCompleted();
   if (completedClips.length === 0) {
