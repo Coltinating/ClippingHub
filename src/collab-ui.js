@@ -1195,7 +1195,8 @@ function bindUi() {
   var sendBtn = document.getElementById('collabChatSend');
   var chatInput = document.getElementById('collabChatInput');
   var activityList = document.getElementById('collabActivityList');
-  var connectBtn = document.getElementById('collabConnectBtn');
+  var createBtn = document.getElementById('collabCreateSessionBtn');
+  var joinBtn = document.getElementById('collabJoinSessionBtn');
   var resetBtn = document.getElementById('collabResetUrlBtn');
   var serverUrlInput = document.getElementById('collabServerUrl');
   var sessionIdInput = document.getElementById('collabSessionIdInput');
@@ -1217,11 +1218,30 @@ function bindUi() {
     });
   }
 
-  if (connectBtn) {
-    connectBtn.onclick = function () {
+  if (createBtn) {
+    createBtn.onclick = async function () {
+      var url = serverUrlInput ? serverUrlInput.value.trim() : '';
+      var sid = (window.SessionId && window.SessionId.mintSessionId)
+        ? window.SessionId.mintSessionId()
+        : Math.random().toString(36).slice(2, 8).toUpperCase();
+      dlog('ACTION', 'collab create', { url: url, sessionId: sid });
+      if (sessionIdInput) sessionIdInput.value = sid;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try { await navigator.clipboard.writeText(sid); } catch (_) {}
+      }
+      connect(url, { autoConnect: true, sessionId: sid });
+    };
+  }
+
+  if (joinBtn) {
+    joinBtn.onclick = function () {
       var url = serverUrlInput ? serverUrlInput.value.trim() : '';
       var sid = sessionIdInput ? sessionIdInput.value.trim() : '';
-      dlog('ACTION', 'collab connect', { url: url, sessionId: sid });
+      dlog('ACTION', 'collab join', { url: url, sessionId: sid });
+      if (!sid) {
+        setStatus('Enter a session ID, or click Create to start a new one');
+        return;
+      }
       connect(url, { autoConnect: true, sessionId: sid });
     };
   }
