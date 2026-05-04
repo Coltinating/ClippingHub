@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
@@ -261,5 +261,63 @@ describe('RthubClient', () => {
     // Reconnect timer should not fire because _stopped=true
     c._reconnectNow();
     expect(FakeWS.all.length).toBe(before);
+  });
+});
+
+describe('RthubClient reconnect strategy', () => {
+  beforeEach(() => { FakeWS.last = null; FakeWS.all = []; vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('schedules a retry even when first connect never succeeded', () => {
+    const c = build();
+    c.connect();
+    expect(FakeWS.all.length).toBe(1);
+    FakeWS.last.close(); // never opened, never snapshot — old code skipped retry here
+    vi.advanceTimersByTime(1100); // > max first jitter (500..1000ms)
+    expect(FakeWS.all.length).toBe(2);
+  });
+
+  it('grows the backoff base on each consecutive failure', () => {
+    const c = build();
+    c.connect();
+    expect(c._backoffMs).toBe(500);
+    FakeWS.last.close();
+    expect(c._backoffMs).toBe(1000);
+    vi.advanceTimersByTime(1100);
+    FakeWS.last.close();
+    expect(c._backoffMs).toBe(2000);
+    vi.advanceTimersByTime(2100);
+    FakeWS.last.close();
+    expect(c._backoffMs).toBe(4000);
+  });
+
+  it('caps the backoff at 30s', () => {
+    const c = build();
+    c.connect();
+    for (let i = 0; i < 12; i++) {
+      FakeWS.last.close();
+      vi.advanceTimersByTime(60_000);
+    }
+    expect(c._backoffMs).toBeLessThanOrEqual(30_000);
+  });
+
+  it('resets backoff to 500ms after a successful snapshot', () => {
+    const c = build();
+    c.connect();
+    FakeWS.last.close();
+    expect(c._backoffMs).toBe(1000);
+    vi.advanceTimersByTime(1100);
+    FakeWS.last._open();
+    FakeWS.last._msg({ type: 'stateSnapshot', presence: [], chat: [], clipRanges: [] });
+    expect(c._backoffMs).toBe(500);
+  });
+
+  it('stops retrying after disconnect()', () => {
+    const c = build();
+    c.connect();
+    FakeWS.last.close();
+    c.disconnect();
+    vi.advanceTimersByTime(60_000);
+    expect(FakeWS.all.length).toBe(1);
   });
 });

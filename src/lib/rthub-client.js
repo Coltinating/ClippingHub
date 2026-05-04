@@ -13,7 +13,8 @@
     ? require('./rthub-state.js').RthubState
     : (typeof globalThis !== 'undefined' ? globalThis.RthubState : null);
 
-  var RECONNECT_MS = 2000;
+  var BACKOFF_BASE_MS = 500;
+  var BACKOFF_MAX_MS = 30000;
 
   function RthubClient(opts) {
     if (!opts) opts = {};
@@ -27,6 +28,7 @@
     this.connecting = null;
     this.listeners = new Map();
     this._stopped = false;
+    this._backoffMs = BACKOFF_BASE_MS;
     this._seenDeliveryKeys = new Set();
     this._state = new S({ sessionId: this.sessionId, myClientId: this.clientId });
   }
@@ -67,6 +69,7 @@
         if (msg && msg.type === 'stateSnapshot' && !self.connected) {
           self.connected = true;
           self.connecting = null;
+          self._backoffMs = BACKOFF_BASE_MS;
           self._handleSnapshot(msg);
           resolve();
           return;
@@ -75,14 +78,17 @@
       };
       ws.onerror = function (e) { if (!self.connected) reject(e); };
       ws.onclose = function () {
-        var was = self.connected;
         self.connected = false;
         self.connecting = null;
         self._state.reset();
         self._emit('disconnected', { type: 'disconnected' });
-        if (!self._stopped && was) {
-          setTimeout(function () { self.connect().catch(function () {}); }, RECONNECT_MS);
-        }
+        if (self._stopped) return;
+        var jittered = self._backoffMs + Math.random() * self._backoffMs;
+        self._backoffMs = Math.min(self._backoffMs * 2, BACKOFF_MAX_MS);
+        setTimeout(function () {
+          if (self._stopped) return;
+          self.connect().catch(function () {});
+        }, jittered);
       };
     });
     return this.connecting;
