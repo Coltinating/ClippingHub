@@ -5,7 +5,7 @@ Run this manually after a deploy. Two app instances against one rthub broker.
 ## Pre-flight
 
 - [ ] Rthub broker reachable: `curl -fsS https://<rthub-host>/asyncapi.yaml | head -3` returns YAML.
-- [ ] `server_config.json` (in `%APPDATA%\ClippingHub\` on Windows) has `"rthubEnabled": true` and `"url": "wss://<rthub-host>/ws"` for both instances.
+- [ ] `server_config.json` (in `%APPDATA%\ClippingHub\` on Windows) has `"url": "wss://<rthub-host>/ws"` for both instances.
 - [ ] Both instances run as different OS users (or one normal + one in a fresh user profile) so localStorage keys don't collide.
 
 ## Sync flow
@@ -57,13 +57,6 @@ Step 3–5 and re-run this checklist with the additional steps:
 - [ ] Seek A → B follows; the `>250ms` echo guard prevents seek-loops.
 - [ ] Drag scrub bar on A → B sees a ghost cursor (no auto-seek).
 - [ ] Select clip on A → B highlights the same clip.
-
-## Rollback verification (before cutover)
-
-8. **Flip `rthubEnabled: false` on both instances. Restart.**
-   - [ ] App connects to legacy ws server (`ws://localhost:3535/ws`) via the create/join lobby flow.
-   - [ ] Server log line `evt: collab:deprecated` is NOT present (legacy handlers active because `LEGACY_COLLAB` is unset on the server).
-   - [ ] Chat, members, ranges, deliveries all work as they did before this branch.
 
 ## Sign-off
 
