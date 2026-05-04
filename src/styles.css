@@ -3134,3 +3134,10 @@ body.basic-panels .area-header { cursor: default; }
   background: rgba(255,255,255,0.14);
   color: var(--text-primary, #fff);
 }
+
+/* Pending-clip card highlighted when its timeline band is clicked. */
+.clip-card.selected {
+  background: rgba(123, 97, 255, 0.10);
+  border-left: 4px solid var(--accent);
+  box-shadow: 0 0 0 1px rgba(123, 97, 255, 0.25);
+}

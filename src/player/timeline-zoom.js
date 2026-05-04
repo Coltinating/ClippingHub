@@ -111,7 +111,10 @@
       if (els[k] == null) console.warn('[timeline-zoom] els.' + k + ' is null — DOM mount likely broken');
     }
 
-    const state = { view: null /* {start, end} in absolute timeline coords */ };
+    const state = {
+      view: null /* {start, end} in absolute timeline coords */,
+      selectedClipId: null,
+    };
     let renderQueued = false;
 
     function getClipState() {
@@ -259,6 +262,13 @@
         appendClipBand(cr, 'state-collab', userColor);
       });
 
+      if (state.selectedClipId) {
+        const sel = els.scrubber.querySelector(
+          '.tlzoom-clip[data-clip-id="' + CSS.escape(state.selectedClipId) + '"]'
+        );
+        if (sel) sel.classList.add('selected');
+      }
+
       // Pending IN (user marked IN but not yet OUT).
       if (cs.pendingInTime != null) {
         const pf = M.timeToFrac(view, cs.pendingInTime);
@@ -378,6 +388,25 @@
       autoPanRAF = requestAnimationFrame(tick);
     }
 
+    els.scrubber.addEventListener('click', (e) => {
+      const band = e.target.closest('.tlzoom-clip');
+      if (!band) {
+        if (state.selectedClipId !== null) {
+          state.selectedClipId = null;
+          els.scrubber.querySelectorAll('.tlzoom-clip.selected').forEach(n => n.classList.remove('selected'));
+          window.dispatchEvent(new CustomEvent('clip-selected', { detail: { id: null } }));
+        }
+        return;
+      }
+      const id = band.dataset.clipId || band.dataset.collabId || null;
+      if (!id) return;
+      state.selectedClipId = id;
+      els.scrubber.querySelectorAll('.tlzoom-clip.selected').forEach(n => n.classList.remove('selected'));
+      band.classList.add('selected');
+      window.dispatchEvent(new CustomEvent('clip-selected', { detail: { id } }));
+      e.stopPropagation();
+    });
+
     els.scrubber.addEventListener('mousedown', (e) => {
       console.log('[timeline-zoom] mousedown', { button: e.button, hasView: !!state.view, x: e.clientX });
       if (e.button !== 0) return;
@@ -440,11 +469,15 @@
       }
     });
 
-    window.addEventListener('mouseup', () => {
+    window.addEventListener('mouseup', (ev) => {
       if (!drag) return;
       if (drag.mode == null) {
-        window.Player.timeline.seekTo(drag.startTime);
-        render();
+        // Don't seek if the user clicked a clip band — let the click handler take it.
+        const target = ev && ev.target;
+        if (!target || !target.closest || !target.closest('.tlzoom-clip')) {
+          window.Player.timeline.seekTo(drag.startTime);
+          render();
+        }
       }
       els.scrubber.classList.remove('panning', 'scrubbing');
       els.mmViewport.style.transition = '';

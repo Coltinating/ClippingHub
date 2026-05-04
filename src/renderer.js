@@ -959,7 +959,7 @@ function renderPendingClips() {
       : '';
     const cardStyle = sentBorderColor ? ` style="border-left:4px solid ${sentBorderColor};"` : '';
     return `
-    <div class="clip-card${isSent ? ' clip-card-sent' : ''}"${cardStyle}>
+    <div class="clip-card${isSent ? ' clip-card-sent' : ''}" data-clip-id="${escAttr(clip.id || '')}"${cardStyle}>
       <div class="clip-card-header">
         ${isSent ? `<span class="clip-card-locked-prefix">${escH(lockedPrefix)}</span>` : ''}
         <input class="clip-card-name" type="text" value="${escAttr(bareName)}" data-idx="${idx}" placeholder="Clip name...">
@@ -1951,6 +1951,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const wrap = document.getElementById('timelineZoomWrap');
     if (wrap && !wrap._tlzoom) window.TimelineZoom.mount(wrap);
   })();
+
+  // Cross-link: clicking a band on the advanced timeline highlights its card
+  // in the pending panel and scrolls into view.
+  window.addEventListener('clip-selected', (e) => {
+    const id = e.detail && e.detail.id;
+    document.querySelectorAll('.clip-card.selected').forEach(n => n.classList.remove('selected'));
+    if (!id) return;
+    const card = document.querySelector('.clip-card[data-clip-id="' + CSS.escape(id) + '"]');
+    if (card) {
+      card.classList.add('selected');
+      card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  });
 
   $('downloadingClipList').addEventListener('click', e => {
     const cancelBtn = e.target.closest('.dl-cancel-btn');
