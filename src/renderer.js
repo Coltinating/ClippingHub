@@ -1973,8 +1973,14 @@ document.addEventListener('DOMContentLoaded', () => {
       if (dl) {
         dbg('ACTION', 'Cancel download', { name: dl.name });
         window.clipper.cancelClip(dl.name);
+        // Restore the original clip to the pending panel instead of dropping it.
+        if (dl.clip && window.CancelRestore) {
+          const restored = window.CancelRestore.restoreCancelledClip(dl.clip);
+          pendingClips.push(restored);
+        }
         downloadingClips = downloadingClips.filter(d => d.id !== id);
         if (activeDownloadId === id) activeDownloadId = null;
+        renderPendingClips();
         renderDownloadingClips();
         emitMarksChanged();
         processDownloadQueue();
