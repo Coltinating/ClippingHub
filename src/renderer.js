@@ -1781,6 +1781,7 @@ function downloadClip(idx) {
   const dl = { id: clip.id, name: clip.name, progress: 0, clip, startSec, durationSec };
   downloadingClips.push(dl);
   renderDownloadingClips();
+  emitMarksChanged();
   syncPostCaptionState();
   processDownloadQueue();
 }
@@ -1849,15 +1850,18 @@ async function processDownloadQueue() {
       upsertCaptionTimelineClip(completedClips[0]);
       updateCollabClipStage(clip, 'done');
       renderCompletedClips();
+      emitMarksChanged();
     } else if (result && result.cancelled) {
       downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
       renderDownloadingClips();
+      emitMarksChanged();
       syncPostCaptionState();
       updateCollabClipStage(clip, 'queued');
       dbg('CLIP', 'Download cancelled by user', { name: clip.name });
     } else {
       downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
       renderDownloadingClips();
+      emitMarksChanged();
       syncPostCaptionState();
       updateCollabClipStage(clip, 'queued');
       dbg('ERROR', 'Download failed', { name: clip.name, error: result?.error });
@@ -1868,6 +1872,7 @@ async function processDownloadQueue() {
     downloadingClips = downloadingClips.filter(d => d.id !== clip.id);
     activeDownloadId = null;
     renderDownloadingClips();
+    emitMarksChanged();
     syncPostCaptionState();
     updateCollabClipStage(clip, 'queued');
     alert('Download error: ' + err.message);
@@ -1958,6 +1963,7 @@ document.addEventListener('DOMContentLoaded', () => {
         downloadingClips = downloadingClips.filter(d => d.id !== id);
         if (activeDownloadId === id) activeDownloadId = null;
         renderDownloadingClips();
+        emitMarksChanged();
         processDownloadQueue();
       }
     }
