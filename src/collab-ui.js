@@ -1113,28 +1113,40 @@ function closeProfileModal() {
 
 function bindProfileUi() {
   var editBtn = document.getElementById('accountEditBtn');
-  if (editBtn) editBtn.addEventListener('click', openProfileModal);
+  if (editBtn) editBtn.addEventListener('click', function () {
+    dlog('ACTION', 'profile open modal');
+    openProfileModal();
+  });
   var closeBtn = document.getElementById('profileModalClose');
-  if (closeBtn) closeBtn.addEventListener('click', closeProfileModal);
+  if (closeBtn) closeBtn.addEventListener('click', function () {
+    dlog('ACTION', 'profile close modal');
+    closeProfileModal();
+  });
   var saveBtn = document.getElementById('profileSaveBtn');
   if (saveBtn) saveBtn.addEventListener('click', function () {
     var nameInput = document.getElementById('profileNameInput');
     var xInput = document.getElementById('profileXHandleInput');
     var colorInput = document.getElementById('profileColorInput');
-    updateLocalProfile({
+    var patch = {
       name: nameInput ? nameInput.value : undefined,
       xHandle: xInput ? xInput.value : undefined,
       color: colorInput ? colorInput.value : undefined
-    });
+    };
+    dlog('ACTION', 'profile save', patch);
+    updateLocalProfile(patch);
     closeProfileModal();
   });
   var pfpBtn = document.getElementById('profilePfpBtn');
   var pfpFile = document.getElementById('profilePfpFile');
   var pfpClear = document.getElementById('profilePfpClearBtn');
-  if (pfpBtn && pfpFile) pfpBtn.addEventListener('click', function () { pfpFile.click(); });
+  if (pfpBtn && pfpFile) pfpBtn.addEventListener('click', function () {
+    dlog('ACTION', 'profile pick pfp');
+    pfpFile.click();
+  });
   if (pfpFile) pfpFile.addEventListener('change', function (e) {
     var file = e.target.files && e.target.files[0];
     if (!file) return;
+    dlog('ACTION', 'profile pfp chosen', { size: file.size, type: file.type });
     if (file.size > 200000) { alert('Image must be under 200KB'); return; }
     var reader = new FileReader();
     reader.onload = function () {
@@ -1149,6 +1161,7 @@ function bindProfileUi() {
     reader.readAsDataURL(file);
   });
   if (pfpClear) pfpClear.addEventListener('click', function () {
+    dlog('ACTION', 'profile pfp clear');
     updateLocalProfile({ pfpDataUrl: '' });
     var preview = document.getElementById('profilePfpPreview');
     if (preview) preview.style.backgroundImage = '';
@@ -1168,6 +1181,7 @@ function bindCollabTabs() {
   tabs.forEach(function (tabBtn) {
     tabBtn.addEventListener('click', function () {
       var key = tabBtn.dataset.tab;
+      dlog('ACTION', 'collab tab', { tab: key });
       tabs.forEach(function (t) { t.classList.toggle('active', t === tabBtn); });
       document.querySelectorAll('.collab-tab-panel[data-tab-panel]').forEach(function (panel) {
         panel.hidden = panel.dataset.tabPanel !== key;
@@ -1207,38 +1221,47 @@ function bindUi() {
     connectBtn.onclick = function () {
       var url = serverUrlInput ? serverUrlInput.value.trim() : '';
       var sid = sessionIdInput ? sessionIdInput.value.trim() : '';
+      dlog('ACTION', 'collab connect', { url: url, sessionId: sid });
       connect(url, { autoConnect: true, sessionId: sid });
     };
   }
   if (resetBtn && serverUrlInput) {
     resetBtn.onclick = function () {
-      serverUrlInput.value = window.RthubConfig
+      var newUrl = window.RthubConfig
         ? window.RthubConfig.defaultRthubUrl()
         : 'wss://rthub.1626.workers.dev/ws';
+      dlog('ACTION', 'collab reset url', { url: newUrl });
+      serverUrlInput.value = newUrl;
     };
   }
 
   var copyBtn = document.getElementById('lobbyCopyCodeBtn');
   if (copyBtn) copyBtn.addEventListener('click', function () {
-    if (state.lobby && state.lobby.code && navigator.clipboard) {
-      navigator.clipboard.writeText(state.lobby.code);
+    var code = state.lobby && state.lobby.code;
+    dlog('ACTION', 'collab copy code', { code: code });
+    if (code && navigator.clipboard) {
+      navigator.clipboard.writeText(code);
       setStatus('Code copied');
     }
   });
 
-  if (leaveBtn) leaveBtn.onclick = function () { leaveLobby(); };
+  if (leaveBtn) leaveBtn.onclick = function () {
+    dlog('ACTION', 'collab leave', { code: state.lobby && state.lobby.code });
+    leaveLobby();
+  };
 
-  function sendChat() {
+  function sendChat(source) {
     if (!chatInput) return;
     var text = chatInput.value.trim();
     if (!text) return;
+    dlog('ACTION', 'collab send chat', { len: text.length, source: source || 'click' });
     addChat(text, state.me.name);
     chatInput.value = '';
   }
-  if (sendBtn) sendBtn.onclick = sendChat;
+  if (sendBtn) sendBtn.onclick = function () { sendChat('click'); };
   if (chatInput) {
     chatInput.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') sendChat();
+      if (e.key === 'Enter') sendChat('enter');
     });
   }
   if (activityList) {
@@ -1247,6 +1270,7 @@ function bindUi() {
       if (!btn) return;
       var time = Number(btn.getAttribute('data-time'));
       if (!isFinite(time)) return;
+      dlog('ACTION', 'collab activity jump', { time: time });
       if (window._panelBus && window._panelBus.emit) {
         window._panelBus.emit('collab:jump-to-time', { time: time });
       }
