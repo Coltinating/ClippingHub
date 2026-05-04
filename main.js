@@ -197,6 +197,8 @@ let hubWindow = null;
 // Detached post caption window
 let postCaptionWindow = null;
 let lastPostCaptionOpenContext = null;
+// Detached duplicate player window (separate monitor, marks-only output)
+let detachedWin = null;
 
 // Broadcast progress to main window + hub window
 function broadcastProgress(clipName, progress) {
@@ -1013,6 +1015,47 @@ ipcMain.on('hub-state-update', (_, state) => {
 ipcMain.on('hub-action', (_, action) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('hub-action', action);
+  }
+});
+
+// ─── Detached duplicate player window ──────────────────────────────────
+// Opens a second window playing the same stream so the user can scrub on
+// a different monitor and emit marks back into the main pending list.
+function openDetachedPlayer(streamUrl, isLive) {
+  if (detachedWin && !detachedWin.isDestroyed()) {
+    detachedWin.focus();
+    detachedWin.webContents.send('detached-stream-url', { url: streamUrl, isLive: !!isLive });
+    return;
+  }
+  detachedWin = new BrowserWindow({
+    width: 960, height: 600,
+    backgroundColor: '#000',
+    title: 'ClippingHub — Detached Player',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-detached.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  detachedWin.setMenuBarVisibility(false);
+  detachedWin.loadFile(path.join(__dirname, 'src', 'detached-player.html'));
+  detachedWin.webContents.on('did-finish-load', () => {
+    if (detachedWin && !detachedWin.isDestroyed()) {
+      detachedWin.webContents.send('detached-stream-url', { url: streamUrl, isLive: !!isLive });
+    }
+  });
+  detachedWin.on('closed', () => { detachedWin = null; });
+}
+
+ipcMain.handle('open-detached-player', (_e, { url, isLive } = {}) => {
+  if (typeof url !== 'string' || !url) return { success: false, error: 'no url' };
+  openDetachedPlayer(url, !!isLive);
+  return { success: true };
+});
+
+ipcMain.on('detached-mark', (_e, payload) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('detached-mark-incoming', payload);
   }
 });
 

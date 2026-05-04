@@ -148,3 +148,10 @@ contextBridge.exposeInMainWorld('clipper', {
   loadPanelCurrentLayout: () => ipcRenderer.invoke('layouts:load-current'),
   clearPanelCurrentLayout: () => ipcRenderer.invoke('layouts:clear-current'),
 });
+
+// Detached duplicate player window — opens a second window playing the same
+// stream and forwards mark events back into the main renderer.
+contextBridge.exposeInMainWorld('clipperDetached', {
+  open: ({ url, isLive } = {}) => ipcRenderer.invoke('open-detached-player', { url, isLive }),
+  onIncomingMark: (cb) => ipcRenderer.on('detached-mark-incoming', (_e, p) => cb(p)),
+});
