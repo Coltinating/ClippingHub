@@ -68,6 +68,9 @@
       ws.onmessage = function (ev) {
         var msg;
         try { msg = JSON.parse(ev.data); } catch (_) { return; }
+        if (msg && msg.type && typeof window !== 'undefined' && window.dbg) {
+          window.dbg('RECV', 'rthub ' + msg.type, msg);
+        }
         if (msg && msg.type === 'stateSnapshot' && !self.connected) {
           self.connected = true;
           self.connecting = null;
@@ -115,6 +118,9 @@
     if (!this.ws || this.ws.readyState !== 1) return;
     var clean = P.sanitizeOutbound ? P.sanitizeOutbound(m) : m;
     if (!clean) return;
+    if (typeof window !== 'undefined' && window.dbg) {
+      window.dbg('SEND', 'rthub ' + clean.type, clean);
+    }
     this.ws.send(JSON.stringify(clean));
   };
 
