@@ -1,0 +1,173 @@
+/* Timeline-zoom component styles — scoped to .tlzoom-root.
+   Inherits color tokens from src/styles.css :root (--bg, --surface, --accent,
+   --scrubber, --green, --red, --border, --muted, --text). */
+
+.tlzoom-root {
+  --tlz-r: 4px;
+  --tlz-accent-dim: rgba(123, 97, 255, 0.18);
+
+  display: block;
+  padding: 10px 12px 12px;
+  margin-top: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--tlz-r);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 12px;
+  color: var(--text);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.tlzoom-root[hidden] { display: none; }
+
+/* Compact stat strip showing playhead / view start / view end / span / IN / OUT / DUR. */
+.tlzoom-stats {
+  display: flex; align-items: baseline; gap: 16px;
+  padding: 0 2px 8px;
+  font-family: 'Consolas', ui-monospace, monospace;
+  font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.tlzoom-stat { display: inline-flex; align-items: baseline; gap: 6px; }
+.tlzoom-stat-label {
+  color: var(--muted); font-size: 9px; letter-spacing: 0.16em;
+  text-transform: uppercase; font-family: 'Segoe UI', sans-serif; font-weight: 500;
+}
+.tlzoom-stat-value { color: var(--text); }
+.tlzoom-stat.in  .tlzoom-stat-value { color: var(--green); }
+.tlzoom-stat.out .tlzoom-stat-value { color: var(--red); }
+.tlzoom-stats .tlzoom-spacer { flex: 1; }
+.tlzoom-stats .tlzoom-sep {
+  width: 1px; height: 12px; background: var(--border);
+  align-self: center; margin: 0 2px;
+}
+.tlzoom-reset-btn {
+  background: transparent; color: var(--muted);
+  border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+  height: 22px; padding: 0 12px;
+  font-size: 10px; font-weight: 500; cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.tlzoom-reset-btn:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.15);
+  color: var(--text);
+}
+
+/* Anchor (minimap) — full-range orientation strip. Pointer-events disabled. */
+.tlzoom-minimap-wrap { position: relative; height: 16px; margin-bottom: 3px; pointer-events: none; }
+.tlzoom-minimap {
+  position: absolute; inset: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.tlzoom-minimap-viewport {
+  position: absolute; top: -1px; bottom: -1px;
+  background: var(--tlz-accent-dim);
+  border-left: 2px solid var(--accent); border-right: 2px solid var(--accent);
+  box-shadow: 0 0 0 1px rgba(123,97,255,0.20), 0 0 8px rgba(123,97,255,0.32);
+  transition: left 80ms linear, width 80ms linear;
+}
+.tlzoom-minimap-playhead {
+  position: absolute; top: 0; bottom: 0;
+  width: 1px; background: var(--scrubber);
+  box-shadow: 0 0 4px rgba(240,160,48,0.7);
+}
+.tlzoom-minimap-mark { position: absolute; top: 0; bottom: 0; width: 2px; }
+.tlzoom-minimap-mark.in  { background: var(--green); }
+.tlzoom-minimap-mark.out { background: var(--red); }
+.tlzoom-minimap-selection {
+  position: absolute; top: 0; bottom: 0;
+  background: rgba(46,204,113,0.10);
+}
+.tlzoom-minimap-labels {
+  position: relative; height: 11px;
+  color: var(--muted); font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  font-family: 'Consolas', monospace;
+  margin-bottom: 8px;
+}
+.tlzoom-minimap-labels span { position: absolute; top: 0; transform: translateX(-50%); }
+
+/* Navigator (precise) — interactive zoomable strip. */
+.tlzoom-scrubber-wrap { position: relative; }
+.tlzoom-scrubber {
+  position: relative;
+  height: 60px;
+  background: var(--input, #141414);
+  border: 1px solid var(--border-l, #2a2a2a);
+  border-radius: 3px;
+  overflow: hidden;
+  cursor: grab;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 0 0 1px rgba(0,0,0,0.4);
+}
+.tlzoom-scrubber.panning   { cursor: grabbing; }
+.tlzoom-scrubber.scrubbing { cursor: ew-resize; }
+.tlzoom-tick {
+  position: absolute; top: 0; bottom: 16px;
+  width: 1px; background: #232323; pointer-events: none;
+}
+.tlzoom-tick.major { background: #353535; }
+.tlzoom-tick-label {
+  position: absolute; bottom: 2px; transform: translateX(-50%);
+  color: var(--muted); font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  font-family: 'Consolas', monospace;
+  pointer-events: none; white-space: nowrap;
+}
+.tlzoom-selection {
+  position: absolute; top: 0; bottom: 0;
+  background: rgba(46,204,113,0.10);
+  border-left: 1px dashed rgba(46,204,113,0.4);
+  border-right: 1px dashed rgba(231,76,60,0.4);
+  pointer-events: none;
+}
+.tlzoom-mark { position: absolute; top: 0; bottom: 0; width: 2px; pointer-events: none; }
+.tlzoom-mark.in  { background: var(--green); box-shadow: 0 0 6px rgba(46,204,113,0.6); }
+.tlzoom-mark.out { background: var(--red);   box-shadow: 0 0 6px rgba(231,76,60,0.6); }
+.tlzoom-playhead {
+  position: absolute; top: 0; bottom: 0;
+  width: 1px; background: var(--scrubber);
+  pointer-events: none;
+  box-shadow: 0 0 6px rgba(240,160,48,0.7);
+}
+.tlzoom-playhead::before {
+  content: ''; position: absolute; left: -5px; top: 0;
+  width: 11px; height: 9px; background: var(--scrubber);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  filter: drop-shadow(0 0 4px rgba(240,160,48,0.6));
+}
+.tlzoom-playhead::after {
+  content: ''; position: absolute; left: -3px; top: 50%;
+  transform: translateY(-50%);
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--scrubber); opacity: 0.95;
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.7), 0 0 8px rgba(240,160,48,0.6);
+}
+
+.tlzoom-tooltip {
+  position: absolute;
+  transform: translate(-50%, -130%);
+  background: #000; color: var(--text);
+  padding: 2px 6px; border-radius: 3px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-family: 'Consolas', monospace;
+  pointer-events: none;
+  border: 1px solid var(--border-l, #2a2a2a);
+  display: none; z-index: 10; white-space: nowrap;
+}
+.tlzoom-tooltip.visible { display: block; }
+
+.tlzoom-section-cap {
+  display: flex; align-items: baseline; justify-content: space-between;
+  color: var(--muted); font-size: 9px; letter-spacing: 0.16em;
+  text-transform: uppercase; margin: 0 1px 5px;
+}
+.tlzoom-section-cap b { color: var(--text); font-weight: 600; }
+.tlzoom-section-cap .hint {
+  color: var(--muted); font-size: 9px; letter-spacing: 0.04em;
+  text-transform: none; font-family: 'Consolas', monospace;
+}
