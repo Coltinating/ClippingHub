@@ -2079,6 +2079,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Cancel-button + completed-card click delegation is wired inside
   // renderDownloads() since both card types live in the unified Downloads list.
+
+  // Detached player: open button + receive marks emitted from the second window.
+  const openDetachedBtn = $('openDetachedBtn');
+  if (openDetachedBtn && window.clipperDetached) {
+    openDetachedBtn.addEventListener('click', () => {
+      if (!PS.currentM3U8) { alert('Load a stream first.'); return; }
+      window.clipperDetached.open({ url: PS.currentM3U8, isLive: PS.isLive });
+    });
+  }
+  if (window.clipperDetached && window.clipperDetached.onIncomingMark) {
+    window.clipperDetached.onIncomingMark((payload) => {
+      if (!payload || typeof payload.inTime !== 'number' || typeof payload.outTime !== 'number') return;
+      pendingClips.push({
+        id: payload.id,
+        name: payload.name || ('Detached ' + (pendingClips.length + 1)),
+        caption: '', postCaption: '',
+        inTime: payload.inTime,
+        outTime: payload.outTime,
+        m3u8Url: payload.m3u8Url || PS.currentM3U8,
+        m3u8Text: null,
+        isLive: !!payload.isLive,
+        seekableStart: 0,
+        postThumbnailDataUrl: '',
+        source: 'detached',
+      });
+      renderPendingClips();
+      emitMarksChanged();
+    });
+  }
 });
 
 /* ─── Completed ─────────────────────────────────────────────── */
