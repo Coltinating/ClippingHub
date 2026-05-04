@@ -305,6 +305,9 @@
       window.Player.on('timeupdate', scheduleRender);
       window.Player.on('streamready', () => { state.view = null; scheduleRender(); });
     }
+    if (window.CollabUI && typeof window.CollabUI.subscribe === 'function') {
+      window.CollabUI.subscribe(scheduleRender);
+    }
     window.addEventListener('marks-changed', scheduleRender);
     window.addEventListener('resize', scheduleRender);
     els.btnReset.addEventListener('click', resetView);
