@@ -124,12 +124,52 @@
    IN-color left border, OUT-color right border, name tag pinned top-left. */
 .tlzoom-clip {
   position: absolute; top: 0; bottom: 16px;
+  pointer-events: auto;
+  cursor: pointer;
+  overflow: hidden;
+  min-width: 4px;
   background: rgba(46,204,113,0.16);
   border-left: 2px solid var(--green);
   border-right: 2px solid var(--red);
-  pointer-events: none;
-  overflow: hidden;
-  min-width: 4px;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.tlzoom-clip:hover {
+  background: rgba(46,204,113,0.28);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.18) inset;
+}
+
+/* State variants */
+.tlzoom-clip.state-downloading {
+  background: rgba(240,160,48,0.18);
+  border-left-color: var(--scrubber);
+  border-right-color: var(--scrubber);
+  animation: tlzDownloadPulse 1.4s ease-in-out infinite;
+}
+.tlzoom-clip.state-done {
+  background: rgba(80,120,200,0.16);
+  border-left-color: rgba(120,150,210,0.85);
+  border-right-color: rgba(120,150,210,0.85);
+  opacity: 0.85;
+}
+.tlzoom-clip.state-collab {
+  background: rgba(123,97,255,0.10);
+  border-style: dashed;
+}
+@keyframes tlzDownloadPulse {
+  0%, 100% { background: rgba(240,160,48,0.16); }
+  50%      { background: rgba(240,160,48,0.32); }
+}
+
+/* Anchor band variants */
+.tlzoom-mm-clip.state-downloading { background: rgba(240,160,48,0.55); }
+.tlzoom-mm-clip.state-done        { background: rgba(120,150,210,0.55); }
+.tlzoom-mm-clip.state-collab      { background: rgba(123,97,255,0.55); }
+
+/* Selected band — set when pending panel marks one as focused */
+.tlzoom-clip.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  z-index: 2;
 }
 .tlzoom-clip-tag {
   position: absolute; top: 2px; left: 3px;

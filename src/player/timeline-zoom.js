@@ -195,15 +195,21 @@
         els.playhead.style.display = 'none';
       }
 
-      // ─── Multi-clip rendering: one band+tag per pending clip on navigator,
-      //     slim band on anchor. Pending IN (no OUT yet) shown as a single line.
+      // ─── Multi-state clip rendering: pending/downloading/done bands plus
+      //     collab ranges. Each state gets a distinct visual class. Pending IN
+      //     (no OUT yet) still shown as a single vertical line below.
       Array.from(els.scrubber.querySelectorAll('.tlzoom-clip, .tlzoom-pending-in')).forEach(n => n.remove());
       Array.from(els.minimap.querySelectorAll('.tlzoom-mm-clip, .tlzoom-mm-pending-in')).forEach(n => n.remove());
 
-      cs.clips.forEach((clip, i) => {
-        if (clip.inTime == null || clip.outTime == null || clip.outTime <= clip.inTime) return;
+      const allClips = (window.ClipState && window.ClipState.getAllTimelineClips)
+        ? window.ClipState.getAllTimelineClips()
+        : cs.clips.map(c => Object.assign({}, c, { _state: 'pending' }));
 
-        // Navigator band — clip name tag inside.
+      const collabRanges = (window.CollabUI && window.CollabUI.getClipRanges)
+        ? window.CollabUI.getClipRanges() : [];
+
+      function appendClipBand(clip, stateClass, userColor) {
+        if (clip.inTime == null || clip.outTime == null || clip.outTime <= clip.inTime) return;
         const aF = M.timeToFrac(view, clip.inTime);
         const bF = M.timeToFrac(view, clip.outTime);
         if (bF >= 0 && aF <= 1) {
@@ -211,27 +217,46 @@
           const b = Math.min(bF, 1);
           if (b > a) {
             const band = document.createElement('div');
-            band.className = 'tlzoom-clip';
+            band.className = 'tlzoom-clip ' + stateClass;
             band.style.left = (a * 100) + '%';
             band.style.width = ((b - a) * 100) + '%';
+            if (clip.id) band.dataset.clipId = clip.id;
+            if (clip.collabRangeId || stateClass === 'state-collab') {
+              band.dataset.collabId = clip.id || clip.collabRangeId || '';
+            }
+            if (userColor) {
+              band.style.borderLeftColor = userColor;
+              band.style.borderRightColor = userColor;
+            }
             const tag = document.createElement('div');
             tag.className = 'tlzoom-clip-tag';
-            tag.textContent = clip.name || ('Clip ' + (i + 1));
+            tag.textContent = clip.name || ('Clip ' + ((clip.id || '').slice(-4) || '?'));
             band.appendChild(tag);
             els.scrubber.appendChild(band);
           }
         }
-
-        // Anchor (minimap) band — slim, no tag.
         const mmA = ((clip.inTime  - range.absStart) / total) * 100;
         const mmB = ((clip.outTime - range.absStart) / total) * 100;
         if (mmB > mmA) {
           const mmBand = document.createElement('div');
-          mmBand.className = 'tlzoom-mm-clip';
+          mmBand.className = 'tlzoom-mm-clip ' + stateClass;
           mmBand.style.left = mmA + '%';
           mmBand.style.width = (mmB - mmA) + '%';
+          if (userColor) mmBand.style.background = userColor;
           els.minimap.appendChild(mmBand);
         }
+      }
+
+      allClips.forEach((clip) => appendClipBand(clip, 'state-' + (clip._state || 'pending')));
+
+      // Collab ranges from other users — dedupe against our own clips by id.
+      const ownIds = new Set(allClips.map(c => c.id).filter(Boolean));
+      collabRanges.forEach((cr) => {
+        if (ownIds.has(cr.id)) return;
+        if (cr.pendingOut) return; // single-line range; not a band
+        const userColor = (window.CollabUI && window.CollabUI.getUserColor)
+          ? window.CollabUI.getUserColor(cr.userId, cr.userName) : '#7b61ff';
+        appendClipBand(cr, 'state-collab', userColor);
       });
 
       // Pending IN (user marked IN but not yet OUT).
