@@ -7,7 +7,7 @@ const P = require('../../src/lib/rthub-protocol.js');
 describe('rangeToUpsert', () => {
   it('flattens a full legacy range blob to the rthub flat schema', () => {
     const range = {
-      id: 'r1', inTime: 1000, outTime: 2000, status: 'queued',
+      id: 'r1', inTime: 1, outTime: 2, status: 'queued',
       pendingOut: false, streamKey: 'foo', name: 'My Clip',
       caption: 'cap', postCaption: 'post', fileName: 'f.mp4',
       clipperId: 'u1', clipperName: 'Alice',
@@ -18,13 +18,21 @@ describe('rangeToUpsert', () => {
     const out = P.rangeToUpsert(range);
     expect(out.type).toBe('clipRangeUpsert');
     expect(out.id).toBe('r1');
-    expect(out.inTime).toBe(1000);
+    expect(out.inTime).toBe(1000);   // 1s → 1000ms (spec wants integer ms)
     expect(out.outTime).toBe(2000);
     expect(out.status).toBe('queued');
     expect(out.pendingOut).toBe(false);
     expect(out.clipperName).toBe('Alice');
     expect(out.helperId).toBe('u2');
     expect(out.extraGarbage).toBeUndefined();
+  });
+
+  it('converts fractional second times to integer ms (sanitizer rejects floats)', () => {
+    const out = P.rangeToUpsert({ id: 'r1', inTime: 35.123, outTime: 41.987 });
+    expect(out.inTime).toBe(35123);
+    expect(out.outTime).toBe(41987);
+    expect(Number.isInteger(out.inTime)).toBe(true);
+    expect(Number.isInteger(out.outTime)).toBe(true);
   });
 
   it('omits absent optional fields rather than sending null', () => {
@@ -47,10 +55,10 @@ describe('rangeToUpsert', () => {
 
 describe('upsertToRange', () => {
   it('rebuilds a legacy-shaped range record from a rthub upsert', () => {
-    const msg = { type: 'clipRangeUpsert', id: 'r1', inTime: 100, status: 'done', clipperId: 'u1' };
+    const msg = { type: 'clipRangeUpsert', id: 'r1', inTime: 100000, status: 'done', clipperId: 'u1' };
     const out = P.upsertToRange(msg);
     expect(out.id).toBe('r1');
-    expect(out.inTime).toBe(100);
+    expect(out.inTime).toBe(100); // 100000ms → 100s
     expect(out.status).toBe('done');
     expect(out.clipperId).toBe('u1');
     expect('type' in out).toBe(false);
@@ -59,6 +67,13 @@ describe('upsertToRange', () => {
   it('handles missing fields cleanly', () => {
     const out = P.upsertToRange({ type: 'clipRangeUpsert', id: 'r1' });
     expect(out.id).toBe('r1');
+  });
+
+  it('round-trips a fractional seconds range through rangeToUpsert + upsertToRange', () => {
+    const wire = P.rangeToUpsert({ id: 'r1', inTime: 35.123, outTime: 41.987 });
+    const back = P.upsertToRange(wire);
+    expect(back.inTime).toBeCloseTo(35.123, 3);
+    expect(back.outTime).toBeCloseTo(41.987, 3);
   });
 });
 
