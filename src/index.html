@@ -537,7 +537,6 @@
             <button class="btn btn-primary" id="collabJoinSessionBtn" type="button">Join</button>
             <button class="btn btn-ghost btn-xs" id="collabResetUrlBtn" type="button">Reset</button>
           </div>
-          <div class="lobby-status" id="collabConnStatusMsg" aria-live="polite"></div>
         </div>
 
         <!-- Stage C: in lobby -->
@@ -571,6 +570,9 @@
             <div class="collab-list" id="collabActivityList"></div>
           </div>
         </div>
+
+        <!-- Persistent status line — visible across all stages -->
+        <div class="lobby-status" id="collabConnStatusMsg" aria-live="polite"></div>
 
       </div>
     </div>

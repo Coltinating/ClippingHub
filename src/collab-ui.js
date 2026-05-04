@@ -1026,11 +1026,8 @@ function renderMemberChips() {
 }
 
 function renderStatus() {
-  var status = document.getElementById('collabSessionStatus');
-  if (status) status.textContent = statusText || '';
   var connMsg = document.getElementById('collabConnStatusMsg');
-  if (connMsg && connStage === 'offline') connMsg.textContent = statusText || '';
-  else if (connMsg) connMsg.textContent = '';
+  if (connMsg) connMsg.textContent = statusText || '';
 }
 
 function renderSession() {
