@@ -107,6 +107,25 @@
     }
   }
 
+  function seekTo(target) {
+    var vid = P.els.vid;
+    var helpers = window.TimelineSeekHelpers;
+    if (!helpers) { log('seekTo — helpers missing, noop'); return; }
+    var ctx = {
+      isLive: P.state.isLive,
+      duration: vid.duration,
+      seekableStart: (vid.seekable && vid.seekable.length > 0) ? vid.seekable.start(0) : 0,
+      seekableEnd: (vid.seekable && vid.seekable.length > 0) ? vid.seekable.end(vid.seekable.length - 1) : 0,
+    };
+    var clamped = helpers.computeSeekTarget(ctx, target);
+    if (Number.isNaN(clamped)) return;
+    vid.currentTime = clamped;
+    if (P.state.isLive && P.live && typeof P.live.handleLiveSeekState === 'function') {
+      P.live.handleLiveSeekState(clamped);
+    }
+    log('seekTo', { target: target, clamped: clamped, isLive: P.state.isLive });
+  }
+
   function bindTimeline() {
     var els = P.els;
     var vid = els.vid;
@@ -150,6 +169,7 @@
     updateBufferBar: updateBufferBar,
     onTimeUpdate: onTimeUpdate,
     doSeek: doSeek,
+    seekTo: seekTo,
     bindTimeline: bindTimeline,
   };
 })();
