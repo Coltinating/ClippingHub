@@ -111,6 +111,11 @@
       btnReset:    q('[data-act="reset"]'),
     };
 
+    // Verify all els resolved — log loudly so we don't silently fail mid-render.
+    for (const k in els) {
+      if (els[k] == null) console.warn('[timeline-zoom] els.' + k + ' is null — DOM mount likely broken');
+    }
+
     const state = { view: null /* {start, end} in absolute timeline coords */ };
     let renderQueued = false;
 
@@ -125,6 +130,9 @@
     }
 
     function render() {
+      try { return _render(); } catch (e) { console.error('[timeline-zoom] render error:', e); }
+    }
+    function _render() {
       const range = getTimelineRange();
       if (!range) { els.root.hidden = true; return; }
       els.root.hidden = false;
@@ -297,7 +305,12 @@
     }
 
     els.scrubber.addEventListener('mousedown', (e) => {
-      if (e.button !== 0 || !state.view) return;
+      console.log('[timeline-zoom] mousedown', { button: e.button, hasView: !!state.view, x: e.clientX });
+      if (e.button !== 0) return;
+      if (!state.view) {
+        console.warn('[timeline-zoom] mousedown ignored — state.view is null');
+        return;
+      }
       const rect = els.scrubber.getBoundingClientRect();
       const localX = e.clientX - rect.left;
       drag = {
@@ -366,6 +379,7 @@
     });
 
     els.scrubber.addEventListener('wheel', (e) => {
+      console.log('[timeline-zoom] wheel', { deltaY: e.deltaY, deltaX: e.deltaX, hasView: !!state.view });
       if (!state.view) return;
       e.preventDefault();
       const rect = els.scrubber.getBoundingClientRect();
