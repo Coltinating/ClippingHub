@@ -153,6 +153,20 @@ describe('RthubClient', () => {
     expect(FakeWS.all.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('caps _seenDeliveryKeys at 1000 entries (FIFO eviction)', () => {
+    const c = build();
+    c.connect();
+    FakeWS.last._open();
+    FakeWS.last._msg({ type: 'stateSnapshot', presence: [], chat: [], clipRanges: [] });
+    for (let i = 0; i < 1100; i++) {
+      FakeWS.last._msg({
+        type: 'delivery', toClientId: 'me', kind: 'clip',
+        rangeId: 'r' + i, payload: {}, ts: i, sourceClientId: 'p'
+      });
+    }
+    expect(c._seenDeliveryKeys.size).toBeLessThanOrEqual(1000);
+  });
+
   it('dedupes a delivery that arrives twice (same rangeId+sender+ts)', () => {
     const c = build();
     const events = [];

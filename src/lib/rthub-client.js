@@ -30,6 +30,8 @@
     this._stopped = false;
     this._backoffMs = BACKOFF_BASE_MS;
     this._seenDeliveryKeys = new Set();
+    this._seenDeliveryOrder = [];
+    this._seenDeliveryCap = 1000;
     this._state = new S({ sessionId: this.sessionId, myClientId: this.clientId });
   }
 
@@ -173,6 +175,11 @@
         var key = (msg.rangeId || '') + '|' + (msg.sourceClientId || '') + '|' + (msg.ts || 0);
         if (this._seenDeliveryKeys.has(key)) return;
         this._seenDeliveryKeys.add(key);
+        this._seenDeliveryOrder.push(key);
+        if (this._seenDeliveryOrder.length > this._seenDeliveryCap) {
+          var evict = this._seenDeliveryOrder.shift();
+          this._seenDeliveryKeys.delete(evict);
+        }
         var legacy = P.deliveryToLegacy(msg, this._peerLookup.bind(this));
         this._emit('clip:delivery', { type: 'clip:delivery', delivery: legacy });
         return;
