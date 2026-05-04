@@ -232,7 +232,7 @@ const BUNDLED_LAYOUTS_DIR = path.join(__dirname, 'layouts');
 // Display order — matches the order of tabs in the workspace bar.
 const DEFAULT_WORKSPACE_KEYS = ['default', 'collaboration', 'minimal'];
 const DEFAULT_WORKSPACE_SET = new Set(DEFAULT_WORKSPACE_KEYS);
-const DEFAULTS_VERSION = 5;
+const DEFAULTS_VERSION = 6;
 const RETIRED_DEFAULT_KEYS = ['editing', 'watch'];
 
 // v3 → v4: the *old* "Minimal" (clipper+clips) was renamed to "Default", and
