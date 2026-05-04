@@ -401,7 +401,13 @@ if (window.CollabUI && window.CollabUI.subscribe) {
 
   window.clipper.onClipProgress(({ clipName, progress }) => {
     const dl = downloadingClips.find(d => d.name === clipName);
-    if (dl) { dl.progress = progress; renderDownloadingClips(); }
+    if (!dl) return;
+    dl.progress = progress;
+    // In-place DOM mutation — re-rendering the whole Downloads list on every
+    // progress tick destroys completed cards' animations + scroll position
+    // and makes the panel jitter. updateDownloadingProgressDom only touches
+    // --dl-pct, the fill width, and the percent text on this one card.
+    updateDownloadingProgressDom(dl);
   });
 
   window.clipper.onStreamFound(({ m3u8, isLive: live }) => {
@@ -939,8 +945,125 @@ function maybeScheduleResend(clip) {
   }, 500);
 }
 
+// Per-card collapse state for pending clips. Tracks which clip ids are
+// currently collapsed; entries are auto-pruned in renderPendingClips when
+// the underlying clip is removed.
+const collapsedClipIds = new Set();
+let _prevRenderedPendingIds = new Set();
+
+// Currently-selected pending clip id (cross-linked with the advanced
+// timeline). Survives re-renders so the AF-gradient highlight is reapplied
+// after every renderPendingClips rebuild.
+let _selectedClipCardId = null;
+function applySelectedClipHighlight({ scroll = false } = {}) {
+  document.querySelectorAll('.clip-card.selected').forEach(n => n.classList.remove('selected'));
+  if (!_selectedClipCardId) return;
+  const card = document.querySelector('.clip-card[data-clip-id="' + CSS.escape(_selectedClipCardId) + '"]');
+  if (!card) return;
+  card.classList.add('selected');
+  if (scroll) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+// Per-card encoder-panel toggle state. Pure UI, not persisted.
+const expandedEncoderClipIds = new Set();
+
+// Named encoder presets shown in the per-clip override dropdown. The first
+// entry (empty value) means "use the global default" — picking it clears
+// clip.encoderOverride.
+const ENCODER_PRESETS = [
+  { id: '',                  label: 'Default · use global settings',         opts: null },
+  { id: 'x264-fast-crf18',   label: '1080p · H.264 fast · CRF 18',           opts: { videoCodec: 'libx264', preset: 'fast',   crf: '18', audioCodec: 'aac', audioBitrate: '192k' } },
+  { id: 'x264-medium-crf18', label: '1080p · H.264 medium · CRF 18',         opts: { videoCodec: 'libx264', preset: 'medium', crf: '18', audioCodec: 'aac', audioBitrate: '192k' } },
+  { id: 'x264-slow-crf20',   label: '1080p · H.264 slow · CRF 20 (smaller)', opts: { videoCodec: 'libx264', preset: 'slow',   crf: '20', audioCodec: 'aac', audioBitrate: '192k' } },
+  { id: 'x265-medium-crf22', label: 'H.265 · medium · CRF 22',                opts: { videoCodec: 'libx265', preset: 'medium', crf: '22', audioCodec: 'aac', audioBitrate: '192k' } },
+  { id: 'nvenc-h264-p4',     label: 'NVENC · H.264 · P4 · CQ 19',             opts: { videoCodec: 'h264_nvenc', nvencPreset: 'p4', crf: '19', audioCodec: 'aac', audioBitrate: '192k' } },
+  { id: 'nvenc-hevc-p4',     label: 'NVENC · H.265 · P4 · CQ 22',             opts: { videoCodec: 'hevc_nvenc', nvencPreset: 'p4', crf: '22', audioCodec: 'aac', audioBitrate: '192k' } },
+];
+
+// Effective encoder config for a clip = global default merged with override.
+function effectiveEncoderCfg(clip) {
+  return { ...userConfig.ffmpeg, ...(clip.encoderOverride || {}) };
+}
+
+// True iff the clip's encoderOverride exactly matches the preset's opts.
+// Used to pick which <option> the preset dropdown shows as selected. The
+// "default" preset (opts === null) wins when no override is set.
+function matchesPreset(clip, preset) {
+  const ov = clip.encoderOverride;
+  if (!preset.opts) return !ov;
+  if (!ov) return false;
+  for (const k of Object.keys(preset.opts)) {
+    if (String(ov[k] ?? '') !== String(preset.opts[k] ?? '')) return false;
+  }
+  return true;
+}
+
+// Mirror of the trim-step encoder args from main.js:1731 onward. Used only
+// to render the read-only preview in the panel — the actual ffmpeg call
+// is built in main.js from the same fields, so this stays in sync as long
+// as both reference the same option keys.
+function previewEncoderArgs(cfg) {
+  const lines = [];
+  const v = cfg.videoCodec || 'libx264';
+  lines.push(`-c:v ${v}`);
+  if (v === 'libx264' || v === 'libx265') {
+    lines.push(`-preset ${cfg.preset || 'fast'} -crf ${cfg.crf || '18'}`);
+  } else if (v === 'h264_nvenc' || v === 'hevc_nvenc') {
+    lines.push(`-preset ${cfg.nvencPreset || 'p4'} -cq ${cfg.crf || '19'}`);
+  }
+  lines.push(`-pix_fmt yuv420p -movflags +faststart`);
+  lines.push(`-c:a ${cfg.audioCodec || 'aac'} -b:a ${cfg.audioBitrate || '192k'}`);
+  return lines.join('\n');
+}
+
+// Quick form-side validator. Verifies required fields are present and the
+// codec value is in the supported allow-list. Returns { ok, message }.
+function validateEncoderCfg(cfg) {
+  const allowedCodecs = ['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc'];
+  if (!allowedCodecs.includes(cfg.videoCodec)) {
+    return { ok: false, message: 'Unsupported video codec: ' + cfg.videoCodec };
+  }
+  const crfNum = Number(cfg.crf);
+  if (!Number.isFinite(crfNum) || crfNum < 0 || crfNum > 51) {
+    return { ok: false, message: 'CRF/CQ out of range (0–51)' };
+  }
+  if (cfg.videoCodec === 'libx264' || cfg.videoCodec === 'libx265') {
+    if (!['ultrafast','superfast','veryfast','faster','fast','medium','slow','slower','veryslow'].includes(cfg.preset)) {
+      return { ok: false, message: 'Invalid x264/x265 preset' };
+    }
+  } else {
+    if (!/^p[1-7]$/.test(cfg.nvencPreset || '')) {
+      return { ok: false, message: 'NVENC preset must be p1–p7' };
+    }
+  }
+  if (!cfg.audioBitrate || !/^\d+k$/.test(cfg.audioBitrate)) {
+    return { ok: false, message: 'Audio bitrate must look like "192k"' };
+  }
+  return { ok: true, message: 'Looks good' };
+}
+
 function renderPendingClips() {
   const list = $('pendingClipList');
+
+  // ── Auto-collapse-on-add ─────────────────────────────────────
+  // When a brand-new clip arrives (id not in last render), collapse all
+  // other clips and expand the new one. Skipped on the very first render
+  // (e.g. session restore) so a returning user sees everything expanded.
+  const currentIds = new Set(pendingClips.map(c => c.id || '').filter(Boolean));
+  const newlyAdded = [];
+  for (const id of currentIds) if (!_prevRenderedPendingIds.has(id)) newlyAdded.push(id);
+  if (newlyAdded.length > 0 && _prevRenderedPendingIds.size > 0) {
+    const newest = newlyAdded[newlyAdded.length - 1];
+    for (const id of currentIds) {
+      if (id === newest) collapsedClipIds.delete(id);
+      else collapsedClipIds.add(id);
+    }
+  }
+  // Prune ids that no longer correspond to a clip.
+  for (const id of [...collapsedClipIds]) if (!currentIds.has(id)) collapsedClipIds.delete(id);
+  if (_selectedClipCardId && !currentIds.has(_selectedClipCardId)) _selectedClipCardId = null;
+  _prevRenderedPendingIds = currentIds;
+
   if (pendingClips.length === 0) {
     list.innerHTML = '<div class="empty-state"><p>No clips yet</p><small>Mark IN/OUT points while watching to create clips</small></div>';
     updateClipCount(); return;
@@ -958,32 +1081,86 @@ function renderPendingClips() {
       ? window.CollabUI.getUserColor(clip.sentBy, clip.sentByName)
       : '';
     const cardStyle = sentBorderColor ? ` style="border-left:4px solid ${sentBorderColor};"` : '';
+    const isCollapsed = clip.id && collapsedClipIds.has(clip.id);
+    const wmActive = !!(clip.watermark || clip.imageWatermark);
+    const outroActive = !!clip.outro;
+    const encActive = !!clip.encoderOverride;
+    const encOpen = clip.id && expandedEncoderClipIds.has(clip.id);
+    const encCfg = effectiveEncoderCfg(clip);
+    const encPanelHidden = !encOpen;
     return `
-    <div class="clip-card${isSent ? ' clip-card-sent' : ''}" data-clip-id="${escAttr(clip.id || '')}"${cardStyle}>
+    <div class="clip-card${isSent ? ' clip-card-sent' : ''}${isCollapsed ? ' is-collapsed' : ''}" data-clip-id="${escAttr(clip.id || '')}"${cardStyle}>
       <div class="clip-card-header">
+        <button class="clip-card-chev" data-action="toggle-collapse" data-idx="${idx}" title="Collapse / expand"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4.5l3 3 3-3"/></svg></button>
         ${isSent ? `<span class="clip-card-locked-prefix">${escH(lockedPrefix)}</span>` : ''}
         <input class="clip-card-name" type="text" value="${escAttr(bareName)}" data-idx="${idx}" placeholder="Clip name...">
+        <button class="clip-enc-toggle${encActive ? ' is-active' : ''}${encOpen ? ' is-open' : ''}" data-action="enc-toggle" data-idx="${idx}" title="Per-clip encoder override${encActive ? ' (set)' : ''}">
+          <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 4.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zm0 5.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/><path d="M9.4 1h-2.8l-.36 1.74a5.99 5.99 0 0 0-1.42.82L3.16 2.9 1.76 4.3l.66 1.66a5.99 5.99 0 0 0-.82 1.42L0 7.74v2.52l1.6.36c.2.5.47.97.82 1.4l-.66 1.66 1.4 1.4 1.66-.66c.43.35.9.62 1.4.82L6.6 16h2.8l.36-1.74c.5-.2.97-.47 1.4-.82l1.66.66 1.4-1.4-.66-1.66c.35-.43.62-.9.82-1.4l1.6-.36V7.74l-1.74-.36c-.2-.5-.47-.97-.82-1.4l.66-1.66-1.4-1.4-1.66.66a5.99 5.99 0 0 0-1.4-.82L9.4 1z" opacity="0.5"/></svg>
+        </button>
         <button class="clip-card-remove" data-idx="${idx}">&times;</button>
         ${renderAttributionBadge(clip)}
       </div>
-      <div class="clip-card-times">
-        <span><span class="label">IN</span> <span class="in-val timestamp-editable" data-field="inTime" data-idx="${idx}" title="Click to edit">${fmtHMS(clip.inTime)}</span><button class="repick-btn" data-action="repickIn" data-idx="${idx}" title="Re-pick IN from video">&#9998;</button></span>
-        <span><span class="label">OUT</span> <span class="out-val timestamp-editable" data-field="outTime" data-idx="${idx}" title="Click to edit">${fmtHMS(clip.outTime)}</span><button class="repick-btn" data-action="repickOut" data-idx="${idx}" title="Re-pick OUT from video">&#9998;</button></span>
-        <span><span class="label">DUR</span> <span class="dur-val">${fmtDur(clip.outTime - clip.inTime)}</span></span>
-      </div>
-      <textarea class="clip-card-caption" data-idx="${idx}" placeholder="Caption / summary idea..." rows="1">${escH(clip.caption)}</textarea>
-      <div class="clip-card-actions">
-        <button class="btn btn-success btn-xs" data-action="download" data-idx="${idx}">&#11015; Download</button>
-        ${(clip.watermark || clip.imageWatermark || (universalWatermarkEnabled && (universalWatermark || universalImageWatermark))) ? `<button class="btn btn-ghost btn-xs" data-action="preview" data-idx="${idx}" title="Preview watermark placement">Preview</button>` : ''}
-        ${btns.jumpToIn ? `<button class="btn btn-ghost btn-xs" data-action="jumpin" data-idx="${idx}">Jump to IN</button>` : ''}
-        ${btns.jumpToEnd ? `<button class="btn btn-ghost btn-xs" data-action="jumpout" data-idx="${idx}">Jump to OUT</button>` : ''}
-        ${btns.watermark ? `<button class="btn btn-accent btn-xs wm-btn-icon" data-action="watermark" data-idx="${idx}" title="Watermark${(clip.watermark || clip.imageWatermark) ? ' (configured)' : ''}">
-          <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-          ${(clip.watermark || clip.imageWatermark) ? '<span class="wm-dot"></span>' : ''}
-        </button>` : ''}
-        ${btns.appendOutro ? `<button class="btn btn-ghost btn-xs" data-action="outro" data-idx="${idx}" title="Add Outro${clip.outro ? ' (set)' : ''}">Add Outro${clip.outro ? ' *' : ''}</button>` : ''}
-        ${userConfig.devFeatures?.shazamScan ? `<button class="btn btn-ghost btn-xs" data-action="shazam" data-idx="${idx}" title="Scan this clip's IN&rarr;OUT range for music and append to your Shazam .txt">Shazam</button>` : ''}
-        ${renderSendUnsendButton(clip, idx)}
+      <div class="clip-card-body">
+        <div class="clip-card-times">
+          <span><span class="label">IN</span> <span class="in-val timestamp-editable" data-field="inTime" data-idx="${idx}" title="Click to edit">${fmtHMS(clip.inTime)}</span><button class="repick-btn" data-action="repickIn" data-idx="${idx}" title="Re-pick IN from video">&#9998;</button></span>
+          <span><span class="label">OUT</span> <span class="out-val timestamp-editable" data-field="outTime" data-idx="${idx}" title="Click to edit">${fmtHMS(clip.outTime)}</span><button class="repick-btn" data-action="repickOut" data-idx="${idx}" title="Re-pick OUT from video">&#9998;</button></span>
+          <span><span class="label">DUR</span> <span class="dur-val">${fmtDur(clip.outTime - clip.inTime)}</span></span>
+        </div>
+        <textarea class="clip-card-caption" data-idx="${idx}" placeholder="Caption / summary idea..." rows="1">${escH(clip.caption)}</textarea>
+        <div class="clip-card-actions">
+          <button class="btn btn-success btn-xs" data-action="download" data-idx="${idx}">&#11015; Download</button>
+          ${(clip.watermark || clip.imageWatermark || (universalWatermarkEnabled && (universalWatermark || universalImageWatermark))) ? `<button class="btn btn-ghost btn-xs" data-action="preview" data-idx="${idx}" title="Preview watermark placement">Preview</button>` : ''}
+          ${btns.jumpToIn ? `<button class="btn btn-ghost btn-xs" data-action="jumpin" data-idx="${idx}">Jump to IN</button>` : ''}
+          ${btns.jumpToEnd ? `<button class="btn btn-ghost btn-xs" data-action="jumpout" data-idx="${idx}">Jump to OUT</button>` : ''}
+          ${btns.watermark ? `<button class="clip-fx-btn${wmActive ? ' is-active' : ''}" data-action="watermark" data-idx="${idx}" title="Watermark${wmActive ? ' (configured)' : ''}"><span class="clip-fx-btn-label">Watermark</span></button>` : ''}
+          ${btns.appendOutro ? `<button class="clip-fx-btn${outroActive ? ' is-active' : ''}" data-action="outro" data-idx="${idx}" title="Outro${outroActive ? ' (set)' : ''}"><span class="clip-fx-btn-label">Outro</span></button>` : ''}
+          ${userConfig.devFeatures?.shazamScan ? `<button class="btn btn-ghost btn-xs" data-action="shazam" data-idx="${idx}" title="Scan this clip's IN&rarr;OUT range for music and append to your Shazam .txt">Shazam</button>` : ''}
+          ${renderSendUnsendButton(clip, idx)}
+        </div>
+        <div class="clip-encoder-panel" data-encoder-panel data-idx="${idx}"${encPanelHidden ? ' hidden' : ''}>
+          <div class="clip-enc-header">
+            <span class="clip-enc-title">Encoder · per-clip override</span>
+            <select class="clip-enc-preset" data-action="enc-preset" data-idx="${idx}">
+              ${ENCODER_PRESETS.map(p => `<option value="${escAttr(p.id)}"${matchesPreset(clip, p) ? ' selected' : ''}>${escH(p.label)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="clip-enc-grid">
+            <div class="clip-enc-field">
+              <label>Video codec</label>
+              <select data-action="enc-field" data-field="videoCodec" data-idx="${idx}">
+                <option value="libx264"${encCfg.videoCodec==='libx264'?' selected':''}>libx264</option>
+                <option value="libx265"${encCfg.videoCodec==='libx265'?' selected':''}>libx265</option>
+                <option value="h264_nvenc"${encCfg.videoCodec==='h264_nvenc'?' selected':''}>h264_nvenc</option>
+                <option value="hevc_nvenc"${encCfg.videoCodec==='hevc_nvenc'?' selected':''}>hevc_nvenc</option>
+              </select>
+            </div>
+            <div class="clip-enc-field">
+              <label>${(encCfg.videoCodec==='h264_nvenc'||encCfg.videoCodec==='hevc_nvenc')?'NVENC preset':'Preset'}</label>
+              ${(encCfg.videoCodec==='h264_nvenc'||encCfg.videoCodec==='hevc_nvenc')
+                ? `<select data-action="enc-field" data-field="nvencPreset" data-idx="${idx}">
+                    ${['p1','p2','p3','p4','p5','p6','p7'].map(p => `<option value="${p}"${encCfg.nvencPreset===p?' selected':''}>${p}</option>`).join('')}
+                  </select>`
+                : `<select data-action="enc-field" data-field="preset" data-idx="${idx}">
+                    ${['ultrafast','superfast','veryfast','faster','fast','medium','slow','slower','veryslow'].map(p => `<option value="${p}"${encCfg.preset===p?' selected':''}>${p}</option>`).join('')}
+                  </select>`}
+            </div>
+            <div class="clip-enc-field">
+              <label>${(encCfg.videoCodec==='h264_nvenc'||encCfg.videoCodec==='hevc_nvenc')?'CQ':'CRF'}</label>
+              <input type="number" min="0" max="51" data-action="enc-field" data-field="crf" data-idx="${idx}" value="${escAttr(encCfg.crf || '18')}">
+            </div>
+            <div class="clip-enc-field">
+              <label>Audio</label>
+              <input type="text" data-action="enc-field" data-field="audioBitrate" data-idx="${idx}" value="${escAttr(encCfg.audioBitrate || '192k')}" placeholder="192k">
+            </div>
+          </div>
+          <textarea class="clip-enc-args" readonly data-encoder-args data-idx="${idx}">${escH(previewEncoderArgs(encCfg))}</textarea>
+          <div class="clip-enc-footer">
+            <span class="clip-enc-note">Affects only this clip · global default left untouched</span>
+            <span class="clip-enc-status" data-encoder-status data-idx="${idx}"></span>
+            <button class="btn btn-ghost btn-xs" data-action="enc-reset" data-idx="${idx}">RESET</button>
+            <button class="btn btn-ghost btn-xs" data-action="enc-validate" data-idx="${idx}">VALIDATE</button>
+          </div>
+        </div>
       </div>
     </div>
     `;
@@ -997,6 +1174,54 @@ function renderPendingClips() {
     const btn = e.target.closest('[data-action], .clip-card-remove');
     if (!btn) return;
     const idx = parseInt(btn.dataset.idx);
+    // Collapse toggle — pure DOM mutation; avoids re-rendering the whole
+    // pending list (which would blur the focused name input + lose state).
+    if (btn.dataset.action === 'toggle-collapse') {
+      const card = btn.closest('.clip-card');
+      if (!card) return;
+      const id = card.dataset.clipId;
+      const willCollapse = !card.classList.contains('is-collapsed');
+      card.classList.toggle('is-collapsed', willCollapse);
+      if (id) {
+        if (willCollapse) collapsedClipIds.add(id); else collapsedClipIds.delete(id);
+      }
+      return;
+    }
+    // Encoder-override toggle / preset / reset / validate handlers.
+    // The preset and field <select>/<input> changes also fire 'change' on
+    // list.onchange — see below — but the click delegate handles buttons.
+    if (btn.dataset.action === 'enc-toggle') {
+      const clip = pendingClips[idx];
+      if (!clip || !clip.id) return;
+      const willOpen = !expandedEncoderClipIds.has(clip.id);
+      if (willOpen) expandedEncoderClipIds.add(clip.id);
+      else expandedEncoderClipIds.delete(clip.id);
+      const card = btn.closest('.clip-card');
+      const panel = card && card.querySelector('[data-encoder-panel]');
+      if (panel) panel.hidden = !willOpen;
+      btn.classList.toggle('is-open', willOpen);
+      return;
+    }
+    if (btn.dataset.action === 'enc-reset') {
+      const clip = pendingClips[idx];
+      if (!clip) return;
+      clip.encoderOverride = null;
+      renderPendingClips();
+      return;
+    }
+    if (btn.dataset.action === 'enc-validate') {
+      const clip = pendingClips[idx];
+      if (!clip) return;
+      const res = validateEncoderCfg(effectiveEncoderCfg(clip));
+      const card = btn.closest('.clip-card');
+      const status = card && card.querySelector('[data-encoder-status]');
+      if (status) {
+        status.textContent = res.ok ? '✓ ' + res.message : '✗ ' + res.message;
+        status.className = 'clip-enc-status ' + (res.ok ? 'ok' : 'err');
+        setTimeout(() => { if (status.isConnected) { status.textContent = ''; status.className = 'clip-enc-status'; } }, 2500);
+      }
+      return;
+    }
     if (btn.classList.contains('clip-card-remove')) {
       const removed = pendingClips[idx];
       dbg('ACTION', 'Remove clip', { idx, name: removed?.name });
@@ -1065,8 +1290,56 @@ function renderPendingClips() {
       }
     }
     if (e.target.classList.contains('clip-card-caption')) pendingClips[idx].caption = e.target.value;
+    // Encoder text/number fields update on input — re-render args preview
+    // in place so the user sees args track their typing.
+    if (e.target.dataset.action === 'enc-field') {
+      const clip = pendingClips[idx];
+      if (clip) {
+        const f = e.target.dataset.field;
+        const val = e.target.value;
+        clip.encoderOverride = { ...effectiveEncoderCfg(clip), [f]: val };
+        const card = e.target.closest('.clip-card');
+        const args = card && card.querySelector('[data-encoder-args]');
+        if (args) args.textContent = previewEncoderArgs(effectiveEncoderCfg(clip));
+        const toggle = card && card.querySelector('.clip-enc-toggle');
+        if (toggle) toggle.classList.add('is-active');
+      }
+    }
     maybeScheduleResend(pendingClips[idx]);
   };
+
+  // <select> elements only fire 'change' (not 'input' in older Chromium).
+  // Codec changes need a full re-render to swap preset/CQ field shapes.
+  list.onchange = e => {
+    const idx = parseInt(e.target.dataset.idx);
+    if (isNaN(idx)) return;
+    const clip = pendingClips[idx];
+    if (!clip) return;
+    if (e.target.dataset.action === 'enc-preset') {
+      const presetId = e.target.value;
+      const preset = ENCODER_PRESETS.find(p => p.id === presetId);
+      if (!preset) return;
+      clip.encoderOverride = preset.opts ? { ...preset.opts } : null;
+      renderPendingClips();
+      return;
+    }
+    if (e.target.dataset.action === 'enc-field') {
+      const f = e.target.dataset.field;
+      const val = e.target.value;
+      clip.encoderOverride = { ...effectiveEncoderCfg(clip), [f]: val };
+      // videoCodec change reshapes the panel (preset vs nvencPreset, CRF vs CQ).
+      if (f === 'videoCodec') { renderPendingClips(); return; }
+      const card = e.target.closest('.clip-card');
+      const args = card && card.querySelector('[data-encoder-args]');
+      if (args) args.textContent = previewEncoderArgs(effectiveEncoderCfg(clip));
+      const toggle = card && card.querySelector('.clip-enc-toggle');
+      if (toggle) toggle.classList.add('is-active');
+    }
+  };
+
+  // Reapply the cross-timeline selection highlight after the list rebuild
+  // (innerHTML wipe loses class state, but _selectedClipCardId survives).
+  applySelectedClipHighlight();
 
   updateClipCount();
   syncHubState();
@@ -1797,7 +2070,9 @@ async function processDownloadQueue() {
   const watermark = clip.watermark || (universalWatermarkEnabled ? universalWatermark : null) || null;
   const imageWatermark = clip.imageWatermark || (universalWatermarkEnabled ? universalImageWatermark : null) || null;
   const outro = clip.outro || (universalOutro.enabled && universalOutro.filePath ? universalOutro : null);
-  const ffmpegOptions = { ...userConfig.ffmpeg };
+  // Per-clip encoder override merges on top of the global default; only
+  // explicitly-set fields are overridden, the rest fall through.
+  const ffmpegOptions = { ...userConfig.ffmpeg, ...(clip.encoderOverride || {}) };
 
   try {
     const dlParams = {
@@ -1903,7 +2178,7 @@ function renderDownloads() {
   const showFfmpegLog = userConfig.devFeatures?.ffmpegLogs;
 
   const inProgressHtml = downloadingClips.map(dl => `
-    <div class="downloads-card state-in-progress" data-clip-id="${escAttr(dl.id)}">
+    <div class="downloads-card state-in-progress" data-clip-id="${escAttr(dl.id)}" style="--dl-pct:${dl.progress}%">
       <div class="downloads-card-header">
         <span class="downloads-card-name" title="${escAttr(dl.name)}">${escH(dl.name)}</span>
         <span class="downloads-card-phase">Downloading</span>
@@ -1927,6 +2202,7 @@ function renderDownloads() {
           </div>
         </div>
         <div class="completed-card-actions-row">
+          <button class="btn btn-primary btn-xs completed-open-btn" data-action="play" data-idx="${idx}" title="Play in default video player">&#9654; Play</button>
           <button class="btn btn-ghost btn-xs completed-open-btn" data-action="show" data-idx="${idx}" title="Open in folder">Open Folder</button>
           <button class="btn btn-ghost btn-xs completed-open-btn" data-action="copycaption" data-idx="${idx}" title="Copy post caption">Copy Caption</button>
           <details class="completed-actions-menu">
@@ -1978,6 +2254,7 @@ function renderDownloads() {
     const menu = btn.closest('.completed-actions-menu');
     if (menu && menu.hasAttribute('open')) menu.removeAttribute('open');
     if (btn.dataset.action === 'postcaption') { openPostCaptionWindow(ci, { tab: 'caption', source: 'clip-card' }); return; }
+    if (btn.dataset.action === 'play') { dbg('ACTION', 'Play clip', { name: completedClips[ci]?.name }); window.clipper.showPreview(completedClips[ci].filePath); return; }
     if (btn.dataset.action === 'show') { dbg('ACTION', 'Show in folder', { name: completedClips[ci]?.name }); window.clipper.showInFolder(completedClips[ci].filePath); }
     if (btn.dataset.action === 'copycaption') {
       const clip = completedClips[ci];
@@ -1994,6 +2271,26 @@ function renderDownloads() {
 }
 
 function renderDownloadingClips() { renderDownloads(); }
+
+// Fast-path: only mutates the one in-progress card's percent indicators.
+// Falls back to a full render if the card isn't in the DOM yet (first tick
+// before renderDownloads has run for this clip).
+function updateDownloadingProgressDom(dl) {
+  const list = document.getElementById('downloadsList');
+  if (!list) return;
+  let card = null;
+  const cards = list.querySelectorAll('.downloads-card.state-in-progress');
+  for (let i = 0; i < cards.length; i++) {
+    if (cards[i].dataset.clipId === dl.id) { card = cards[i]; break; }
+  }
+  if (!card) { renderDownloads(); return; }
+  card.style.setProperty('--dl-pct', dl.progress + '%');
+  const fill = card.querySelector('.downloads-progress-fill');
+  if (fill) fill.style.width = dl.progress + '%';
+  const txt = card.querySelector('.downloads-progress-text');
+  if (txt) txt.textContent = dl.progress + '% — processing with ffmpeg...';
+}
+
 function _LEGACY_renderDownloadingClips_unused() {
   const list = $('downloadingClipList');
 
@@ -2065,16 +2362,14 @@ document.addEventListener('DOMContentLoaded', () => {
   })();
 
   // Cross-link: clicking a band on the advanced timeline highlights its card
-  // in the pending panel and scrolls into view.
+  // in the pending panel and scrolls into view. We track the selection in a
+  // module-scoped var so renderPendingClips can re-apply the .selected class
+  // after every list rebuild — without that, adding/removing a clip would
+  // wipe the highlight even though the timeline still considers the clip
+  // selected.
   window.addEventListener('clip-selected', (e) => {
-    const id = e.detail && e.detail.id;
-    document.querySelectorAll('.clip-card.selected').forEach(n => n.classList.remove('selected'));
-    if (!id) return;
-    const card = document.querySelector('.clip-card[data-clip-id="' + CSS.escape(id) + '"]');
-    if (card) {
-      card.classList.add('selected');
-      card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    }
+    _selectedClipCardId = (e.detail && e.detail.id) || null;
+    applySelectedClipHighlight({ scroll: true });
   });
 
   // Cancel-button + completed-card click delegation is wired inside
@@ -2834,21 +3129,52 @@ window.clipper.onPostCaptionAction((action) => {
 });
 
 /* ─── Hub Resize Handles ──────────────────────────────────────── */
+// Splits the right-panel body between adjacent .hub-group sections. Pins
+// the upper group to a fixed height; leaves the lower group flexible
+// (flex: 1 1 0) so the .hub-footer at the bottom of .panel-body always
+// stays anchored — without that, dragging or window-resizing could push
+// the footer past the panel boundary.
+function _hubResizeMaxAbove(handle, above, below) {
+  const parent = above.parentElement;
+  if (!parent) return Number.POSITIVE_INFINITY;
+  const containerH = parent.getBoundingClientRect().height;
+  const handleH = handle.getBoundingClientRect().height || 3;
+  const footer = parent.querySelector('.hub-footer');
+  const footerH = footer ? footer.getBoundingClientRect().height : 0;
+  // Reserve at least 60px for the lower group + handle + footer; floor at 60.
+  return Math.max(60, containerH - handleH - footerH - 60);
+}
+
+function _hubReclampGroups() {
+  document.querySelectorAll('#hubSection .hub-resize-handle').forEach(handle => {
+    const groups = [...document.querySelectorAll('#hubSection .hub-group')];
+    const idx = parseInt(handle.dataset.resize, 10);
+    const above = groups[idx], below = groups[idx + 1];
+    if (!above || !below) return;
+    const maxAbove = _hubResizeMaxAbove(handle, above, below);
+    const aboveH = above.getBoundingClientRect().height;
+    if (aboveH > maxAbove) above.style.flex = '0 0 ' + maxAbove + 'px';
+    // Always keep below flexible so the footer is glued to the bottom.
+    below.style.flex = '1 1 0';
+  });
+}
+
 document.querySelectorAll('.hub-resize-handle').forEach(handle => {
   handle.addEventListener('mousedown', e => {
     e.preventDefault();
     const groups = [...document.querySelectorAll('#hubSection .hub-group')];
-    const idx = parseInt(handle.dataset.resize);
+    const idx = parseInt(handle.dataset.resize, 10);
     const above = groups[idx], below = groups[idx + 1];
     if (!above || !below) return;
     handle.classList.add('dragging');
     const startY = e.clientY;
     const startAbove = above.getBoundingClientRect().height;
-    const startBelow = below.getBoundingClientRect().height;
-    function onMove(e) {
-      const delta = e.clientY - startY;
-      above.style.flex = '0 0 ' + Math.max(60, startAbove + delta) + 'px';
-      below.style.flex = '0 0 ' + Math.max(60, startBelow - delta) + 'px';
+    function onMove(ev) {
+      const delta = ev.clientY - startY;
+      const maxAbove = _hubResizeMaxAbove(handle, above, below);
+      const newAbove = Math.max(60, Math.min(maxAbove, startAbove + delta));
+      above.style.flex = '0 0 ' + newAbove + 'px';
+      below.style.flex = '1 1 0';
     }
     function onUp() {
       handle.classList.remove('dragging');
@@ -2859,6 +3185,14 @@ document.querySelectorAll('.hub-resize-handle').forEach(handle => {
     document.addEventListener('mouseup', onUp);
   });
 });
+
+// Re-clamp on any resize that affects the panel body — window resize,
+// detach/reattach of the hub, splitter drags, panel show/hide.
+window.addEventListener('resize', _hubReclampGroups);
+if (typeof ResizeObserver !== 'undefined') {
+  const panelBody = document.querySelector('#hubSection .panel-body');
+  if (panelBody) new ResizeObserver(_hubReclampGroups).observe(panelBody);
+}
 
 /* ═══════════════════════════════════════════════════════════════
    ── Config Settings Modal ────────────────────────────────────

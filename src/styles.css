@@ -883,7 +883,12 @@ video {
   border-radius: 9999px; padding: 1px 8px;
 }
 
-.hub-group { display: flex; flex-direction: column; flex: 1 1 0; min-height: 60px; }
+/* min-height:0 + overflow:hidden lets the inner clip-list actually scroll
+   when clips pile up — without these, child content can push the group
+   past its flex-allocated height and shove the hub-footer off-panel. The
+   60px floor that used to live on min-height now lives in the resize
+   handler's clamp (groups can't drag below 60). */
+.hub-group { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; overflow: hidden; }
 
 .hub-resize-handle {
   height: 0; flex-shrink: 0; cursor: row-resize;
@@ -3135,12 +3140,191 @@ body.basic-panels .area-header { cursor: default; }
   color: var(--text-primary, #fff);
 }
 
-/* Pending-clip card highlighted when its timeline band is clicked. */
+/* Pending-clip card highlighted when its timeline band is clicked or
+   when a card is otherwise the active selection. The background is a
+   slow animated gradient (matches the "Hub" header text), painted via
+   ::before so it sits behind interactive children without affecting
+   their hit-testing. */
 .clip-card.selected {
-  background: rgba(123, 97, 255, 0.10);
+  position: relative;
+  background: rgba(123, 97, 255, 0.06);
   border-left: 4px solid var(--accent);
-  box-shadow: 0 0 0 1px rgba(123, 97, 255, 0.25);
+  box-shadow: 0 0 0 1px rgba(123, 97, 255, 0.22);
 }
+.clip-card.selected::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(to right, var(--gradient-brand-start), var(--gradient-brand-middle), var(--gradient-brand-end));
+  background-size: 400% 400%;
+  animation: gradientShift 10s ease infinite;
+  opacity: 0.12;
+  pointer-events: none;
+  z-index: 0;
+}
+.clip-card.selected > * { position: relative; z-index: 1; }
+
+/* ── Pending clip collapse / expand ──────────────────────────── */
+.clip-card-chev {
+  background: none; border: none; padding: 0; margin: 0;
+  color: var(--muted); cursor: pointer; flex-shrink: 0;
+  width: 14px; height: 14px;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: transform 0.18s ease, color 0.15s;
+}
+.clip-card-chev:hover { color: var(--text); }
+.clip-card-chev svg { width: 10px; height: 10px; }
+.clip-card.is-collapsed .clip-card-chev { transform: rotate(-90deg); }
+.clip-card.is-collapsed .clip-card-body { display: none; }
+.clip-card.is-collapsed { padding-bottom: 6px; }
+.clip-card.is-collapsed .clip-card-header { margin-bottom: 0; }
+
+/* ── Unified per-clip FX toggles (Watermark / Outro / etc.) ────
+   Both buttons share size, shape and inactive treatment. When active
+   (the clip has that FX configured), an animated gradient overlay
+   matching the "Hub" header title fills the chip at low opacity so
+   the chip reads as "on" without dominating the card. */
+.clip-fx-btn {
+  position: relative;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 10px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.04em;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  overflow: hidden;
+  transition: color 0.15s, border-color 0.15s;
+}
+.clip-fx-btn:hover { color: var(--text); border-color: var(--border-light); }
+.clip-fx-btn.is-active {
+  color: #fff;
+  border-color: rgba(123, 97, 255, 0.45);
+}
+.clip-fx-btn.is-active::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(to right, var(--gradient-brand-start), var(--gradient-brand-middle), var(--gradient-brand-end));
+  background-size: 400% 400%;
+  animation: gradientShift 10s ease infinite;
+  opacity: 0.22;
+  pointer-events: none;
+  z-index: 0;
+}
+.clip-fx-btn > * { position: relative; z-index: 1; }
+.clip-fx-btn-label { position: relative; z-index: 1; }
+
+/* ── Per-clip encoder override panel ─────────────────────────── */
+/* Top-right toggle button on the pending clip card header. Same shape
+   as the remove button. AF gradient overlay when an override is set. */
+.clip-enc-toggle {
+  position: relative;
+  background: none; border: 1px solid transparent;
+  color: var(--muted);
+  cursor: pointer; flex-shrink: 0;
+  width: 22px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 4px;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  overflow: hidden;
+}
+.clip-enc-toggle:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+.clip-enc-toggle svg { width: 13px; height: 13px; position: relative; z-index: 1; }
+.clip-enc-toggle.is-active {
+  color: #fff;
+  border-color: rgba(123, 97, 255, 0.45);
+}
+.clip-enc-toggle.is-active::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(to right, var(--gradient-brand-start), var(--gradient-brand-middle), var(--gradient-brand-end));
+  background-size: 400% 400%;
+  animation: gradientShift 10s ease infinite;
+  opacity: 0.32;
+  pointer-events: none;
+  z-index: 0;
+}
+.clip-enc-toggle.is-open {
+  color: var(--text);
+  background: rgba(123, 97, 255, 0.10);
+  border-color: rgba(123, 97, 255, 0.35);
+}
+
+/* Collapsible panel — appears below clip-card-actions when toggled. */
+.clip-encoder-panel {
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--b2);
+  border-radius: 4px;
+  background: rgba(0,0,0,0.18);
+  display: flex; flex-direction: column; gap: 8px;
+}
+/* Let the AF-gradient highlight bleed through the encoder panel when the
+   card is selected (instead of being dimmed by the panel's own bg). */
+.clip-card.selected .clip-encoder-panel { background: rgba(0,0,0,0.06); }
+.clip-encoder-panel[hidden] { display: none; }
+.clip-enc-header {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap;
+}
+.clip-enc-title {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.14em;
+  color: var(--muted); text-transform: uppercase;
+  flex-shrink: 0;
+}
+.clip-enc-preset {
+  flex: 1; min-width: 140px;
+  background: var(--input, #141414);
+  color: var(--text); border: 1px solid var(--border);
+  font-size: 11px; padding: 4px 6px; border-radius: 3px;
+  font-family: 'Segoe UI', sans-serif;
+}
+.clip-enc-preset:focus { outline: 1px solid var(--accent); }
+.clip-enc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+}
+.clip-enc-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.clip-enc-field label {
+  font-size: 9px; font-weight: 600; letter-spacing: 0.10em;
+  color: var(--muted); text-transform: uppercase;
+}
+.clip-enc-field select,
+.clip-enc-field input {
+  background: var(--input, #141414);
+  color: var(--text); border: 1px solid var(--border);
+  font-size: 11px; padding: 3px 6px; border-radius: 3px;
+  font-family: 'Consolas', monospace;
+}
+.clip-enc-field select:focus,
+.clip-enc-field input:focus { outline: 1px solid var(--accent); border-color: var(--accent-d); }
+.clip-enc-args {
+  width: 100%;
+  min-height: 60px;
+  background: #050505;
+  color: #b8b8b8; border: 1px solid var(--b2);
+  font-family: 'Consolas', monospace; font-size: 10.5px;
+  line-height: 1.5;
+  padding: 6px 8px; border-radius: 3px;
+  resize: vertical;
+}
+.clip-enc-args[readonly] { color: #cfcfcf; }
+.clip-enc-footer {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap;
+}
+.clip-enc-note {
+  flex: 1;
+  font-size: 9.5px; color: var(--muted); letter-spacing: 0.04em;
+}
+.clip-enc-status {
+  font-size: 10px; font-weight: 600;
+  padding: 0 6px;
+}
+.clip-enc-status.ok { color: var(--green); }
+.clip-enc-status.err { color: var(--red); }
+.clip-enc-footer .btn { letter-spacing: 0.08em; font-weight: 700; }
 
 /* Unified Downloads cards: in-progress (greyed-out, pulsing progress bar)
    and done (full-opacity). The completed-card class above stays intact for
@@ -3151,19 +3335,71 @@ body.basic-panels .area-header { cursor: default; }
   padding: 8px 10px;
   margin-bottom: 6px;
   background: var(--surface);
-  transition: opacity 0.18s, background 0.18s;
+  transition: opacity 0.18s, background 0.18s, border-color 0.18s;
+  position: relative;
+  /* No overflow:hidden — the More dropdown popover is positioned absolute
+     and needs to escape the card box. Pseudo-element overlays below stay
+     within their own box (inset:0 + width:%) so they don't leak. */
 }
+/* In-progress fill — AF gradient (teal → purple → pink, animated) revealed
+   by --dl-pct so the tint advances with the download. The percent gates
+   the ::before width; the gradient itself drifts via gradientShift so the
+   bar feels alive even mid-stall. Low opacity keeps the card calm. */
 .downloads-card.state-in-progress {
-  opacity: 0.7;
-  background: rgba(240, 160, 48, 0.05);
-  border-color: rgba(240, 160, 48, 0.3);
+  opacity: 0.9;
+  border-color: rgba(123, 97, 255, 0.28);
 }
+.downloads-card.state-in-progress::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: var(--dl-pct, 0%);
+  background: linear-gradient(to right, var(--gradient-brand-start), var(--gradient-brand-middle), var(--gradient-brand-end));
+  background-size: 400% 400%;
+  animation: gradientShift 10s ease infinite;
+  opacity: 0.18;
+  pointer-events: none;
+  transition: width 0.2s linear;
+  z-index: 0;
+}
+.downloads-card.state-in-progress > * { position: relative; z-index: 1; }
 .downloads-card.state-in-progress .downloads-card-name {
   color: var(--muted);
 }
+/* Done — sliding green glow shimmer. Animates background-position (not
+   transform) so the element box stays at inset:0 and never overflows the
+   card; that lets us drop overflow:hidden on .downloads-card and keep the
+   absolutely-positioned More popover from being clipped. */
 .downloads-card.state-done {
   opacity: 1;
+  border-color: rgba(46, 204, 113, 0.22);
+  box-shadow: 0 0 0 1px rgba(46, 204, 113, 0.08), 0 0 8px rgba(46, 204, 113, 0.06);
 }
+.downloads-card.state-done::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg,
+    rgba(46, 204, 113, 0.00) 0%,
+    rgba(46, 204, 113, 0.18) 50%,
+    rgba(46, 204, 113, 0.00) 100%);
+  background-size: 250% 100%;
+  background-repeat: no-repeat;
+  animation: dlDoneGlow 4.5s ease-in-out infinite;
+  pointer-events: none;
+  border-radius: inherit;
+}
+@keyframes dlDoneGlow {
+  0%   { background-position: -100% 0%; }
+  55%  { background-position: 200% 0%; }
+  100% { background-position: 200% 0%; }
+}
+/* Keep card content above the ::after shimmer, but allow the More popover
+   to break out by NOT clipping it. */
+.downloads-card.state-done > * { position: relative; z-index: 1; }
+/* The More dropdown sits in a state-done card; lift it above its siblings
+   so it's not visually behind the next card's z-index:1 children. */
+.downloads-card .completed-actions-menu[open] { z-index: 5; }
+.downloads-card .completed-actions-popover { z-index: 10; }
 .downloads-card-header {
   display: flex; align-items: center; justify-content: space-between;
   font-size: 11px;
@@ -3176,15 +3412,24 @@ body.basic-panels .area-header { cursor: default; }
 }
 .downloads-card-phase {
   font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
-  color: var(--scrubber);
   font-family: 'Segoe UI', sans-serif;
+  /* AF gradient text (matches the CLIPPING<HUB> header treatment). */
+  background: linear-gradient(to right, var(--gradient-brand-start), var(--gradient-brand-middle), var(--gradient-brand-end));
+  background-size: 400% 400%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: gradientShift 10s ease infinite;
 }
 .downloads-progress {
   height: 3px; background: var(--input, #141414);
   border-radius: 2px; overflow: hidden; margin: 4px 0;
 }
 .downloads-progress-fill {
-  height: 100%; background: var(--scrubber);
+  height: 100%;
+  background: var(--grad-h); background-size: 200% 100%;
+  animation: gradientShift 10s ease infinite;
   transition: width 0.2s linear;
 }
 .downloads-progress-text {
