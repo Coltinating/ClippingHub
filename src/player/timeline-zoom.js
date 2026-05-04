@@ -257,7 +257,165 @@
     window.addEventListener('resize', scheduleRender);
     els.btnReset.addEventListener('click', resetView);
 
-    rootEl._tlzoom = { state, els, render, scheduleRender, resetView, getTimelineRange, M, MIN_SPAN, ZOOM_STEP, PLAYHEAD_HIT_RADIUS, EDGE_AUTOPAN_FRAC, EDGE_AUTOPAN_PX_PER_FRAME, DRAG_THRESHOLD_SCRUB, DRAG_THRESHOLD_PAN, fmtHMS };
+    // ─── Mouse interactions ─────────────────────────────────────────
+    let drag = null;
+    let autoPanRAF = null;
+
+    function isNearPlayhead(localX, rect) {
+      const playhead = window.Player.els.vid.currentTime;
+      if (!state.view) return false;
+      const phF = M.timeToFrac(state.view, playhead);
+      if (phF < 0 || phF > 1) return false;
+      const phX = phF * rect.width;
+      return Math.abs(localX - phX) <= PLAYHEAD_HIT_RADIUS;
+    }
+
+    function maintainEdgeAutoPan(getLocalX, getWidth) {
+      if (autoPanRAF) cancelAnimationFrame(autoPanRAF);
+      function tick() {
+        autoPanRAF = null;
+        if (!drag || drag.mode !== 'scrub') return;
+        const x = getLocalX();
+        const w = getWidth();
+        const range = getTimelineRange();
+        if (!range || !state.view || w <= 0) return;
+        const total = range.absEnd - range.absStart;
+        const span = state.view.end - state.view.start;
+        const shift = M.edgeAutoPanShift({ localX: x, width: w, span, edgeFrac: EDGE_AUTOPAN_FRAC, pxPerFrame: EDGE_AUTOPAN_PX_PER_FRAME });
+        if (shift === 0) return;
+        const beforeStart = state.view.start;
+        const localView = { start: state.view.start - range.absStart, end: state.view.end - range.absStart };
+        const shifted = M.shiftView(localView, shift, total);
+        state.view = { start: shifted.start + range.absStart, end: shifted.end + range.absStart };
+        if (state.view.start === beforeStart) return;
+        const t = M.fracToTime(state.view, x / w);
+        window.Player.timeline.seekTo(t);
+        scheduleRender();
+        autoPanRAF = requestAnimationFrame(tick);
+      }
+      autoPanRAF = requestAnimationFrame(tick);
+    }
+
+    els.scrubber.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || !state.view) return;
+      const rect = els.scrubber.getBoundingClientRect();
+      const localX = e.clientX - rect.left;
+      drag = {
+        startClientX: e.clientX,
+        startLocalX: localX,
+        startTime: M.fracToTime(state.view, localX / rect.width),
+        viewStartAtDown: state.view.start,
+        rect,
+        hitPlayhead: isNearPlayhead(localX, rect),
+        mode: null,
+      };
+      e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!drag) {
+        if (e.target === els.scrubber || els.scrubber.contains(e.target)) {
+          const rect = els.scrubber.getBoundingClientRect();
+          const localX = e.clientX - rect.left;
+          els.scrubber.style.cursor = isNearPlayhead(localX, rect) ? 'ew-resize' : '';
+        }
+        return;
+      }
+      const dx = e.clientX - drag.startClientX;
+      if (drag.mode == null) {
+        const threshold = drag.hitPlayhead ? DRAG_THRESHOLD_SCRUB : DRAG_THRESHOLD_PAN;
+        if (Math.abs(dx) < threshold) return;
+        drag.mode = drag.hitPlayhead ? 'scrub' : 'pan';
+        els.scrubber.classList.add(drag.mode === 'pan' ? 'panning' : 'scrubbing');
+        els.mmViewport.style.transition = 'none';
+        els.tooltip.classList.remove('visible');
+      }
+      const localX = e.clientX - drag.rect.left;
+      if (drag.mode === 'scrub') {
+        const t = M.fracToTime(state.view, localX / drag.rect.width);
+        window.Player.timeline.seekTo(t);
+        maintainEdgeAutoPan(
+          () => e.clientX - els.scrubber.getBoundingClientRect().left,
+          () => els.scrubber.clientWidth
+        );
+      } else if (drag.mode === 'pan') {
+        const sp = state.view.end - state.view.start;
+        const newStart = drag.startTime - (localX / drag.rect.width) * sp;
+        const range = getTimelineRange();
+        if (!range) return;
+        const total = range.absEnd - range.absStart;
+        const localView = M.clampView(
+          { start: newStart - range.absStart, end: newStart - range.absStart + sp },
+          total
+        );
+        state.view = { start: localView.start + range.absStart, end: localView.end + range.absStart };
+        scheduleRender();
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!drag) return;
+      if (drag.mode == null) {
+        window.Player.timeline.seekTo(drag.startTime);
+        render();
+      }
+      els.scrubber.classList.remove('panning', 'scrubbing');
+      els.mmViewport.style.transition = '';
+      if (autoPanRAF) { cancelAnimationFrame(autoPanRAF); autoPanRAF = null; }
+      drag = null;
+    });
+
+    els.scrubber.addEventListener('wheel', (e) => {
+      if (!state.view) return;
+      e.preventDefault();
+      const rect = els.scrubber.getBoundingClientRect();
+      const cursorFrac = (e.clientX - rect.left) / rect.width;
+      const range = getTimelineRange();
+      if (!range) return;
+      const total = range.absEnd - range.absStart;
+
+      const isPan = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY);
+      if (isPan) {
+        const delta = e.shiftKey ? e.deltaY : e.deltaX;
+        const sp = state.view.end - state.view.start;
+        const localView = M.shiftView(
+          { start: state.view.start - range.absStart, end: state.view.end - range.absStart },
+          (delta / 100) * sp * 0.25,
+          total
+        );
+        state.view = { start: localView.start + range.absStart, end: localView.end + range.absStart };
+        scheduleRender();
+        return;
+      }
+
+      const factor = e.deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+      const localView = M.zoomAround(
+        { start: state.view.start - range.absStart, end: state.view.end - range.absStart },
+        cursorFrac, factor, total, MIN_SPAN
+      );
+      state.view = { start: localView.start + range.absStart, end: localView.end + range.absStart };
+      scheduleRender();
+    }, { passive: false });
+
+    els.scrubber.addEventListener('mousemove', (e) => {
+      if (drag || !state.view) return;
+      const rect = els.scrubber.getBoundingClientRect();
+      const f = (e.clientX - rect.left) / rect.width;
+      const range = getTimelineRange();
+      if (!range) return;
+      const t = M.fracToTime(state.view, f);
+      els.tooltip.textContent = fmtHMS(t - range.absStart);
+      els.tooltip.style.left = (e.clientX - rect.left) + 'px';
+      els.tooltip.style.top = '0px';
+      els.tooltip.classList.add('visible');
+    });
+    els.scrubber.addEventListener('mouseleave', () => {
+      if (drag) return;
+      els.tooltip.classList.remove('visible');
+      els.scrubber.style.cursor = '';
+    });
+
+    rootEl._tlzoom = { state, els, render, scheduleRender, resetView, getTimelineRange };
 
     render();
     return rootEl._tlzoom;
