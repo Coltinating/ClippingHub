@@ -94,7 +94,7 @@ html, body {
 .app {
   display: flex; flex-direction: column;
   height: 100vh; overflow: hidden;
-  position: relative; /* anchor for .update-banner overlay */
+  position: relative;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -2721,14 +2721,14 @@ svg { display: block; }
   font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
 }
 
-/* ── Update banner (top drop-down — overlays the header so it's clearly
-   above the menubar/logo; collapses to 0 height when hidden so it doesn't
-   intercept events). The .app container is position:relative below so the
-   banner anchors to the app top. ── */
+/* ── Update banner (top drop-down — lives in normal flow above header rows).
+   Keeping it in flow avoids visual overlap with menubar text/buttons while
+   still allowing smooth collapse to 0 height when hidden. ── */
 .update-banner {
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  z-index: 5000;
+  position: relative;
+  z-index: 20;
+  width: 100%;
+  flex-shrink: 0;
   overflow: hidden;
   background: var(--panel, #1a1a1c);
   border-bottom: 1px solid var(--border, #2a2a30);
