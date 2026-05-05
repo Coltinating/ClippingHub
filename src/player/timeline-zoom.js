@@ -50,9 +50,9 @@
   function mount(rootEl) {
     rootEl.classList.add('tlzoom-root');
     rootEl.innerHTML = `
-      <div class="tlzoom-header" data-act="toggle" title="Click to collapse / expand">
+      <div class="tlzoom-header" data-act="toggle" title="Click to show / hide advanced timeline">
         <svg class="tlzoom-chev" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 4.5l3 3 3-3"/></svg>
-        <span class="tlzoom-title">Timeline</span>
+        <span class="tlzoom-title">Advanced Timeline <span class="tlzoom-toggle-state" data-lbl="toggleState">(Hide)</span></span>
         <div class="tlzoom-header-stats">
           <span class="tlzoom-stat in"><span class="tlzoom-stat-label">IN</span><span class="tlzoom-stat-value" data-lbl="in">&mdash;</span></span>
           <span class="tlzoom-stat out"><span class="tlzoom-stat-label">OUT</span><span class="tlzoom-stat-value" data-lbl="out">&mdash;</span></span>
@@ -93,6 +93,7 @@
       lblIn:       q('[data-lbl="in"]'),
       lblOut:      q('[data-lbl="out"]'),
       lblDur:      q('[data-lbl="dur"]'),
+      lblToggleState: q('[data-lbl="toggleState"]'),
       lblClips:    q('[data-lbl="clips"]'),
       minimap:     q('[data-el="minimap"]'),
       mmViewport:  q('[data-el="mmViewport"]'),
@@ -325,10 +326,17 @@
     // inside the header-stats group — the user is just reading the IN/OUT/DUR
     // values, not trying to collapse.
     const headerEl = rootEl.querySelector('[data-act="toggle"]');
+    function syncHeaderToggleState() {
+      const isCollapsed = rootEl.classList.contains('collapsed');
+      if (els.lblToggleState) els.lblToggleState.textContent = isCollapsed ? '(Show)' : '(Hide)';
+      if (headerEl) headerEl.setAttribute('aria-expanded', String(!isCollapsed));
+    }
+    syncHeaderToggleState();
     if (headerEl) {
       headerEl.addEventListener('click', (e) => {
         if (e.target.closest('.tlzoom-header-stats')) return;
         rootEl.classList.toggle('collapsed');
+        syncHeaderToggleState();
       });
     }
 

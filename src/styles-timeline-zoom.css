@@ -36,9 +36,17 @@
 }
 .tlzoom-root.collapsed .tlzoom-chev { transform: rotate(-90deg); }
 .tlzoom-title {
+  display: inline-flex; align-items: baseline; gap: 6px;
   font-size: 9px; font-weight: 600;
   letter-spacing: 0.18em; text-transform: uppercase;
   color: var(--text);
+}
+.tlzoom-toggle-state {
+  font-style: italic;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: normal;
+  text-transform: none;
 }
 .tlzoom-header-stats {
   margin-left: auto;
@@ -303,4 +311,3 @@
   display: none; z-index: 10; white-space: nowrap;
 }
 .tlzoom-tooltip.visible { display: block; }
-

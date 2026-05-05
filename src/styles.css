@@ -1605,13 +1605,73 @@ video {
 .config-toggle {
   display: flex; align-items: center; gap: 8px;
   padding: 5px 0; font-size: 12px; color: var(--text); cursor: pointer;
+  /* nowrap on the row itself; long explanations go into .config-help, not
+     into a sibling span that fights the title for the same flex line. */
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 .config-toggle input[type="checkbox"] {
   width: 16px; height: 16px; accent-color: var(--accent);
   cursor: pointer; flex-shrink: 0;
 }
-.config-toggle span:first-of-type { flex: 1; }
+.config-toggle > span.config-toggle-label,
+.config-toggle > span:first-of-type { flex: 1; min-width: 0; line-height: 1.35; }
 .config-default { font-size: 9px; color: var(--muted); font-style: italic; }
+
+/* Help icon — hover shows a styled tooltip from data-tip. Used in the
+   Developer Features section to keep long explanations out of the row. */
+.config-help {
+  position: relative;
+  width: 16px; height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--bg-input);
+  color: var(--muted);
+  font-size: 10px; font-weight: 700; font-family: 'Segoe UI', system-ui, sans-serif;
+  cursor: help;
+  border: 1px solid var(--border);
+  user-select: none;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.config-help:hover,
+.config-help:focus-visible {
+  background: var(--accent-dim);
+  color: var(--accent-l);
+  border-color: var(--accent);
+  outline: none;
+}
+.config-help::after {
+  content: attr(data-tip);
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%) translateX(4px);
+  background: #141417;
+  color: var(--text);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 7px 10px;
+  width: max-content;
+  max-width: 280px;
+  font-size: 11px;
+  font-weight: 400;
+  font-style: normal;
+  letter-spacing: normal;
+  line-height: 1.45;
+  white-space: normal;
+  text-align: left;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s ease, transform 0.14s ease;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.55);
+  z-index: 100;
+}
+.config-help:hover::after,
+.config-help:focus-visible::after {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
 .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .config-kb {
   display: flex; flex-direction: column; gap: 4px;
